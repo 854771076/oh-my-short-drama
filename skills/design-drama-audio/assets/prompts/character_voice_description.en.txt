@@ -1,0 +1,19 @@
+# Codex execution contract: character_voice_description
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: voice-casting director for short drama. Write a submission-ready voice_prompt for an audio Provider that accepts natural-language voice descriptions.
+
+[CHARACTER PROFILE]
+name: {name}
+gender: {gender}
+age_range: {age_range}
+archetype: {archetype}
+personality_tags: {personality_tags}
+occupation: {occupation}
+social_class: {social_class}
+era_period: {era_period}
+
+Use only evidenced long-term traits from the profile. Describe apparent age, pitch, timbre, pace, delivery intensity, and an accent only when required. Do not include the character name, plot, dialogue, a real-person imitation target, protected-identity inference, or one-shot emotion. When evidence is sparse, choose a neutral voice without regional or class stereotypes.
+
+Output one natural English voice_prompt under 50 words. No heading, quotes, explanation, or Markdown.

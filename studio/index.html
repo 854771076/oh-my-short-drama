@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>短剧工厂 · 创作工作台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main id="app"><div class="loading"><span class="brand-mark">映</span><p>正在读取本地项目…</p></div></main>
+  <dialog id="create-dialog">
+    <form id="create-form">
+      <header><div><small>NEW PROJECT</small><h2>新建短剧项目</h2></div><button class="icon-button" type="button" data-close aria-label="关闭">×</button></header>
+      <label>项目名称<input name="title" required maxlength="80" placeholder="例如：雾港来信"></label>
+      <label>项目 Key<input name="key" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="例如：fog-harbor"></label>
+      <div class="form-grid"><label>类型<input name="genre" placeholder="悬疑 / 都市 / 古装"></label><label>集数<input name="episodeCount" type="number" min="1" placeholder="12"></label></div>
+      <label>单集时长（秒）<input name="episodeDurationSeconds" type="number" min="1" placeholder="90"></label>
+      <footer><button class="secondary" type="button" data-close>取消</button><button class="primary" type="submit">创建项目</button></footer>
+    </form>
+  </dialog>
+  <dialog id="import-dialog">
+    <form id="import-form">
+      <header><div><small>IMPORT ASSET</small><h2>导入本地资产</h2></div><button class="icon-button" type="button" data-close-import aria-label="关闭">×</button></header>
+      <label>文件<input name="file" type="file" required accept="image/*,video/mp4,video/webm,audio/*"></label>
+      <div class="form-grid"><label>资产 Key<input name="assetKey" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="char-linwan"></label><label>版本<input name="versionId" required pattern="v[0-9]{3}" value="v001"></label></div>
+      <div class="form-grid"><label>资产类型<select name="type"><option value="character">人物</option><option value="scene">场景</option><option value="prop">道具</option><option value="storyboard">故事板</option><option value="video">视频</option><option value="audio">音频</option><option value="other">其他</option></select></label><label>显示名称<input name="name" required placeholder="林晚 · 主造型"></label></div>
+      <footer><button class="secondary" type="button" data-close-import>取消</button><button class="primary" type="submit">确认导入</button></footer>
+    </form>
+  </dialog>
+  <dialog id="document-card-dialog" class="document-card-dialog">
+    <header><div><small>DETAIL CARD</small><h2 id="document-card-title">详情</h2></div><button class="icon-button" type="button" data-close-card aria-label="关闭">×</button></header>
+    <div id="document-card-content"></div>
+  </dialog>
+  <dialog id="provider-dialog" class="provider-dialog">
+    <form id="provider-form">
+      <header><div><small>GENERATION SETUP</small><h2>选择生成供应商与模型</h2></div><button class="icon-button" type="button" data-close-provider aria-label="稍后配置">×</button></header>
+      <div id="provider-status"></div>
+      <div id="provider-selectors"></div>
+      <p class="provider-hint">环境变量优先；Dashboard 输入的凭据保存在本机用户私有配置中，不会写入项目。</p>
+      <footer><button class="secondary" type="button" data-close-provider>稍后配置</button><button class="primary" type="submit">保存生成配置</button></footer>
+    </form>
+  </dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

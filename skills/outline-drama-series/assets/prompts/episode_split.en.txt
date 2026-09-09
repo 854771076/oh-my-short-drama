@@ -1,0 +1,42 @@
+# Codex execution contract: episode_split
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: short-drama episode planner. From the approved brief, story bible, and source boundaries, produce the complete episode outline.
+
+[INPUT]
+{CONTENT}
+
+Rules:
+1. Use the confirmed episode count and target duration from the brief. Never infer episode count from a fixed word quota.
+2. Every episode must add an action, revelation, relationship change, or cost. Never repeat the prior episode's emotion without progression.
+3. opening_connection establishes or continues the prior hook; episode_goal is an active objective; turning_point changes the situation; ending_hook creates a question or action the next episode must answer.
+4. Fulfill the story bible's conflict ladder, foreshadowing, and payoffs. Do not spend the final climax early or omit required setup.
+5. For adaptations, source_range records exact start and end anchors. Ranges must cover the source in order without gaps or overlap. Original projects may use null.
+6. required_assets lists only canonical names of characters, scenes, and key props actually needed in that episode. Do not add visual descriptions or model parameters.
+7. Episode keys are ep-001, ep-002, and so on; order starts at 1 and is consecutive.
+
+Return strict JSON only:
+{
+  "episodes": [
+    {
+      "key": "ep-001",
+      "order": 1,
+      "title": "Episode title",
+      "logline": "One-sentence cause and effect",
+      "opening_connection": "How this episode establishes or continues the prior hook",
+      "episode_goal": "The active objective",
+      "beats": ["Visible action or information beat"],
+      "turning_point": "Required change in the situation",
+      "payoff": "Promise fulfilled in this episode",
+      "ending_hook": "Next-episode hook",
+      "source_range": {"start_marker": "verbatim anchor", "end_marker": "verbatim anchor"},
+      "required_assets": {"characters": [], "scenes": [], "props": []},
+      "estimated_duration_seconds": 90
+    }
+  ],
+  "coverage_check": {"complete": true, "gaps": [], "overlaps": []},
+  "continuity_check": {"valid": true, "issues": []}
+}
+
+No Markdown, explanations, or extra fields. Before returning, verify episode count, keys, order, source coverage, hook continuity, foreshadowing/payoff, and total duration.

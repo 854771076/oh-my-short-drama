@@ -1,0 +1,49 @@
+{
+  "characterProfile": {
+    "roleLevels": ["S", "A", "B", "C", "D"],
+    "costumeTiers": [1, 2, 3, 4, 5],
+    "genders": ["male", "female", "nonbinary", "unknown"],
+    "referenceVocabulary": [
+      {"code": "archetype", "zh": "角色原型", "en": "Character archetype", "termsZh": ["领导者", "理想主义者", "守护者", "成长者", "探索者", "智者", "反英雄", "权力追逐者", "操控者", "复仇者", "堕落英雄", "忠诚伙伴", "导师", "调停者", "喜剧担当"], "termsEn": ["leader", "idealist", "guardian", "coming-of-age figure", "explorer", "sage", "antihero", "power seeker", "manipulator", "avenger", "fallen hero", "loyal companion", "mentor", "mediator", "comic relief"]},
+      {"code": "temperament", "zh": "气质", "en": "Temperament", "termsZh": ["冷静", "温和", "热烈", "清冷", "忧郁", "神秘", "沉稳", "锋利", "松弛", "克制"], "termsEn": ["calm", "gentle", "passionate", "aloof", "melancholic", "mysterious", "steady", "sharp", "relaxed", "restrained"]},
+      {"code": "social", "zh": "社交倾向", "en": "Social tendency", "termsZh": ["外向", "内向", "直爽", "圆滑", "寡言", "健谈", "合群", "孤僻", "警觉", "亲和"], "termsEn": ["outgoing", "introverted", "forthright", "diplomatic", "taciturn", "talkative", "sociable", "solitary", "vigilant", "approachable"]},
+      {"code": "decision", "zh": "决策倾向", "en": "Decision tendency", "termsZh": ["果断", "谨慎", "冲动", "理性", "固执", "顺从", "多疑", "冒险", "务实", "理想化"], "termsEn": ["decisive", "cautious", "impulsive", "rational", "stubborn", "compliant", "suspicious", "risk-taking", "pragmatic", "idealistic"]},
+      {"code": "visual_style", "zh": "视觉风格", "en": "Visual style", "termsZh": ["精英利落", "街头潮流", "学院清爽", "复古优雅", "运动活力", "文艺自然", "冷淡极简", "华丽仪式", "朴素实用", "未来科技"], "termsEn": ["sharp professional", "street fashion", "clean academic", "vintage elegance", "athletic energy", "natural artistic", "cool minimalism", "ceremonial luxury", "plain utility", "futuristic technology"]},
+      {"code": "visual_feature", "zh": "视觉特征", "en": "Visual feature", "termsZh": ["轮廓硬朗", "线条柔和", "身形挺拔", "体态轻盈", "病弱感", "风霜感", "亲和感", "压迫感", "少年感", "成熟感"], "termsEn": ["angular features", "soft contours", "upright build", "light build", "fragile appearance", "weathered appearance", "approachable presence", "intimidating presence", "youthful presence", "mature presence"]}
+    ]
+  },
+  "storyboardSceneTypes": [
+    {"code": "daily", "zh": "日常/对话", "en": "everyday/dialogue", "cameraZh": "以中景、中近景和近景为主；平视与越肩交替；优先缓推、缓拉、跟随，人物保留自然微动作", "cameraEn": "favor medium, medium close-up, and close-up shots; alternate eye-level and over-the-shoulder views; prefer slow push, slow pull, and tracking with natural micro-actions", "actingZh": "自然松弛，以微表情为主，动作幅度小", "actingEn": "natural and relaxed, led by micro-expressions and small movements"},
+    {"code": "emotion", "zh": "情感/抒情", "en": "emotion/lyrical", "cameraZh": "以近景、特写捕捉情绪，高潮可用极端特写；优先缓推和环绕，动作保持细腻渐进", "cameraEn": "use close-ups and detail shots for emotion, with extreme close-ups at peaks; prefer slow push and orbit with delicate progression", "actingZh": "细腻有层次，重视眼神变化，情绪逐步递进", "actingEn": "layered and subtle, with strong eye acting and gradual emotional progression"},
+    {"code": "action", "zh": "动作/打斗", "en": "action/fight", "cameraZh": "快速切换景别，以特写和全景交替；使用仰拍、俯拍或荷兰角；优先急推、急拉、跟随和手持晃动", "cameraEn": "switch shot scales quickly, alternating detail and full shots; use low, high, or Dutch angles; prefer fast push, fast pull, tracking, and handheld movement", "actingZh": "爆发力强，动作干脆，表情反应清晰", "actingEn": "explosive and decisive, with clear physical and facial reactions"},
+    {"code": "epic", "zh": "史诗/宏大", "en": "epic/large-scale", "cameraZh": "用大远景建立规模，结合俯拍或鸟瞰；优先升起、下降、俯冲和环绕，人物可置于画面边缘强调尺度", "cameraEn": "establish scale with extreme wide shots and high or top-down angles; prefer crane up, crane down, dive, and orbit, placing figures near frame edges when scale matters", "actingZh": "庄重且有仪式感，姿态端正，动作缓慢有力", "actingEn": "solemn and ceremonial, with upright posture and slow, powerful movement"},
+    {"code": "suspense", "zh": "悬疑/紧张", "en": "suspense/tension", "cameraZh": "使用主观视角、斜侧或荷兰角；以缓推制造压迫，可用快速摇镜突然转移注意力", "cameraEn": "use point-of-view, oblique, or Dutch angles; build pressure with slow push and redirect attention suddenly with whip pans", "actingZh": "紧绷警觉，肢体克制或僵硬，眼神持续搜索环境", "actingEn": "tense and alert, with restrained or rigid posture and searching eyes"}
+  ],
+  "performanceVocabulary": [
+    {"zh": "表情", "en": "Expression", "termsZh": ["眼眶泛红", "眉头紧锁", "眉头轻皱", "嘴角上扬", "嘴角下压", "瞳孔收缩", "嘴唇颤抖", "咬紧牙关"], "termsEn": ["reddened eyes", "knitted brows", "slightly furrowed brows", "raised mouth corner", "lowered mouth corner", "contracted pupils", "trembling lips", "clenched jaw"]},
+    {"zh": "视线", "en": "Gaze", "termsZh": ["凝视", "侧目", "目光闪躲", "视线下垂", "快速扫视", "追随目标", "对视", "越过对方看向远处"], "termsEn": ["fixed gaze", "side glance", "averted gaze", "lowered eyes", "rapid scan", "tracking a target", "held eye contact", "looking past the other person"]},
+    {"zh": "头部", "en": "Head", "termsZh": ["转头", "点头", "摇头", "抬头", "低头", "侧头", "回头", "下巴微抬"], "termsEn": ["turns head", "nods", "shakes head", "raises head", "lowers head", "tilts head", "looks back", "slightly raises chin"]},
+    {"zh": "手部", "en": "Hands", "termsZh": ["抬手", "挥手", "指向", "握拳", "松手", "拿起", "放下", "双手交握", "手指轻颤", "攥紧衣角"], "termsEn": ["raises hand", "waves", "points", "clenches fist", "releases grip", "picks up", "puts down", "clasps hands", "fingers tremble", "grips clothing"]},
+    {"zh": "身体动作", "en": "Body movement", "termsZh": ["走近", "后退", "转身", "起身", "坐下", "俯身", "侧身避让", "停下脚步"], "termsEn": ["steps closer", "steps back", "turns around", "stands up", "sits down", "leans down", "sidesteps", "stops walking"]},
+    {"zh": "姿态", "en": "Posture", "termsZh": ["身体前倾", "肩膀耸起", "背脊挺直", "身体僵住", "重心后移", "双臂抱胸", "转身背对", "贴近支撑物"], "termsEn": ["leans forward", "raises shoulders", "straightens back", "body freezes", "shifts weight backward", "folds arms", "turns back", "leans against support"]},
+    {"zh": "生理微反应", "en": "Physiological micro-reaction", "termsZh": ["轻轻眨眼", "咽口水", "深呼吸", "呼吸停顿", "胸口起伏", "鼻翼翕动", "喉结滚动", "短促吸气"], "termsEn": ["blinks softly", "swallows", "takes a deep breath", "holds breath", "chest rises and falls", "nostrils flare", "throat tightens", "sharp inhale"]}
+  ],
+  "characterVideoSubjects": [
+    {"code": "child", "zh": "男童/女童", "en": "boy/girl", "minAge": 3, "maxAge": 9},
+    {"code": "teen", "zh": "少年/少女", "en": "teenage boy/girl", "minAge": 10, "maxAge": 16},
+    {"code": "young_adult", "zh": "年轻男子/年轻女子", "en": "young man/woman", "minAge": 17, "maxAge": 30},
+    {"code": "middle_aged", "zh": "中年男子/中年女子", "en": "middle-aged man/woman", "minAge": 31, "maxAge": 49},
+    {"code": "older_adult", "zh": "老年男子/老年女子", "en": "older man/woman", "minAge": 50, "maxAge": null}
+  ],
+  "cinematography": {
+    "shotScale": [
+      {"code": "shot.scale.extreme_wide", "zh": "大远景", "en": "extreme wide shot"}, {"code": "shot.scale.wide", "zh": "远景", "en": "wide shot"}, {"code": "shot.scale.full", "zh": "全景", "en": "full shot"}, {"code": "shot.scale.medium", "zh": "中景", "en": "medium shot"}, {"code": "shot.scale.medium_close_up", "zh": "中近景", "en": "medium close-up"}, {"code": "shot.scale.close_up", "zh": "近景", "en": "close-up"}, {"code": "shot.scale.detail", "zh": "特写", "en": "detail shot"}, {"code": "shot.scale.extreme_close_up", "zh": "极端特写", "en": "extreme close-up"}
+    ],
+    "cameraAngle": [
+      {"code": "camera.angle.eye_level", "zh": "平视", "en": "eye level"}, {"code": "camera.angle.low", "zh": "仰拍", "en": "low angle"}, {"code": "camera.angle.high", "zh": "俯拍", "en": "high angle"}, {"code": "camera.angle.side", "zh": "侧拍", "en": "side angle"}, {"code": "camera.angle.oblique", "zh": "斜侧", "en": "oblique angle"}, {"code": "camera.angle.over_shoulder", "zh": "越肩", "en": "over-the-shoulder"}, {"code": "camera.angle.pov", "zh": "主观视角", "en": "point of view"}, {"code": "camera.angle.dutch", "zh": "荷兰角", "en": "Dutch angle"}, {"code": "camera.angle.top_down", "zh": "鸟瞰", "en": "top-down"}
+    ],
+    "cameraMovement": [
+      {"code": "camera.movement.locked", "zh": "固定", "en": "locked-off"}, {"code": "camera.movement.slow_push", "zh": "缓推", "en": "slow push-in"}, {"code": "camera.movement.slow_pull", "zh": "缓拉", "en": "slow pull-out"}, {"code": "camera.movement.pan", "zh": "摇镜", "en": "pan"}, {"code": "camera.movement.tilt", "zh": "俯仰摇镜", "en": "tilt"}, {"code": "camera.movement.track", "zh": "跟随", "en": "tracking shot"}, {"code": "camera.movement.orbit", "zh": "环绕", "en": "orbit"}, {"code": "camera.movement.crane_up", "zh": "升起", "en": "crane up"}, {"code": "camera.movement.dive", "zh": "俯冲", "en": "dive"}, {"code": "camera.movement.handheld", "zh": "手持晃动", "en": "handheld"}, {"code": "camera.movement.fast_push", "zh": "急推", "en": "fast push-in"}, {"code": "camera.movement.fast_pull", "zh": "急拉", "en": "fast pull-out"}, {"code": "camera.movement.crane_down", "zh": "下降", "en": "crane down"}, {"code": "camera.movement.whip_pan", "zh": "快速摇镜", "en": "whip pan"}, {"code": "camera.movement.rack_focus", "zh": "焦点转移", "en": "rack focus"}, {"code": "camera.movement.dolly_zoom", "zh": "变焦压缩", "en": "dolly zoom"}
+    ]
+  }
+}

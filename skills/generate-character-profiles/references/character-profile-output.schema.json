@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Character profile analysis result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["new_characters", "updated_characters"],
+  "properties": {
+    "new_characters": {"type": "array", "items": {"$ref": "#/$defs/newCharacter"}},
+    "updated_characters": {"type": "array", "items": {"$ref": "#/$defs/updatedCharacter"}}
+  },
+  "$defs": {
+    "shortText": {"type": "string", "maxLength": 160},
+    "performanceBible": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["center_of_gravity", "gait", "habitual_actions", "eyeline_behavior", "blink_rhythm", "stress_response", "forbidden_performance"],
+      "properties": {
+        "center_of_gravity": {"$ref": "#/$defs/shortText"},
+        "gait": {"$ref": "#/$defs/shortText"},
+        "habitual_actions": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/shortText"}},
+        "eyeline_behavior": {"$ref": "#/$defs/shortText"},
+        "blink_rhythm": {"$ref": "#/$defs/shortText"},
+        "stress_response": {"$ref": "#/$defs/shortText"},
+        "forbidden_performance": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/shortText"}}
+      }
+    },
+    "voiceIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pitch", "timbre", "accent", "pace", "delivery"],
+      "properties": {
+        "pitch": {"$ref": "#/$defs/shortText"},
+        "timbre": {"$ref": "#/$defs/shortText"},
+        "accent": {"$ref": "#/$defs/shortText"},
+        "pace": {"$ref": "#/$defs/shortText"},
+        "delivery": {"$ref": "#/$defs/shortText"}
+      }
+    },
+    "appearance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "change_reason"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "change_reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "newCharacter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "aliases", "introduction", "gender", "age_range", "role_level", "archetype", "personality_tags", "era_period", "social_class", "occupation", "costume_tier", "suggested_colors", "primary_identifier", "visual_keywords", "performance_bible", "voice_identity", "expected_appearances"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "aliases": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "introduction": {"type": "string", "minLength": 1},
+        "gender": {"enum": ["male", "female", "nonbinary", "unknown"]},
+        "age_range": {"type": "string", "minLength": 1},
+        "role_level": {"enum": ["S", "A", "B", "C", "D"]},
+        "archetype": {"type": "string", "minLength": 1},
+        "personality_tags": {"type": "array", "minItems": 2, "maxItems": 5, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "era_period": {"type": "string", "minLength": 1},
+        "social_class": {"type": "string", "minLength": 1},
+        "occupation": {"type": "string", "minLength": 1},
+        "costume_tier": {"enum": [1, 2, 3, 4, 5]},
+        "suggested_colors": {"type": "array", "minItems": 2, "maxItems": 3, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "primary_identifier": {"type": "string"},
+        "visual_keywords": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "performance_bible": {"$ref": "#/$defs/performanceBible"},
+        "voice_identity": {"$ref": "#/$defs/voiceIdentity"},
+        "expected_appearances": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/appearance"}}
+      }
+    },
+    "updatedCharacter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "updated_introduction", "updated_aliases"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "updated_introduction": {"type": "string", "minLength": 1},
+        "updated_aliases": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

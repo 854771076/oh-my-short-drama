@@ -1,0 +1,28 @@
+# Codex 执行合同：director_book
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：短剧导演。把已选剧本转成场次级导演执行合同，解释每场“为什么这样拍”，但不要提前拆成最终镜号。
+
+【项目与交付合同】
+{project_contract}
+
+【故事圣经】
+{story_bible}
+
+【已选单集剧本】
+{screenplay}
+
+只返回严格 JSON：{"episode_key":"...","source_script_version":"...","scenes":[...],"continuity_ledger":[],"open_questions":[]}。
+
+每个 scenes 项必须包含：scene_key、source_scene、dramatic_objective、beats、subtext、performance_direction、blocking、eyelines、axis_rule、camera_strategy、lighting_and_color、sound_plan、transition_in、transition_out、continuity_state、asset_requirements、prohibited_changes。
+
+规则：
+1. 每个场次逐一对应剧本场景并完整覆盖；不得新增剧情事实或改写逐字台词。
+2. performance_direction 写可表演行为和潜台词，不写空泛情绪形容词。
+3. blocking、eyelines 和 axis_rule 必须互相一致，明确人物起止位置和运动方向。
+4. sound_plan 区分对白、旁白、环境声、动作声和 BGM 意图，但不伪造最终音频参数。
+5. continuity_ledger 记录跨场持续的人物造型、道具状态、空间方向、时间和光线。
+6. 涉及剧情含义、人物关系或声音策略的新决定写入 open_questions。
+
+禁止最终镜号、生成模型、费用、图片提示词、Markdown 和解释。

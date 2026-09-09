@@ -1,0 +1,64 @@
+You are a professional storyboard image artist.
+Generate exactly one high-quality image for one panel.
+
+Absolute constraints:
+1. No text in the image.
+2. No subtitles, labels, numbers, watermarks, or symbols.
+3. Do not create collage or multi-frame output.
+4. Output exactly one frame.
+
+Aspect ratio (must be exact):
+{aspect_ratio}
+
+[Composition reference — HIGHEST PRIORITY]
+- If storyboard data contains `composition_reference`, follow its camera framing and character blocking precisely.
+- `composition_reference.primary_camera` is the primary shot; obey its FOV, camera position/target, and character positions/facing.
+- `composition_reference.alternate_views` lists other camera references for the same shot (close-ups, reverse angles, etc.). Reference images follow that array order. Preserve identity, lighting, and style; compose the frame to match the primary camera.
+- Coordinate system: meters, y up, -z toward camera, x right.
+
+Storyboard panel data:
+{storyboard_text_json_input}
+
+Source text:
+{source_text}
+
+[⚠️⚠️⚠️ GLOBAL ART-STYLE CONSISTENCY — HIGHEST PRIORITY — NON-NEGOTIABLE]
+Every single element in the frame MUST be rendered in ONE unified art style. Style mixing of any kind is FORBIDDEN:
+- Main characters, supporting characters, passersby, crowd, and ANY human figures in the background MUST all be drawn in the EXACT same art style, line treatment, coloring method, and lighting logic as the provided character reference images.
+- Passersby / NPCs / crowd who do NOT have their own reference image MUST still be painted in the same style as the main character references — same outline weight, same shading (cel-shaded / painterly / etc.), same rendering texture. NEVER improvise a different style for them.
+- Environments, props, sky, vegetation, architecture, and all background elements MUST match the rendering dimension and texture of the character/location references.
+- FORBIDDEN: 2D anime characters on top of a 3D photoreal background; hand-drawn people next to photo-textured props; any visual mismatch between subject and surroundings.
+- If the references are clearly 2D (hand-drawn / anime / comic / illustration), the ENTIRE frame MUST be 2D. ABSOLUTELY NO 3D, CG, CGI, Blender, Pixar/Disney 3D-cartoon look, Unreal-Engine render, photorealism, plastic skin, or 3D-model feel anywhere.
+- If the references are clearly photoreal / live-action, keep the whole frame consistently photoreal; do not anime-ify or cartoon-ify anyone.
+- Line thickness, cel-vs-gradient shading, shadow hardness, and highlight treatment MUST be uniform across the whole image.
+
+[⚠️ Image quality — anti-AI look]
+- Avoid over-sharpening, overdone HDR, oversaturation, plastic/wax skin, waxy textures, and the "greasy" look common to AI images.
+- Avoid common AI artifacts: extra fingers, distorted faces, floating limbs, contradictory lighting.
+- Keep natural linework/brushwork and restrained color; the image should feel clean, cinematic, and breathable.
+- Lighting direction and intensity must be coherent across the whole frame — no conflicting light sources.
+
+[⚠️ Photography rules — REQUIRED]
+If the storyboard data contains `photography_rules`, obey every canonical field:
+- Use `composition` for framing, subject layout, and visual center.
+- Use `lighting.direction` and `lighting.quality` for light direction, softness, contrast, and shadow character.
+- Use each `characters[].screen_position`, `posture`, and `facing` for blocking and eyelines.
+- Use `depth_of_field` for focus plane and foreground/background separation.
+- Use `color_tone` and `atmosphere` for restrained color and emotional treatment.
+- Execute all axis, focus, exposure, and continuity constraints in `technical_notes`.
+
+Style requirement (treat as the authoritative style directive):
+{style}
+- Use `{style}` for art style, line work, color, lighting, and texture. If it contains concrete scene/location terms that conflict with the storyboard panel or source text, follow the panel/source location instead of changing the scene.
+- If `visual_bible` exists, it independently governs palette, tone, and lighting continuity. `{style}` governs rendering medium and art texture; neither may replace the other.
+
+Execution rules:
+1. Respect panel composition, character placement, and action logic.
+2. If storyboard data contains `slot`, treat it as a preferred placement anchor for consistency, not as an absolute restriction.
+3. If location data contains `available_slots`, treat them as typical anchor references rather than a complete map of all valid positions.
+4. When the panel description, source text, action flow, or scene nature implies movement, entry/exit, path traversal, transition space, temporary space, empty space, or abstract/non-literal space, do not force the character to remain inside an existing slot.
+5. Use reference images for identity AND style/consistency.
+6. Repaint the background according to shot type and angle.
+7. If storyboard conflicts with source text, keep narrative logic from source text.
+8. Keep final visual style consistent with provided references AND with the `{style}` directive — the two must agree; when they differ, the reference images win on character identity, `{style}` wins on overall aesthetic, and panel/source text win on concrete location and action.
+9. `context.neighbor_panel_continuity` may contain lightweight previous/next shot info. Use it ONLY to keep cinematographic continuity (avoid duplicate framing, respect the 180-degree rule, make character motion flow naturally). NEVER paint adjacent-shot content, actions, or scene elements into the current frame — only render what the `panel` fields describe.

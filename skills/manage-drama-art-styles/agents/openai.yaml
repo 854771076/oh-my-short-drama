@@ -1,0 +1,3 @@
+interface:
+  display_name: "管理短剧艺术风格"
+  short_description: "生成艺术风格配置与预览并验证风格在资产和镜头中的一致性。"

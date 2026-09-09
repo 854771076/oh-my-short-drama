@@ -1,0 +1,18 @@
+# Codex 执行合同：art_style_decision
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目与用户确认组装的具名输入槽。
+
+项目当前画风：
+{current_art_style}
+
+用户画风要求与确认：
+{user_style_decision}
+
+只返回严格 JSON：{"mode":"confirmed-default | custom","style":{},"decision_reason":"...","approved":true}。
+
+规则：
+1. 用户确认沿用当前默认画风时，mode 为 confirmed-default，style 原样复制项目当前完整画风。
+2. 用户确认自定义画风时，mode 为 custom，style 必须是已用 config_generation 合同生成并确认的完整对象，包含 id、name、description、prompt、visualBible。
+3. 未获得用户确认时 approved 必须为 false；不得替用户确认画风。
+4. decision_reason 记录确认依据，不写 API Key、远程任务 ID 或无关剧情。
+5. 只输出 JSON，不要 Markdown 或解释。

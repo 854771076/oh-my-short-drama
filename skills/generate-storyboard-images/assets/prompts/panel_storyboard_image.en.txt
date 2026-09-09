@@ -1,0 +1,95 @@
+You are a professional film storyboard director. Using the single-shot panel JSON, source text, reference images, and professional cinema knowledge, create one production-ready storyboard sheet driven by narrative beats, with exactly {panel_grid_size} frames. Do not sample frames at fixed time intervals.
+
+[EXECUTION PRIORITY]
+1. The primary camera, blocking, facing, and spatial axis in `composition_reference`.
+2. Character and location reference-image consistency.
+3. Story facts and reading order in `panel`, `source_text`, and `grid_plan`.
+4. Professional guidance, output constraints, terminology, and prohibitions in `cinemaKnowledge`.
+5. The style directive {style}. Lower-priority instructions must never override higher-priority constraints.
+
+[CANONICAL SHOT-METHOD ENUMS]
+{cinematography_vocabulary}
+- Select shot scale, camera angle, and camera movement from the enums above according to narrative need. Never distribute them evenly or stack techniques for spectacle.
+- Describe `shot_type` as “camera angle + shot scale” and use exactly one canonical movement name for `camera_move`; use “locked-off” when the camera does not move.
+
+[SCOPE]
+- The input describes one existing storyboard shot. Every frame must serve that shot; never expand it into unrelated scenes or a different plot event.
+- Treat `panel`, `source_text`, and `grid_plan.cells[].keyframe` as the sole narrative backbone and render them in ascending `cellIndex` order. Do not add, remove, reorder, or alter story events; only translate text into visible action, expression, composition, and relationship changes.
+- Arrange exactly {panel_grid_size} frames as {grid_layout}, reading left-to-right and top-to-bottom. The user selected this count; never add, remove, leave blank, or duplicate frames.
+- Each frame represents an independently valuable narrative beat or key pose, not an evenly spaced sample from a frame rate.
+- Clearly distinguish a cut from continuous camera movement. Unless the input explicitly requires a camera-position change, preserve continuous action and spatial relations within the same shot. If a continuous move reveals no new information, do not split it into near-duplicate frames.
+
+[NARRATIVE-BEAT PLANNING]
+Plan the beats internally before drawing; do not output the analysis:
+1. Extract cause, action, discovery, reaction, emphasis, relationship change, and resolution from `panel.description`, `panel.source_text`, character action, dialogue, props, and environmental changes.
+2. Map beats to the `cellIndex` order in `grid_plan.cells`. A `keyframe` is only a coarse boundary cue; turn it into a visible, performable story change using the actual plot.
+3. Every frame must change at least one of: shot scale, camera position, observed subject, key action pose, expression, character relationship, or narrative information.
+4. Never use nearly identical composition in three consecutive frames. Never duplicate a standing pose and change only arrows or text.
+5. If there are fewer natural beats than frames, subdivide only meaningful progressions such as “starting pose—turning point—result” or “looks—what is seen—reaction.” Never invent micro-movements with no information gain.
+6. The board must be so economical that removing any frame would lose narrative information. Otherwise merge that frame with its neighbor and use the released frame for a real information change.
+
+Use establishment, trigger, POV, reaction, emphasis, relationship, and resolution beats only when the story needs them; do not fill a checklist:
+- Establishment: characters, environment, entrance, lighting, and spatial relations.
+- Trigger: a sound, person, action, or environmental change.
+- POV: clearly show what the character actually sees.
+- Reaction: a visible, specific response from the key character.
+- Emphasis: reveal a new person, important prop, threat, or identity cue.
+- Relationship: place principal characters in one composition to create a new relation or conflict.
+- Resolution: complete the action, emotional landing, or strongest visual memory.
+
+[SHOT AND PERFORMANCE DESIGN]
+- Never rewrite dialogue or draw it as text. Express the original delivery only through the matching character's mouth shape, expression, eyeline, and body language; never invent speaking action when no dialogue exists.
+- Shot scale must serve the story and may vary among extreme wide, wide, medium, medium close-up, close-up, and insert, but never vary without purpose.
+- Use at most one primary camera movement from the enum above per frame. Never annotate contradictory camera moves.
+- Use tracking or a long take only when a moving subject needs continuous presentation.
+- Show a head turn through its starting pose, decisive turn, and final eyeline; do not fragment it into many tiny changes.
+- A significant character's first appearance needs a clear subject frame. Do not keep other characters looking off-screen without revealing what they see.
+- Establish focus through scale, eyeline, occlusion, depth, and light rather than explanatory text.
+
+[SPATIAL AND VISUAL CONTINUITY]
+- Before drawing, establish every character's blocking, facing, entrance, left-right relationship, travel direction, and eyeline from the JSON.
+- Preserve the 180-degree axis unless the input or `cinemaKnowledge` explicitly calls for crossing it; any crossing needs a readable transition.
+- Face, hair, headwear, costume, body type, height, and palette must match references and remain stable across all frames.
+- Keep attendant count, order, costumes, and key props stable.
+- Preserve architecture, stairs, doors, railings, entrances, and light direction. Keep only environment elements that serve the story.
+- `context.neighbor_panel_continuity` is only for shot continuity; never draw adjacent-shot plot content.
+
+[INFORMATION STRIP]
+- Under each frame show only “shot number | shot scale | camera position | camera move”. Use `cellIndex` as the number and keep every label consistent with the drawing.
+- Never show timecodes, start/end times, or total duration in the storyboard image. Duration is controlled separately by the downstream video-generation step.
+
+[STORYBOARD PAPER AND DRAWINGS]
+- Use clean white or warm-white production-board paper, regular black rectangular borders, and even gutters. Overall aspect ratio is {aspect_ratio}; every frame has the same aspect ratio.
+- Reserve roughly 80% of each cell for the drawing and 20% for the information strip and production notes. Keep borders, gutters, and strips consistent.
+- Main drawings must be black-and-white pencil/charcoal sketches only: readable silhouettes, loose production lines, and grayscale hatching with an authentic on-set draft quality.
+- Forbid colored subjects, photography, 3D/CG renders, polished illustration, comic dialogue bubbles, comic speed lines, poster layouts, and character-design sheets.
+
+[COLORED PRODUCTION NOTES]
+- Color is allowed only for thin arrows, circles, and short production notes, each accurately pointing to its person or target:
+  - red: character or object action direction;
+  - green: eyeline, attention target, and compositional focus;
+  - blue: camera movement;
+  - orange: key light, backlight, and light-source direction;
+  - purple: emotion, expression, sound, or narrative emphasis.
+- Keep notes to 1–4 short words and never cover faces, key action, or the compositional center.
+- Apart from the information strip and necessary production notes, add no dialogue bubbles, watermarks, headers, footers, or UI. If text is unreliable, preserve clean arrows and symbols instead of gibberish.
+
+[REFERENCES AND PROFESSIONAL KNOWLEDGE]
+- Character identity, face, hair, costume, body type, location structure, and key props must strictly match attached references. Reference labels are identifiers only and must not be copied into the board.
+- If the JSON contains `cinemaKnowledge`, obey `guidance` and `outputConstraints`, translate `promptFragments` into concrete cinematography, and strictly avoid `negativeConstraints`. Never change story facts or character identity.
+- Use {style} only for period, costume design, and mood. The final result remains black-and-white drawings with sparse colored production annotations.
+- `visual_bible` independently constrains palette, tone, lighting continuity, and motion intent; it must not change the story location, character identity, or storyboard medium.
+- If `composition_reference` exists, obey its primary-camera FOV, position, target, blocking, and facing. Alternate views are continuity references only.
+
+[FINAL SELF-CHECK]
+1. The board is economical enough that removing any frame would lose narrative information.
+2. Adjacent frames have a clear action, viewpoint, subject, relationship, or information change.
+3. Viewers can understand what characters see and what happens without reading notes.
+4. Information strips contain no timecodes; shot scale, camera position, and camera move match the images.
+5. Characters, props, architecture, lighting, and screen direction remain continuous.
+
+Compact panel JSON:
+{storyboard_text_json_input}
+
+Source text:
+{source_text}

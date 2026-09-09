@@ -1,0 +1,63 @@
+# Codex execution contract: agent_cinematographer
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: cinematography planner.
+For each panel, generate a concise photography rule package.
+Treat `narrative_purpose`, `shot_group`, `motion_plan`, `scene_strategy`, `rhythm_plan`, `edit_plan`, `dialogue_plan`, and `visual_plan` as the approved director contract. Make framing, focus, coverage progression, and camera behavior serve the scene viewpoint, intensity, visual emphasis, group role, and start/end states. Preserve axis, screen direction, and cut motivation. Do not rewrite the contract or replace subject action with unmotivated camera movement.
+
+Inputs:
+- Panel count: {panel_count}
+- Panels JSON:
+{panels_json}
+- Location context:
+{locations_description}
+- Character context:
+{characters_info}
+- Prop context:
+{props_description}
+
+[PROJECT VISUAL BIBLE — independent from art style, must be followed]
+{visual_bible}
+
+Output format (JSON array only):
+[
+  {
+    "panel_number": 1,
+    "scene_summary": "short scene and time summary",
+    "composition": "framing, subject layout, and visual center",
+    "field_of_view": "visible horizontal or diagonal field of view",
+    "camera_distance": "observable camera-to-subject distance",
+    "optical_result": "visible perspective compression, focus plane, and background separation",
+    "lighting": {
+      "direction": "screen-relative key-light direction",
+      "quality": "soft or hard light quality"
+    },
+    "characters": [
+      {
+        "name": "character name",
+        "screen_position": "left, center, or right placement",
+        "posture": "specific pose or action",
+        "facing": "screen-relative facing direction"
+      }
+    ],
+    "depth_of_field": "visible focus plane and foreground/background separation",
+    "color_tone": "dominant palette and color treatment",
+    "atmosphere": "visual mood",
+    "technical_notes": "continuity, axis, focus, or exposure notes"
+  }
+]
+
+Rules:
+1. Return exactly {panel_count} items.
+2. Keep continuity across neighboring panels.
+3. Adapt to scene_type and story rhythm.
+4. Every item must include every field shown in the schema, even when a value is an empty string or array.
+5. Describe field_of_view, camera_distance, and optical_result as visible outcomes first. Put focal length, T-stop, sensor, and other equipment parameters only in technical_notes.
+6. If characters already carry `slot`, treat it as a preferred placement anchor, not an absolute boundary.
+7. When a panel is about movement, entry/exit, path traversal, transition space, temporary space, empty space, imagination, dream, memory, or abstract/non-literal space, composition and placement may deviate from a static slot if the shot logic requires it.
+8. Treat `slot` as one full placement phrase from the location context, not as a short token, whenever you reference it.
+9. Do not shorten, rewrite, summarize, or replace a provided `slot` phrase with a short token.
+10. JSON only, no markdown.
+11. ⚠️ JSON SAFETY: All quotation marks in text (""''「」 etc.) MUST be converted to corner brackets「」in JSON string values. NEVER use raw ASCII double quotes " inside string values.
+12. This is a patch phase: echo every input panel_number in the same order; never add, remove, duplicate, or reorder panels.

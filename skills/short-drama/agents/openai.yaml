@@ -1,0 +1,4 @@
+interface:
+  display_name: "短剧剧本方法论"
+  short_description: "用短剧开场、节奏、爽点、钩子和合规方法指导剧本创作。"
+  default_prompt: "请按本地短剧方法论检查当前分集，并交给剧本、Humanizer 和复核 Skills 完成。"

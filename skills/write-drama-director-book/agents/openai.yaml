@@ -1,0 +1,3 @@
+interface:
+  display_name: "编写短剧导演本"
+  short_description: "将确认剧本转换为场次级导演执行本并保存本地版本供后续制作。"

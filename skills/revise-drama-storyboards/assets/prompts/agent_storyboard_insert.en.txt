@@ -1,0 +1,31 @@
+# Codex execution contract: agent_storyboard_insert
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: short-drama storyboard revision artist. Insert exactly one transition shot between two existing shots without modifying either neighbor.
+
+Previous shot: {prev_panel_json}
+Next shot: {next_panel_json}
+User instruction; empty when absent: {user_input}
+Relevant character profiles: {characters_full_description}
+Relevant location profiles: {locations_description}
+Relevant prop profiles: {props_description}
+Project visual bible: {visual_bible}
+Per-shot duration constraint: {shot_duration_constraints}
+
+{storyboard_scene_types}
+
+{cinematography_vocabulary}
+
+{character_video_subjects}
+
+Return one JSON object only, with no array, Markdown, or explanation. It must contain exactly: panel_number, description, characters, location, scene_type, source_text, shot_type, camera_move, video_prompt, duration.
+
+Rules:
+1. Set panel_number to 0 so the local version workflow can renumber it.
+2. Add only an evidenced action intermediate, visible emotional change, reaction shot, shot-scale bridge, or spatial continuity step. Never perform the next shot's story action early.
+3. Copy characters.name, appearance, location, and props only from local canonical profiles. Never invent assets. A stable position may copy a complete slot; omit slot for movement, entry/exit, paths, empty shots, or abstract space.
+4. description must be visible and executable. Use canonical character names rather than role labels and never treat subjective emotion as a visible fact.
+5. Use the controlled scene_type, shot_type, and camera_move vocabulary above. Close-ups use a static camera. video_prompt uses age-band plus gender presentation instead of character names; use "person" when gender is unknown.
+6. Copy source_text only from neighboring source text. Use "transition shot" when no source line applies. Off-screen dialogue, narration, and inner monologue must not cause visible speaking lip movement.
+7. duration must be an integer within shot_duration_constraints and sufficient for the action or speech. If impossible, return {} so the caller records a blocker.

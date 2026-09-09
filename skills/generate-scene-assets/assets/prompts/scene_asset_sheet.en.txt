@@ -1,0 +1,17 @@
+Generate a professional environment concept sheet, not a single empty shot or a basic three-view layout.
+
+[APPROVED SCENE DESCRIPTION]
+{scene_description}
+
+[FIXED CHARACTER SLOTS]
+{available_slots}
+
+[BACKGROUND CROWD POLICY]
+{crowd_policy}
+
+[PROJECT ART STYLE]
+{art_style}
+
+Use one 16:9 landscape multi-view grid. Every panel shows the same scene, time, and design. Include: 01 master wide, 02 left view, 03 right view, 04 reverse view, 05 bird's-eye view, 06 key spatial anchor close-up, 07 exterior or establishing view, 08 main entrance view, and 09 circulation/depth perspective. If no independent exterior exists, use an interior/exterior entrance connection for 07 instead of inventing a facade. Also include a concise floor plan, axonometric view, palette swatches, and 3–5 key material or fixed-object studies.
+
+Keep floor plan, architecture, doors, windows, circulation, object count and scale, materials, palette, light direction, and period identical across views. Every available-slot anchor must be visible with usable open space. Follow crowd_policy for an empty set or anonymous background crowd only. Exclude named characters, plot action, speech bubbles, poster composition, random furniture changes, and contradictory layouts.

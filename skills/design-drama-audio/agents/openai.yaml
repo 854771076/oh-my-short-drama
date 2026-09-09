@@ -1,0 +1,3 @@
+interface:
+  display_name: "制作短剧声音"
+  short_description: "分析角色声音并执行音色推荐、设计、克隆、语音生成和口型同步。"

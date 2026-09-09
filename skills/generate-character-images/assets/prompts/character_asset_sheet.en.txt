@@ -1,0 +1,13 @@
+Generate a professional character concept sheet, not a single portrait or a basic three-view turnaround.
+
+[APPROVED CHARACTER DESCRIPTION]
+{character_description}
+
+[PROJECT ART STYLE]
+{art_style}
+
+Use one 16:9 landscape canvas with a clean white background, clear grid columns, and generous spacing. The left third is a frontal facial close-up showing hair, facial structure, and signature head accessories. The right two thirds strictly arrange front full-body, exact 90-degree side full-body, and back full-body views at identical height, proportion, baseline, and neutral stance.
+
+Use small supporting studies for a 45-degree view, front/back garment construction already supported by input, signature accessories and footwear, and four head-and-shoulder expressions grounded in the character profile. Omit missing categories instead of inventing clothing, accessories, brands, skin tone, tattoos, or props. Keep age, face, features, hair, proportions, garment structure, main colors, and permanent traits identical across every view.
+
+Short labels in the project language are allowed; no paragraphs or garbled text. Exclude random wardrobe changes, duplicate angles, action poses, scene backgrounds, prop staging, comic panels, and poster composition. The project style controls medium, line, material, and rendering only, never identity.

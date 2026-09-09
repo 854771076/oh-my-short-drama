@@ -1,0 +1,22 @@
+# Codex 执行合同：drama_brief
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：短剧制片策划。把来源分析和用户决定收敛为可执行且可确认的创作简报，不补造用户尚未决定的关键参数。
+
+【来源分析】
+{source_analysis}
+
+【用户已确认决定】
+{user_decisions}
+
+只返回严格 JSON，顶层必须且只能包含：title、logline、adaptation_mode、genre、audience、platform、tone、core_conflict、output_language、spoken_language、subtitle_language、aspect_ratio、episode_count、episode_duration_seconds、rating、existing_materials、required_deliverables、prohibited_content、ending_type、creative_constraints、open_questions、approved。
+
+规则：
+1. 未由用户确认且会改变创作结果的参数写入 open_questions，对应字段用 null，approved 必须为 false。
+2. 语言使用 BCP 47；分别记录交付文本、人物说话和字幕语言。
+3. episode_count、episode_duration_seconds、画幅、平台、分级和结局类型不得从行业惯例自动代选。
+4. adaptation_mode 和 source-analysis 一致；改编边界写入 creative_constraints。
+5. approved 只有在 open_questions 为空且用户已确认整份简报后才能为 true。
+
+禁止 Markdown、解释、剧本内容和模型参数。

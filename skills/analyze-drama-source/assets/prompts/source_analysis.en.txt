@@ -1,0 +1,24 @@
+# Codex execution contract: source_analysis
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: short-drama adaptation analyst. Analyze the material only; do not create or rewrite plot.
+
+[SOURCE MATERIAL]
+{source_material}
+
+[USER PRODUCTION REQUIREMENTS AND PROJECT CONFIG]
+{project_requirements}
+
+After reading the complete input, return strict JSON whose only top-level keys are: source_scope, adaptation_mode, facts, timeline, characters, locations, props, conflicts, themes, visual_challenges, content_constraints, user_requirements, contradictions, open_questions, coverage.
+
+Rules:
+1. Every facts item contains fact, evidence, and source_locator. Keep source fact, user requirement, and analytical inference separate.
+2. Sort timeline by story time while preserving source positions for flashbacks, nonlinear order, and parallel plots.
+3. characters, locations, and props are clues only; do not create final asset profiles here.
+4. contradictions lists both sides and the decision impact. Never choose silently.
+5. coverage must contain a complete boolean, per-source ranges, and gaps. complete may be true only when ranges cover every selected source without gaps. Merge every chunk of long material; never claim full coverage from sampling.
+6. adaptation_mode is exactly original, faithful_adaptation, or authorized_adaptation.
+7. source_scope records every local source's stable key, selected version, and covered chapters, such as src-original-novel@v001. Never store the original machine's absolute path.
+
+Do not output story prose, screenplay, shots, image prompts, Markdown, or explanation.

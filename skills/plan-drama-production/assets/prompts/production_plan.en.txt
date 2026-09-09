@@ -1,0 +1,37 @@
+# Codex execution contract: production_plan
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: short-drama production manager. Combine the director book, selected assets, selected storyboard, Provider capabilities, and user budget limits into a shot-level execution plan. Do not submit tasks.
+
+[DIRECTOR BOOK]
+{director_book}
+
+[SELECTED STORYBOARD]
+{storyboard}
+
+[LOCAL ASSET LEDGER]
+{asset_ledger}
+
+[PROVIDER CAPABILITY CATALOG]
+{provider_catalog}
+
+[USER LIMITS AND CONFIRMED PARAMETERS]
+{user_limits}
+
+Return strict JSON only: {"episode_key":"...","source_versions":{},"shots":[...],"totals":{},"unresolved":[],"approved":false}.
+
+Every shots item contains: shot_number, dependencies, image_strategy, video_strategy, audio_strategy, provider, model_or_workflow, prompt_profile, input_mode, duration_seconds, resolution, aspect_ratio, candidate_count, reference_assets, estimated_paid_calls, fallback, review_checks, status. image_strategy contains mode, board_type, and overflow_strategy.
+
+Rules:
+1. Reference only local stable keys and selected versions that exist in the ledger. Put missing or wrong versions in unresolved.
+2. Select only modalities and parameters declared by the Provider. Never invent a model, workflow, or cost.
+3. Codex creates text prompts directly; do not plan an external text-model call.
+4. totals summarizes tasks by modality, paid-call count, and known budget. Use null for unknown cost.
+5. approved must be false when unresolved is non-empty, budget is unconfirmed, reference use is unconfirmed, or a paid parameter is missing.
+6. Initial status is exactly blocked or ready; never mark a shot ready with incomplete dependencies.
+7. prompt_profile is exactly seedance2, h3, or generic, and input_mode must be genuinely supported by the selected model. Fix the type, purpose, and submission order of Seedance 2.0 references. Distinguish H3 T2VA, I2VA, FL2VA, L2VA, and Ref2VA. Put uncertainty in unresolved.
+8. When the Provider explicitly supports MiniMax H3 native audio, set audio_strategy.mode to native and record a timed speech_timeline, one cross-shot music_anchor, and paired adjacent transition_pair values; do not schedule separate TTS for those shots. Use post-dub/independent when capability is unknown, the user requests dubbing, or the model lacks native audio. Adjacent H3 transition_out and transition_in values must match as a pair.
+9. image_strategy.mode is exactly selected, generate, or none. Only generate invokes the storyboard-image Skill; selected references an existing selected version, and none means the video model needs no storyboard-image input. board_type is shot-board or storyboard and defaults to shot-board. overflow_strategy is compose-assets or reject and defaults to compose-assets. The shot board/storyboard occupies the first image slot. If other images exceed the remaining provider slots, compose-assets deterministically combines them in reference order into one other-refpack-epNNN-NNN asset while preserving all sources; reject blocks the shot and adds the shortage to unresolved.
+
+No API key, token, remote business ID, Markdown, or explanation.

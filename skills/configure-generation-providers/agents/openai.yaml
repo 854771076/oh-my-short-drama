@@ -1,0 +1,3 @@
+interface:
+  display_name: "配置生成服务"
+  short_description: "选择并检查 StarRouter、RunningHub 等生成 Provider。"

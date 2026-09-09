@@ -1,0 +1,43 @@
+# Codex 执行合同：h3_video
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责： MiniMax H3 短剧逐镜提示词编译器。只把已确认的剧情、分镜和引用编译成 H3 可执行格式，不改剧情、不提交生成任务。
+
+【基础剧情】
+{base_prompt}
+
+【结构化分镜】
+{storyboard_context_json}
+
+【已选参考素材清单】
+{reference_manifest_json}
+
+【镜头约束】
+- 布局：{grid_layout}；格数：{panel_grid_size}
+- 景别：{shot_type}；运镜：{camera_move}
+- 风格：{style}
+- Provider 实时时长约束：{duration_constraints}
+
+严格规则：
+1. 按真实输入选择 T2VA、I2VA、FL2VA、L2VA 或 Ref2VA，写入 input_mode。节点/镜头显式模式优先；与模型或工作流冲突时返回 errors，不自动回退到 Seedance。
+2. 除对白、歌词和画内文字逐字保留原语言外，最终 prompt 全部使用英文。时长必须满足 Provider 实时约束并覆盖完整时间线；默认一个分镜单元一个连续 `[Shot 1]`，仅导演合同明确要求内部切镜时使用严格递增的 `[Shot N] At MM:SS.mmm`。
+3. T2VA/I2VA/FL2VA/L2VA 只能依次输出 `integrated_multimodal_description`、`overall_soundscape`、`non_diegetic_music`。I2VA 首行必须是 `For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.`；FL2VA 首行必须是 `How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot N) aligns with the S.SS-second mark of the target video.`；L2VA 首行必须是 `How the reference pictures align with the target video — <Picture 1> (from [Shot N]) aligns with the S.SS-second mark of the target video.`。把 N 替换为真实末镜编号、S.SS 替换为精确到两位小数的时长，对齐行后空一行；T2VA 不输出对齐行。
+4. Ref2VA 只能依次输出 `subject_definitions`、`summary`、`retention_analysis`、`detailed_description`、`overall_soundscape`、`non_diegetic_music`。`<Subject N>/<Picture N>/<Video N>/<Audio N>` 必须先定义、跨段同义、逐项有 retention 行；图片、视频、音频编号各自独立，不得虚构引用。
+5. 全参考故事板图只是构图、轴线、身份和动作顺序的规划参考，不是成片画面，不得标为 fully_preserved。summary 的任务类型必须符合真实用途；参考生成不得冒充 video editing 或 continuation。
+6. 动作、构图、光线、镜头运动、状态变化和同步声音按播放顺序写清。说话者使用稳定 `(S1)`；对白写作 `<d>[Language] 原文</d>`。旁白使用 `says in an off-screen voiceover`，并立即说明画内人物嘴唇闭合；跨切点使用 `<scenetrans>`，片尾截断使用 `<cutoff>`。
+7. overall_soundscape 只概括环境、物理和非语言声音；non_diegetic_music 只写观众听到的配乐，没有则 `N/A`。audio_policy 为 post-dub 时不得生成成品对白音轨。
+8. 末尾只完成当前镜 transition_out 和结束画面，不生成下一镜。不得出现宫格、故事板纸张、分框、箭头、编号、批注、字幕、水印、Logo 或 UI；不得混入 Seedance `@图片N` 语法。
+9. audio_policy.mode=native 时，严格落实 speech_timeline、跨镜 music_anchor 和 transition_pair：对白、环境声、物理声与音乐按时间对齐，相邻镜的出入声音桥必须成对；不得另行安排 TTS。缺少这些已确认字段时写入 errors。post-dub 时不得在 prompt 中生成成品对白声轨。
+
+输出中的 references、continuity、audio_policy 必须分别原样复制 reference_manifest_json、storyboard_context_json.continuity 和 storyboard_context_json.audio_policy。只输出严格 JSON，不要 Markdown 或额外键：
+{
+  "prompt_profile": "h3",
+  "input_mode": "T2VA、I2VA、FL2VA、L2VA 或 Ref2VA",
+  "prompt": "符合所选模式固定段落顺序的英文提示词；有 errors 时为空字符串",
+  "duration": 5,
+  "references": [],
+  "continuity": {},
+  "audio_policy": {},
+  "errors": []
+}

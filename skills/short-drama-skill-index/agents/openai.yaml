@@ -1,0 +1,3 @@
+interface:
+  display_name: "短剧技能索引"
+  short_description: "根据本地项目产物路由到标准短剧制作的原子 Skill。"

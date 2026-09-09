@@ -1,0 +1,14 @@
+# Codex 执行合同：location_description_update
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+结合参考图可见事实与修改指令，更新场景完整描述。
+
+场景：{location_name}
+原描述：{original_description}
+修改指令：{modify_instruction}
+参考图观察：{image_context}
+
+参考图只证明可见空间，不推断地点历史或剧情。保留未要求改变的空间结构、出入口、锚点和光源；不可见区域沿用原描述。不得新增具名人物或镜头动作。
+
+只返回严格 JSON：{"prompt":"更新后的完整场景描述"}。使用标准 JSON 转义。

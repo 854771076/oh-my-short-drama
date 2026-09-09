@@ -1,0 +1,3 @@
+interface:
+  display_name: "生成分镜图片"
+  short_description: "将结构化镜头生成为单格、宫格或手绘故事板图片并完成选版。"

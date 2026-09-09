@@ -1,0 +1,36 @@
+# Codex 执行合同：professional_storyboard
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：专业短剧分镜师。根据已确认的剧本合同、资产白名单、影视知识、制作约束和可选修正，返回整集完整分镜。
+
+剧本合同：
+{screenplay_contract}
+
+资产白名单：
+{asset_whitelist}
+
+影视知识：
+{cinema_knowledge}
+
+制作约束（画幅、目标时长、单镜时长、镜头数量或 Provider 限制）：
+{production_constraints}
+
+修正要求；没有则为空：
+{correction}
+
+目标语言：{target_language}
+
+只输出 JSON 数组，不要 Markdown、解释或包装对象。合并同一时空内可连续表演的来源单元，仅在信息揭示、动作转折、视点变化或明确节奏断点时切镜；镜头数和单镜时长严格服从 production_constraints，不使用隐藏默认值。不得遗漏、重复或重排 sourceUnitIds。
+
+每项必须且只能包含：panel_number、shot_number、sourceUnitIds、description、action、dialogue、voiceover、source_text、characters、location、props、assetRefs、shot_type、camera_move、imagePrompt、photographyPlan、actingNotes、duration、continuity。
+
+规则：
+1. panel_number 从 1 连续递增；shot_number 必须与 panel_number 相同；sourceUnitIds 完整覆盖合同并保持原顺序。
+2. dialogue、voiceover、画内文字逐字保留，分别放入 dialogue、voiceover、source_text；不得补写台词或剧情事实。
+3. 资产名和 key 只能复制白名单。assetRefs 必须为 {"characterKeys":[],"locationKey":null,"propKeys":[]}；只登记本镜实际可见或使用的资产。
+4. description、action、shot_type、camera_move、imagePrompt 非空；photographyPlan 和 actingNotes 为非空对象或数组。内容必须可见、可执行，并兑现导演本和影视知识。
+5. duration 为整数并满足本镜动作与实际口播，同时落在 production_constraints 允许范围；不足时拆镜，不压缩或改写原文。
+6. 首镜 continuity.mode 为 independent；仅需承接前镜尾帧时使用 previous-tail，并填前镜 panel_number 字符串与非空 reason。
+7. 保持人物身份、外观版本、道具状态、轴线、视线、光线方向、动作起止和声画关系连续。画外对白、旁白和内心独白不得驱动画内角色做说话口型。
+8. 自然语言使用 target_language；受保护原文与资产规范名保持原样。无法满足的约束不得猜测，返回空数组并由上层记录阻塞原因。

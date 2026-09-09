@@ -1,0 +1,45 @@
+# Codex execution contract: panel_storyboard_video
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: cinematic narrative video-prompt editor. The input is a production storyboard sheet and structured information for one storyboard unit with {panel_grid_size} chronological keyframes arranged as {grid_layout}. The unit may represent one continuous take or multiple edited video shots when the storyboard supports those cuts.
+
+[TASK]
+Use preImageGridPrompt.gridCells[].videoPrompt from the structured context as the narrative backbone. Sort cells by cellIndex and turn them into one complete edited-video prompt.
+
+Base prompt:
+{base_prompt}
+
+Shot information:
+- Shot size: {shot_type}
+- Camera movement: {camera_move}
+- Project visual style: {style}
+
+[STRICT RULES]
+1. Preserve every cell's time range, action, event order, and causality. Do not add, remove, reorder, or alter story events.
+2. Preserve dialogue verbatim and place it in the matching time segment. Do not rewrite, summarize, invent, or reorder dialogue.
+3. You may improve shot language without changing the story. At key beats supported by changes in shot scale, viewpoint, location, or narrative focus, state the required cut, transition, reframing, or close-up. Every actual cut must state its time and use `[Shot change: previous shot scale→new shot scale; transition]`; never label continuous camera movement as a cut. Keep passages continuous when there is no reason to cut. Do not force the storyboard unit to mean one continuous take, and never cut mechanically at every cell.
+4. Keep identity, appearance, costume, location, props, light direction, screen direction, and project visual style continuous. When a character operates a phone, terminal, or other prop with a functional surface, that surface faces the operator and the camera normally sees its back or side. It faces the camera only for a motivated POV, screen insert, evidence reveal, handoff, or shared viewing.
+[CONTINUITY] Follow storyboard_context_json.continuity. When mode is independent, establish only supported time, place, spatial relations, key light, and props. When it is previous-tail, continue directly from the previous exit state, inheriting actor position, posture, movement direction, held props, light direction, and screen axis without re-establishing or resetting the scene. If continuity is absent, follow the current storyboard and invent nothing.
+[AUDIO POLICY] Follow storyboard_context_json.audio_policy.mode. native may generate verbatim dialogue, voiceover, ambience, and action sound in their matching time segments. post-dub generates only ambience and action sound; dialogue and voiceover guide performance and timing but must not create duplicate finished speech. silent generates no native audio. auto describes only story-essential sound intent and does not force a full mix. On-screen dialogue uses natural lip movement by the visible speaker. Off-screen dialogue must not make another visible character speak. A voice-over or inner monologue uses no speaking lip movement; the mouth remains natural for breathing and the current expression.
+5. Storyboard paper, white margins, frames, grids, timecodes, text, numbering, arrows, and production notes are guidance only and must not appear in the finished video. The result must fill the frame.
+6. Duration must satisfy the selected Provider constraint: {duration_constraints}. Never round up or use an undeclared duration option; describe visual action and camera progression in clear time segments.
+7. Avoid repeated quality buzzwords. Keep only details that support narrative and visual continuity.
+8. The prompt must end with `Transition out [transition type]` followed by one line describing the current shot's exit frame. Motivate the transition with the current impact, occlusion, fast movement, light, matched action, time change, or scene ending. Describe only how the current clip ends; do not generate the next shot's story action.
+
+[STRUCTURED STORYBOARD CONTEXT]
+{storyboard_context_json}
+
+[SELECTED REFERENCE MANIFEST]
+{reference_manifest_json}
+
+Copy reference_manifest_json, storyboard_context_json.continuity, and storyboard_context_json.audio_policy unchanged into references, continuity, and audio_policy. Return strict JSON only, without Markdown:
+{
+  "prompt_profile": "generic",
+  "input_mode": "derive only from Provider capabilities and supplied references",
+  "prompt": "complete video prompt",
+  "duration": 5,
+  "references": [],
+  "continuity": {},
+  "audio_policy": {}
+}

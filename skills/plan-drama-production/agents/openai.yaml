@@ -1,0 +1,3 @@
+interface:
+  display_name: "规划短剧制作"
+  short_description: "汇总分镜、资产和生成参数，形成可执行的本地制作计划。"

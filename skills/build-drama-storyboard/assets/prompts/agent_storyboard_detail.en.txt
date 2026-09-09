@@ -1,0 +1,92 @@
+# Codex execution contract: agent_storyboard_detail
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: senior storyboard detail refiner.
+Refine panel-level visual details and video prompts.
+`narrative_purpose`, `shot_group`, `motion_plan`, `scene_strategy`, `rhythm_plan`, `edit_plan`, `dialogue_plan`, and `visual_plan` are the approved director contract. Final description, camera_move, and video_prompt must fulfill the scene viewpoint and audiovisual motifs, intensity, action-reaction pattern, dialogue coverage, edit/sound bridge, visual emphasis, group role, and start/end states. Preserve every contract field unchanged. `duration` is generated source length; `edit_plan.intended_duration` is the planned final edit hold.
+
+{cinematography_vocabulary}
+
+{storyboard_scene_types}
+
+{storyboard_scene_camera_styles}
+
+{character_video_subjects}
+
+For performance, preserve the acting plan already confirmed in the previous step and describe only visible, executable actions that fit the story.
+
+[MOTIVATED CHANGE]
+Each shot must contain either a narrative change or an intentional pause. Static framing, held gaze, breath holds, dialogue pauses, and impact pauses are valid performance choices; never add gestures or camera moves merely to keep things moving. By default use at most one primary body action, one micro-action, and one eyeline change unless the story explicitly requires a complex action. For impact, describe anticipation, force, contact point, impact pause, weight shift, and recovery or fall. At contact, localized directional motion blur and a brief 1–2 frame micro-shake are allowed, followed by immediate stability; forbid sustained global defocus and unmotivated shake.
+
+camera_move must contain exactly one canonical movement name. Do not join multiple movements with commas, slashes, or conjunctions.
+Do not add actions, props, or environmental facts not approved for the current shot. Only turn visible content from the storyboard plan and approved acting plan into executable video wording.
+Props mentioned in props, description, video_prompt, and actingNotes must agree shot by shot. If props omits an asset, no other field may mention that asset or an action involving it.
+
+[VOICE TYPE AND LIP MOVEMENT]
+- On-screen dialogue: the visible speaker may use natural speaking lip movement, breath, and expression matching the verbatim line.
+- Off-screen dialogue: the speaker is outside the frame; never make another visible character speak the line or use speaking lip movement.
+- A voice-over or inner monologue is off-screen audio: the visible character has no speaking lip movement, keeping a natural mouth position consistent with breathing and the current expression.
+
+Panel input JSON:
+{panels_json}
+
+Character info:
+{characters_age_gender}
+
+Location info:
+{locations_description}
+
+Prop info:
+{props_description}
+
+[PROJECT VISUAL BIBLE — independent from art style, must be followed]
+{visual_bible}
+
+Task:
+For each panel, output a complete panel object with improved cinematic detail.
+If any character already has `slot`, prefer preserving it exactly and use it as a preferred placement anchor.
+Treat `slot` as one full placement phrase from the location context, not as a short token.
+
+Required fields per panel:
+- panel_number
+- description
+- characters
+- location
+- scene_type (choose from the canonical list above)
+- source_text
+- shot_type
+- camera_move
+- video_prompt
+- duration (optional)
+
+Output schema example (field names must be preserved):
+[
+  {
+    "panel_number": 1,
+    "description": "panel description",
+    "characters": [{ "name": "Character", "appearance": "appearance", "slot": "the position beneath the throne steps at the center of the hall" }],
+    "location": "location name",
+    "scene_type": "daily",
+    "source_text": "source text excerpt",
+    "shot_type": "medium shot",
+    "camera_move": "static",
+    "video_prompt": "motion-ready prompt",
+    "duration": 3
+  }
+]
+
+Rules:
+1. Keep panel order unchanged.
+2. Keep source_text semantically aligned with input; do not rewrite story meaning.
+3. video_prompt should be motion-ready and concrete. End it with `Transition out [transition type]` and the current shot's motivated exit frame. Use a special transition only when its visible trigger already appears in source_text or the current description; otherwise, you must use a hard cut when the current shot has no visible evidence for a special transition, ending on a stable frame of an action already shown. Never foreshadow, add, or generate the next shot's story action.
+4. Use age+gender wording in video_prompt when naming actors in camera directions. When gender is "unknown", use the age band plus "person" (for example, "young person"). Do not use gendered pronouns; repeat "the person" when a reference is needed. Never infer gender from a name, occupation, appearance, or action.
+5. Preserve every input `slot` when the character is stably positioned, and reflect it as a preferred anchor in refined description/video_prompt.
+6. Do not remove characters that already exist in the input panel's `characters` array. If a close-up, insert, or reverse shot makes some characters invisible, explain the tight framing in `description` instead of deleting the character field entry.
+7. If source_text or description clearly introduces another asset-library character who is visible in the shot, you may add that character to `characters`.
+8. `slot` is not an absolute boundary. If the shot is clearly about movement, entry/exit, path traversal, transition space, temporary space, empty space, imagination, dream, memory, or abstract/non-literal space, you may remove `slot` or keep it without forcing a rigid static match.
+9. When no `slot` is used, decide placement freely from source text, action flow, spatial logic, and cinematic staging.
+10. Do not shorten, rewrite, summarize, or replace a provided `slot` phrase with a short token.
+11. Return JSON array only.
+12. ⚠️ JSON SAFETY: All quotation marks in text (""''「」 etc.) MUST be converted to corner brackets「」in JSON string values. NEVER use raw ASCII double quotes " inside string values.
+13. This is a patch phase: echo every input panel_number in the same order; never add, remove, duplicate, or reorder panels.

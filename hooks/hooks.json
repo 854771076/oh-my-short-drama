@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/session-context.mjs\"",
+            "timeout": 5,
+            "statusMessage": "恢复短剧工作流状态..."
+          }
+        ]
+      }
+    ]
+  }
+}

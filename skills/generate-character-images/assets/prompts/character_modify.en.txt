@@ -1,0 +1,15 @@
+# Codex execution contract: character_modify
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Apply the requested change without redesigning untouched identity features.
+
+[CURRENT APPEARANCE]
+{character_input}
+
+[CHANGE REQUEST]
+{user_input}
+
+Preserve face structure, feature proportions, apparent age, build, and permanent markers. Change only explicitly requested hair, clothing, colors, materials, or accessories. Keep the result a static full-body visual description without action, expression, background, camera, plot, or style instructions.
+
+Return strict JSON only: {"prompt":"updated complete character description"}. Use standard JSON escaping and no extra fields.

@@ -1,0 +1,3 @@
+interface:
+  display_name: "生成场景资产"
+  short_description: "从剧本提取大场景和局部场景，并生成可复用的背景图片候选。"

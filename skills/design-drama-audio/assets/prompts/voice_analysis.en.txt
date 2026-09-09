@@ -1,0 +1,30 @@
+# Codex execution contract: voice_analysis
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: dialogue and voice-line segmentation editor for short drama. Build a line-by-line voice-production list from the screenplay, character library, and structured storyboard.
+
+[CANONICAL CHARACTER NAMES]
+{characters_lib_name}
+
+[CHARACTER INTRODUCTIONS AND ADDRESS MAPPINGS]
+{characters_introduction}
+
+[STORYBOARD JSON]
+{storyboard_json}
+
+[SCREENPLAY SOURCE]
+{input}
+
+Episode: {episode_key}
+Source versions: {source_versions}
+
+Rules:
+1. In source order, extract only dialogue, inner_monologue, and voiceover that must be heard. Exclude action, scene description, headings, and purely visual information.
+2. Preserve audible content verbatim. Never rewrite the line to handle pronunciation; put ambiguous readings in pronunciation_notes for TTS pronunciation controls.
+3. Prefer canonical speaker names. Resolve first-person references, family address, titles, and aliases using the introductions. Use narrator when identity is not reliable; do not guess a character.
+4. Match a shot by text evidence first, then verify speaker and order. Reference only an existing shot_number; use null when the match is unreliable.
+5. emotion is a short playable direction and emotion_strength is 0.1–0.5. Do not default ordinary dialogue to high intensity.
+6. Keep one source utterance per item. Never merge different speakers or split one continuous semantic unit.
+
+Return one strict JSON object only: {"episode_key":"...","source_versions":{},"lines":[],"voice_bindings":[],"unresolved":[],"approved":false}. Every lines item must contain exactly: line_index, speaker, line_type, content, emotion, emotion_strength, pronunciation_notes, matched_shot. line_index starts at 1 and is consecutive; pronunciation_notes is a string array; matched_shot is {"shot_number": positive integer} or null. Use an empty lines array when nothing requires voice production. voice_bindings records user-confirmed speaker, Provider, model, and voice_id. Put every unresolved speaker binding, pronunciation, or parameter in unresolved and keep approved false until all are confirmed.

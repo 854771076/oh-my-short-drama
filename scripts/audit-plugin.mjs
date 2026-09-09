@@ -1,0 +1,202 @@
+#!/usr/bin/env node
+import { access, readdir, readFile } from 'node:fs/promises'
+import { dirname, relative, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { injectPromptSystemVars, systemVariableNames } from './prompt-system-vars.mjs'
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const map = JSON.parse(await readFile(resolve(root, 'references/skill-map.json'), 'utf8'))
+const failures = []
+
+for (const path of ['.DS_Store', '.playwright-mcp']) {
+  try { await access(resolve(root, path)); failures.push(`插件包包含本地临时文件：${path}`) } catch {}
+}
+
+for (const path of ['README.md', 'references/project-spec-v1.md', 'references/codex-contracts.md', 'scripts/validate-project.mjs', 'scripts/skill-runs.mjs', 'scripts/preflight.mjs', 'scripts/generation/live-smoke-test.mjs', 'scripts/document-reference.mjs', 'scripts/reference-bindings.mjs', 'scripts/media-hosting/litterbox.mjs', 'scripts/media-hosting/publish.mjs']) {
+  try { await access(resolve(root, path)) } catch { failures.push(`缺少项目规范组件：${path}`) }
+}
+
+async function files(directory) {
+  const output = []
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = resolve(directory, entry.name)
+    if (entry.isDirectory()) output.push(...await files(path))
+    else output.push(path)
+  }
+  return output
+}
+
+const skillNames = (await readdir(resolve(root, 'skills'), { withFileTypes: true }))
+  .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()
+const declaredSkills = [...map.workflow, ...map.support].sort()
+if (new Set(declaredSkills).size !== declaredSkills.length) failures.push('workflow/support 存在重复 Skill')
+for (const name of skillNames.filter((name) => !declaredSkills.includes(name))) failures.push(`未声明 Skill：${name}`)
+for (const name of declaredSkills.filter((name) => !skillNames.includes(name))) failures.push(`缺少 Skill：${name}`)
+for (const [stage, names] of Object.entries(map.stages || {})) {
+  if (!Array.isArray(names) || names.length === 0) failures.push(`阶段缺少 Skill：${stage}`)
+  for (const name of names || []) if (!skillNames.includes(name)) failures.push(`阶段映射到不存在的 Skill：${stage} -> ${name}`)
+}
+for (const name of skillNames) {
+  try { await access(resolve(root, 'skills', name, 'SKILL.md')) } catch { failures.push(`缺少 SKILL.md：${name}`) }
+  try { await access(resolve(root, 'skills', name, 'agents/openai.yaml')) } catch { failures.push(`缺少 agents/openai.yaml：${name}`) }
+  try {
+    const metadata = await readFile(resolve(root, 'skills', name, 'agents/openai.yaml'), 'utf8')
+    if (/Help with .* tasks/.test(metadata)) failures.push(`Skill UI 元数据仍是占位内容：${name}`)
+  } catch {}
+}
+
+const expectedPrompts = Object.entries(map.prompts).flatMap(([name, skill]) => ['zh', 'en'].map((locale) => `${skill}/assets/prompts/${name}.${locale}.txt`)).sort()
+const actualPrompts = (await files(resolve(root, 'skills')))
+  .filter((path) => path.includes(`${resolve(root, 'skills')}/`) && path.includes('/assets/prompts/'))
+  .map((path) => relative(resolve(root, 'skills'), path)).sort()
+for (const path of actualPrompts.filter((path) => !expectedPrompts.includes(path))) failures.push(`未映射提示词：${path}`)
+for (const path of expectedPrompts.filter((path) => !actualPrompts.includes(path))) failures.push(`缺少提示词：${path}`)
+const promptVariables = (content) => [...new Set([...content.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((match) => match[1]))].sort()
+for (const [prompt, skill] of Object.entries(map.prompts)) {
+  if (!skillNames.includes(skill)) failures.push(`提示词映射到不存在的 Skill：${prompt} -> ${skill}`)
+  else {
+    const entrypoint = await readFile(resolve(root, 'skills', skill, 'SKILL.md'), 'utf8')
+    if (!entrypoint.includes(prompt)) failures.push(`Skill 未引用自己的提示词：${skill} -> ${prompt}`)
+    const zh = await readFile(resolve(root, 'skills', skill, 'assets/prompts', `${prompt}.zh.txt`), 'utf8')
+    const en = await readFile(resolve(root, 'skills', skill, 'assets/prompts', `${prompt}.en.txt`), 'utf8')
+    if (JSON.stringify(promptVariables(zh)) !== JSON.stringify(promptVariables(en))) failures.push(`中英文提示词变量不一致：${prompt}`)
+    for (const [locale, content] of [['zh', zh], ['en', en]]) {
+      const injected = injectPromptSystemVars(content, locale)
+      const unresolvedSystem = promptVariables(injected).filter((name) => systemVariableNames.has(name))
+      if (unresolvedSystem.length) failures.push(`系统变量未注入：${prompt}.${locale} -> ${unresolvedSystem.join(', ')}`)
+      const dynamicVars = Object.fromEntries(promptVariables(injected).map((name) => [name, 'AUDIT_VALUE']))
+      const rendered = injected.replace(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name) => dynamicVars[name])
+      if (promptVariables(rendered).length) failures.push(`提示词仍有悬空变量：${prompt}.${locale}`)
+    }
+    if (/(?:director[-_ ]desk|director_shot|active_camera|projectGuidance|assetNodeRefs|sourceNodeId|characterNodeIds|locationNodeId|propNodeIds|storyboardId|src\/app\/api|novel-promotion|OmniVoice|CosyVoice|系统自动添加|风格由系统|target 10[–-]14 shots|整集目标 10[–-]14 镜)/i.test(`${zh}\n${en}`)) {
+      failures.push(`提示词残留系统耦合：${prompt}`)
+    }
+  }
+}
+
+const videoPromptRoot = resolve(root, 'skills/write-drama-video-prompts/assets/prompts')
+for (const locale of ['zh', 'en']) {
+  const seedance = await readFile(resolve(videoPromptRoot, `seedance2_video.${locale}.txt`), 'utf8')
+  for (const token of ['seedance2', 'first-last-frame', 'full-reference', '@图片1', '@视频1', '@音频1', '4–15', '12']) {
+    if (!seedance.includes(token)) failures.push(`Seedance 2.0 提示词缺少合同：${locale} -> ${token}`)
+  }
+  const h3 = await readFile(resolve(videoPromptRoot, `h3_video.${locale}.txt`), 'utf8')
+  for (const token of ['T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA', 'subject_definitions', 'retention_analysis', 'detailed_description', 'overall_soundscape', 'non_diegetic_music', '<d>[Language]']) {
+    if (!h3.includes(token)) failures.push(`H3 提示词缺少合同：${locale} -> ${token}`)
+  }
+  if (h3.includes('@图片1')) failures.push(`H3 提示词混入 Seedance 引用语法：${locale}`)
+}
+
+const promptIndexLines = (await readFile(resolve(root, 'references/prompt-skill-index.md'), 'utf8')).split(/\r?\n/)
+for (const [prompt, skill] of Object.entries(map.prompts)) {
+  const basename = prompt.split('/').at(-1)
+  if (!promptIndexLines.some((line) => line.includes(`\`${basename}\``) && line.includes(`\`${skill}\``))) {
+    failures.push(`提示词索引不一致：${prompt} -> ${skill}`)
+  }
+}
+
+const docs = [...await files(resolve(root, 'skills')), ...await files(resolve(root, 'references'))]
+  .filter((path) => path.endsWith('.md'))
+for (const path of docs) {
+  const content = await readFile(path, 'utf8')
+  for (const match of content.matchAll(/`(scripts\/[A-Za-z0-9_./-]+)`/g)) {
+    try { await access(resolve(root, match[1])) } catch { failures.push(`失效脚本引用：${relative(root, path)} -> ${match[1]}`) }
+  }
+  if (/(?:src\/app\/api|src\/lib\/|novel-promotion|director-desk|operate-drama-canvas|produce-meme-drama|generate-drama-covers|generate-drama-images)/i.test(content)) {
+    failures.push(`残留系统耦合：${relative(root, path)}`)
+  }
+}
+
+const projectStore = await readFile(resolve(root, 'scripts/project-store.mjs'), 'utf8')
+const promptRenderer = await readFile(resolve(root, 'scripts/render-prompt.mjs'), 'utf8')
+const workflowGates = await readFile(resolve(root, 'scripts/workflow-gates.mjs'), 'utf8')
+const workflow = await readFile(resolve(root, 'scripts/workflow.mjs'), 'utf8')
+const editingStore = await readFile(resolve(root, 'scripts/editing-store.mjs'), 'utf8')
+const assetLedger = await readFile(resolve(root, 'scripts/asset-ledger.mjs'), 'utf8')
+const starrouter = await readFile(resolve(root, 'scripts/generation/starrouter.mjs'), 'utf8')
+const runninghub = await readFile(resolve(root, 'scripts/generation/runninghub.mjs'), 'utf8')
+const comfly = await readFile(resolve(root, 'scripts/generation/comfly.mjs'), 'utf8')
+for (const token of ['schema_version', 'validate-project-config', 'put-source', 'select-source', 'v001']) if (!projectStore.includes(token)) failures.push(`项目规范实现缺少：${token}`)
+for (const token of ['environment.json', 'RESUME.md', 'prompt-runs', "'art-style'", 'staleVersionIds', 'migrate-project-layout']) if (!projectStore.includes(token)) failures.push(`项目恢复/预检实现缺少：${token}`)
+for (const token of ['prompt-runs', 'templateSha256', 'resolvedContractOrPrompt', 'codexOutputSha256', 'variables', '--project-root', '--codex-output', 'providerPrompts', 'existingInside']) if (!promptRenderer.includes(token)) failures.push(`提示词留痕实现缺少：${token}`)
+for (const token of ['selectedDocumentRecord', '制作计划与分镜镜号不一致', '视频提示词来源版本不是当前选版', "stage === 'delivery'", "editing', episode", "delivery', episode", 'evidenceSha256', 'invalidatedAt', 'art-style.json', 'staleVersionIds']) if (!workflowGates.includes(token)) failures.push(`工作流硬门禁缺少：${token}`)
+for (const token of ["command === 'complete'", 'finishedAt']) if (!workflow.includes(token)) failures.push(`工作流终态缺少：${token}`)
+for (const token of ['audio_tracks', 'volume_envelope', 'target_lufs', 'true_peak_dbtp', 'timestampMs', 'confidence', 'labels']) if (!editingStore.includes(token)) failures.push(`剪辑合同缺少：${token}`)
+const providerPrompts = new Set(map.provider_prompts || [])
+for (const prompt of providerPrompts) if (!(prompt in map.prompts)) failures.push(`Provider 提示词未登记：${prompt}`)
+for (const [skill, prompts] of Object.entries(map.completion_prompts || {})) {
+  if (!Array.isArray(prompts) || prompts.length === 0) failures.push(`完成合同列表为空：${skill}`)
+  for (const prompt of prompts || []) if (map.prompts[prompt] !== skill || providerPrompts.has(prompt)) failures.push(`完成合同归属或模式无效：${skill} -> ${prompt}`)
+}
+for (const [prompt, skill] of Object.entries(map.prompts)) {
+  if (providerPrompts.has(prompt)) continue
+  for (const locale of ['zh', 'en']) {
+    const content = await readFile(resolve(root, 'skills', skill, 'assets/prompts', `${prompt}.${locale}.txt`), 'utf8')
+    if (!content.startsWith('# Codex ')) failures.push(`文本合同未固化为 Codex 形式：${prompt}.${locale}`)
+  }
+}
+for (const token of ['TYPE_PREFIXES', 'provenance', 'prompt_document', 'source_assets']) if (!assetLedger.includes(token)) failures.push(`资产规范实现缺少：${token}`)
+const taskLedger = await readFile(resolve(root, 'scripts/task-ledger.mjs'), 'utf8')
+for (const token of ['createRequestSnapshot', 'reserveTask', 'settleReservedTask', 'submitting', 'requestSha256', 'inputFingerprint', '.short-drama']) if (!taskLedger.includes(token)) failures.push(`生成请求留档缺少：${token}`)
+const skillRuns = await readFile(resolve(root, 'scripts/skill-runs.mjs'), 'utf8')
+if (!skillRuns.includes("version.provenance?.created_by !== 'provider'")) failures.push('Provider 变换资产可能绕过生成 Skill')
+for (const token of ['STARROUTER_AUDIO_MODELS', '/v1/audio/speech', 'speech-2.8-hd', 'audioPayload', 'audioResult', 'MiniMax-H3', 'MiniMax-H3-Max', '/v1/videos', 'h3Payload']) if (!starrouter.includes(token)) failures.push(`StarRouter 实现缺少：${token}`)
+for (const token of ['最多两张', '图片 9、视频 3、音频 3 或总数 12']) if (!starrouter.includes(token)) failures.push(`StarRouter 素材上限校验缺少：${token}`)
+const generationMcp = await readFile(resolve(root, 'scripts/generation/mcp.mjs'), 'utf8')
+for (const token of ['assetRoot', '视频生成必须引用有效的 episode/version/shot', 'selected 提示词版本', '实际视频参数与提示词文档', 'project.json 已确认配置一致', 'maxItems: 12', 'list_media_hosts', 'list_reference_uploads', 'publish_reference_image', 'reserveTask']) if (!generationMcp.includes(token)) failures.push(`生成入口边界校验缺少：${token}`)
+const litterbox = await readFile(resolve(root, 'scripts/media-hosting/litterbox.mjs'), 'utf8')
+const mediaPublish = await readFile(resolve(root, 'scripts/media-hosting/publish.mjs'), 'utf8')
+for (const token of ['https://litterbox.catbox.moe/resources/internals/api.php', "'1h', '12h', '24h', '72h'", 'litter.catbox.moe', 'redirect: \'error\'']) if (!litterbox.includes(token)) failures.push(`Litterbox 适配器合同缺少：${token}`)
+for (const token of ['rights_confirmed', 'public_exposure_confirmed', 'usage_terms_confirmed', 'commercial-authorized', 'force_reupload', 'listReferenceUploads', 'withFileLock', '.short-drama/uploads', 'selectedVersionId', 'version.sha256']) if (!mediaPublish.includes(token)) failures.push(`临时上传安全门禁缺少：${token}`)
+const referenceBindings = await readFile(resolve(root, 'scripts/reference-bindings.mjs'), 'utf8')
+for (const token of ['validateVideoReferenceBindings', 'reference_image_paths', 'reference_video_paths', 'validateTemporaryReferenceUrl', '本地参考路径与资产版本不一致']) if (!referenceBindings.includes(token)) failures.push(`视频参考绑定缺少：${token}`)
+for (const token of ['minimax-h3-reference-to-video', 'minimax-h3-workflow.json', '2086743729407733762', 'reference_image_paths', 'reference_video_paths', 'reference_audio_paths', 'MiniMaxH3ReferenceToVideo', 'validateH3References', 'confirm(input)']) if (!runninghub.includes(token) && token !== 'MiniMaxH3ReferenceToVideo') failures.push(`RunningHub H3 实现缺少：${token}`)
+const h3Workflow = await readFile(resolve(root, 'scripts/generation/minimax-h3-workflow.json'), 'utf8')
+if (!h3Workflow.includes('MiniMaxH3ReferenceToVideo')) failures.push('RunningHub H3 内置 workflow 无效')
+for (const token of ['COMFLY_TOKEN', 'minimax-h3', '1518', '1521', '1542', '/internal/comfly/tasks', 'input_mode=Ref2VA', 'reference_manifest 与实际素材数量不一致']) if (!comfly.includes(token)) failures.push(`Comfly 实现缺少：${token}`)
+for (const skill of ['use-short-drama-studio', 'orchestrate-short-drama', 'drama-generation-service']) {
+  const content = await readFile(resolve(root, 'skills', skill, 'SKILL.md'), 'utf8')
+  if (!/占位|placeholder/i.test(content) || !/MCP|工具列表|工具/.test(content)) failures.push(`媒体工具缺失门禁未写入：${skill}`)
+}
+
+const scriptStage = map.stages?.script || []
+for (const skill of ['short-drama', 'write-drama-episode', 'humanizer', 'review-drama-script']) if (!scriptStage.includes(skill)) failures.push(`剧本阶段缺少：${skill}`)
+for (const skill of ['remotion-best-practices', 'edit-drama-timeline']) if (!map.stages?.editing?.includes(skill)) failures.push(`剪辑阶段缺少：${skill}`)
+const editingGuide = await readFile(resolve(root, 'references/editing-workflow.md'), 'utf8')
+for (const token of ['selected', 'J/L-cut', '6–12 帧', '-14 至 -16 LUFS', '-1 dBTP', 'SRT', 'ASS']) if (!editingGuide.includes(token)) failures.push(`剪辑规范缺少：${token}`)
+const reviewSkill = await readFile(resolve(root, 'skills/review-drama-script/SKILL.md'), 'utf8')
+if (!reviewSkill.includes('../../references/writing/compliance-checklist.md')) failures.push('合规清单未接入剧本复核')
+if (!map.stages?.['asset-analysis']?.includes('generate-drama-art-style')) failures.push('资产分析阶段缺少画风生成 Skill')
+for (const [prompt, tokens] of Object.entries({
+  character_asset_sheet: ['脸部特写', '90 度侧面', '服装', '表情'],
+  scene_asset_sheet: ['09 动线与纵深透视', '平面布局', '轴测透视', '材质'],
+  prop_generate: ['主视图特写', '严格侧面', '结构', '纯白背景'],
+})) {
+  const skill = map.prompts[prompt]
+  const content = await readFile(resolve(root, 'skills', skill, 'assets/prompts', `${prompt}.zh.txt`), 'utf8')
+  for (const token of tokens) if (!content.includes(token)) failures.push(`${prompt} 未吸收完整设定板规则：${token}`)
+}
+for (const skill of ['generate-character-images', 'generate-scene-assets', 'generate-prop-assets']) {
+  for (const path of actualPrompts.filter((item) => item.startsWith(`${skill}/`))) {
+    const content = await readFile(resolve(root, 'skills', path), 'utf8')
+    if (/引号.*替换为「|quotation marks.*corner brackets/i.test(content)) failures.push(`资产提示词残留伪 JSON 引号规则：${path}`)
+  }
+}
+
+const parameterSkills = {
+  'drama-generation-service': ['gpt-image-2', '1K,2K,4K', 'first-last-frame,full-reference', 'MiniMax-H3,MiniMax-H3-Max', 'speech-2.8-hd,speech-2.8-turbo', 'minimax-h3-reference-to-video', 'minimax-h3'],
+  'generate-drama-videos': ['dreamina-seedance-2-0-fast-260128', 'doubao-seedance-1-5-pro-251215', '480p,720p,1080p', 'MiniMax-H3', 'MiniMax-H3-Max', '480P', '768P', '2K'],
+  'design-drama-audio': ['happy,sad,angry', '8000,16000,22050,24000,32000,44100', 'Chinese,Yue'],
+}
+for (const [skill, tokens] of Object.entries(parameterSkills)) {
+  const content = (await readFile(resolve(root, 'skills', skill, 'SKILL.md'), 'utf8')).replace(/[`{}\s]/g, '')
+  for (const token of tokens) if (!content.includes(token)) failures.push(`${skill} 缺少模型参数枚举：${token}`)
+}
+
+if (skillNames.some((name) => name.includes('vvicat'))) failures.push('Skill 名称不得包含 vvicat')
+if (failures.length) {
+  console.error(failures.join('\n'))
+  process.exitCode = 1
+} else {
+  console.log(JSON.stringify({ skills: skillNames.length, workflowSkills: map.workflow.length, supportSkills: map.support.length, prompts: Object.keys(map.prompts).length, codexContracts: Object.keys(map.prompts).length - providerPrompts.size, providerPrompts: providerPrompts.size, promptFiles: actualPrompts.length, mode: 'standalone-local', status: 'covered' }))
+}

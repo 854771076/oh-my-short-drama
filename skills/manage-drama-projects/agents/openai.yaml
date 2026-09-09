@@ -1,0 +1,3 @@
+interface:
+  display_name: "管理短剧项目"
+  short_description: "在本地目录管理短剧项目、分集、剧本和分镜版本。"

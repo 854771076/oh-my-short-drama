@@ -1,0 +1,3 @@
+interface:
+  display_name: "编辑短剧时间线"
+  short_description: "执行智能粗剪、字幕、转场、画面增强、声音优化与最终渲染。"

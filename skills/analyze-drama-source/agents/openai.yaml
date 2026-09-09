@@ -1,0 +1,3 @@
+interface:
+  display_name: "分析短剧原始材料"
+  short_description: "由 Codex 分析小说、用户要求和改编边界并本地落盘。"

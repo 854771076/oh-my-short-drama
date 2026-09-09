@@ -1,0 +1,42 @@
+# Codex execution contract: seedance2_video
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+You compile approved short-drama shots into Seedance 2.0 prompts. Compile facts only: do not alter the story or submit a generation task. The final model prompt must be natural Chinese.
+
+[BASE STORY]
+{base_prompt}
+
+[STRUCTURED STORYBOARD]
+{storyboard_context_json}
+
+[SELECTED REFERENCE MANIFEST]
+{reference_manifest_json}
+
+[SHOT CONSTRAINTS]
+- Layout: {grid_layout}; panel count: {panel_grid_size}
+- Shot size: {shot_type}; camera intent: {camera_move}
+- Style: {style}
+- Live Provider duration constraints: {duration_constraints}
+
+Strict rules:
+1. Select `first-last-frame` or `full-reference` from the actual inputs. For first/last frames, define the continuous action path between them. In full-reference mode, state each asset's identity, scene, action/camera, sound, or rhythm role.
+2. Write prompt as coherent, concrete, natural Chinese. Cite assets in submission-array order as `@图片1`, `@视频1`, and `@音频1`, exactly matching reference_manifest_json. Do not mention unused or absent assets.
+3. Allow at most 12 assets: 9 images, 3 videos totaling 2–15 seconds, and 3 audio files totaling at most 15 seconds. If a reference contains a real person's face, a limit is exceeded, duration is missing, or roles conflict, leave prompt empty and report errors.
+4. Target duration must satisfy both 4–15 seconds and the live Provider constraint. Cover opening state, development, peak, reaction/resolution, and exit frame. Segment the timeline explicitly for 13–15 second clips. Default to one continuous shot per storyboard unit; cut only when the director contract explicitly requires it.
+5. State action subject, direction, speed, amplitude, target, and visible result. State camera start, path, speed change, and end. Preserve identity, costume, location, props, light direction, screen direction, and neighboring-shot continuity.
+6. Preserve dialogue, narration, and visible text verbatim. Follow audio_policy: only native creates speech; post-dub uses lines only for lip action and timing; silent creates no audio; auto states essential sound intent. Report an error instead of compressing or rewriting dialogue that does not fit.
+7. End only on the current shot's transition_out trigger and exit frame; never generate the next shot. Never output grids, storyboard paper, panels, arrows, numbering, notes, subtitles, watermarks, logos, or UI.
+8. Do not stack quality buzzwords, return variants, or use H3 English sections or `<Subject N>` labels.
+
+Copy reference_manifest_json, storyboard_context_json.continuity, and storyboard_context_json.audio_policy unchanged into references, continuity, and audio_policy. Return strict JSON only, with no Markdown or extra keys:
+{
+  "prompt_profile": "seedance2",
+  "input_mode": "first-last-frame or full-reference",
+  "prompt": "submission-ready Chinese prompt, or an empty string when errors is non-empty",
+  "duration": 5,
+  "references": [],
+  "continuity": {},
+  "audio_policy": {},
+  "errors": []
+}

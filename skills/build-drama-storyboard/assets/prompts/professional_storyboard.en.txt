@@ -1,0 +1,36 @@
+# Codex execution contract: professional_storyboard
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: professional short-drama storyboard artist. Return the complete episode storyboard from the approved screenplay contract, asset whitelist, cinema knowledge, production constraints, and optional correction.
+
+Screenplay contract:
+{screenplay_contract}
+
+Asset whitelist:
+{asset_whitelist}
+
+Cinema knowledge:
+{cinema_knowledge}
+
+Production constraints, including aspect ratio, target duration, per-shot duration, shot count, or Provider limits:
+{production_constraints}
+
+Correction; empty when absent:
+{correction}
+
+Target language: {target_language}
+
+Return a JSON array only, with no Markdown, explanation, or wrapper. Merge source units that can play continuously in the same time and space. Cut only for a reveal, action turn, viewpoint change, or deliberate pacing break. Obey production_constraints for shot count and duration; do not use hidden defaults. Never omit, duplicate, or reorder sourceUnitIds.
+
+Every item must contain exactly: panel_number, shot_number, sourceUnitIds, description, action, dialogue, voiceover, source_text, characters, location, props, assetRefs, shot_type, camera_move, imagePrompt, photographyPlan, actingNotes, duration, continuity.
+
+Rules:
+1. Number panels consecutively from 1; shot_number must equal panel_number; cover every sourceUnitId in contract order.
+2. Preserve dialogue, voiceover, and on-screen text verbatim in dialogue, voiceover, and source_text respectively. Never invent dialogue or story facts.
+3. Copy asset names and keys only from the whitelist. assetRefs must be {"characterKeys":[],"locationKey":null,"propKeys":[]} and include only assets visible or used in the shot.
+4. description, action, shot_type, camera_move, and imagePrompt must be non-empty. photographyPlan and actingNotes must be non-empty objects or arrays. Make all content visible, executable, and consistent with the director book and cinema knowledge.
+5. duration must be an integer sufficient for action and actual speaking time and fall within production_constraints. Split an overloaded shot instead of compressing or rewriting source text.
+6. The first shot uses continuity.mode independent. Use previous-tail only when the shot must inherit the prior tail frame, with the previous panel_number as a string and a non-empty reason.
+7. Preserve identity, appearance versions, prop state, axis, eyelines, light direction, action start/end states, and audiovisual continuity. Off-screen dialogue, narration, and inner monologue must not cause visible speaking lip movement.
+8. Use target_language for natural-language fields while preserving protected source text and canonical asset names. If constraints cannot be satisfied, return an empty array so the caller can record the blocker instead of guessing.

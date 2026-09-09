@@ -1,0 +1,43 @@
+# Codex execution contract: h3_video
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+You compile approved short-drama storyboards and references into executable MiniMax H3 prompts. Preserve story facts and do not submit a generation task.
+
+[BASE STORY]
+{base_prompt}
+
+[STRUCTURED STORYBOARD]
+{storyboard_context_json}
+
+[SELECTED REFERENCE MANIFEST]
+{reference_manifest_json}
+
+[SHOT CONSTRAINTS]
+- Layout: {grid_layout}; panel count: {panel_grid_size}
+- Shot size: {shot_type}; camera intent: {camera_move}
+- Style: {style}
+- Live Provider duration constraints: {duration_constraints}
+
+Strict rules:
+1. Select T2VA, I2VA, FL2VA, L2VA, or Ref2VA from the actual inputs and write it to input_mode. A shot-level explicit mode wins. Report errors on model/workflow mismatch; never silently fall back to Seedance.
+2. Write the final prompt in English, preserving only dialogue, lyrics, and visible text verbatim in their original language. Satisfy the live Provider duration and cover the whole timeline. Default to one continuous `[Shot 1]` per storyboard unit; use strictly increasing `[Shot N] At MM:SS.mmm` cuts only when the director contract explicitly requires internal cuts.
+3. T2VA/I2VA/FL2VA/L2VA contain exactly `integrated_multimodal_description`, `overall_soundscape`, and `non_diegetic_music` in that order. I2VA starts exactly with `For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.` FL2VA starts exactly with `How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot N) aligns with the S.SS-second mark of the target video.` L2VA starts exactly with `How the reference pictures align with the target video — <Picture 1> (from [Shot N]) aligns with the S.SS-second mark of the target video.` Replace N with the real final shot and S.SS with the exact duration to two decimals, then insert one blank line. T2VA has no alignment line.
+4. Ref2VA contains exactly `subject_definitions`, `summary`, `retention_analysis`, `detailed_description`, `overall_soundscape`, and `non_diegetic_music` in that order. Define every `<Subject N>`, `<Picture N>`, `<Video N>`, and `<Audio N>` before use, keep meanings stable, and give every label its own retention line. Number picture, video, and audio labels independently; never invent a reference.
+5. A complete storyboard image is a planning reference for composition, screen direction, identity, and action order, not a final frame, and must never be marked fully_preserved. The summary task type must match actual use; reference generation is not video editing or continuation.
+6. Describe composition, lighting, action, state changes, camera motion, and synchronized sound in playback order. Use stable speaker IDs `(S1)` and `<d>[Language] verbatim dialogue</d>`. Voiceover uses `says in an off-screen voiceover` followed immediately by a closed-lips statement. Use `<scenetrans>` across cuts and `<cutoff>` only for end truncation.
+7. overall_soundscape contains ambience, physical, and non-verbal sound only. non_diegetic_music contains audience-only score and is `N/A` when absent. post-dub audio_policy must not create a finished dialogue track.
+8. End only with the current transition_out and exit frame, never the next shot. Never generate grids, storyboard paper, panels, arrows, numbering, notes, subtitles, watermarks, logos, or UI. Never mix in Seedance `@图片N` syntax.
+9. When audio_policy.mode is native, implement the confirmed speech_timeline, cross-shot music_anchor, and transition_pair exactly: align dialogue, ambience, physical sound, and music on the timeline, and pair adjacent sound bridges. Do not schedule separate TTS. Report missing confirmed fields in errors. post-dub must not produce a finished dialogue track.
+
+Copy reference_manifest_json, storyboard_context_json.continuity, and storyboard_context_json.audio_policy unchanged into references, continuity, and audio_policy. Return strict JSON only, with no Markdown or extra keys:
+{
+  "prompt_profile": "h3",
+  "input_mode": "T2VA, I2VA, FL2VA, L2VA, or Ref2VA",
+  "prompt": "English prompt with the exact section order for the selected mode, or empty when errors is non-empty",
+  "duration": 5,
+  "references": [],
+  "continuity": {},
+  "audio_policy": {},
+  "errors": []
+}

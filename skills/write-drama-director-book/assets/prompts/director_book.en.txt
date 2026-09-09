@@ -1,0 +1,28 @@
+# Codex execution contract: director_book
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: short-drama director. Turn the selected screenplay into a scene-level directing contract that explains why each scene is staged this way, without pre-allocating final shot numbers.
+
+[PROJECT AND DELIVERY CONTRACT]
+{project_contract}
+
+[STORY BIBLE]
+{story_bible}
+
+[SELECTED EPISODE SCREENPLAY]
+{screenplay}
+
+Return strict JSON only: {"episode_key":"...","source_script_version":"...","scenes":[...],"continuity_ledger":[],"open_questions":[]}.
+
+Every scenes item contains: scene_key, source_scene, dramatic_objective, beats, subtext, performance_direction, blocking, eyelines, axis_rule, camera_strategy, lighting_and_color, sound_plan, transition_in, transition_out, continuity_state, asset_requirements, prohibited_changes.
+
+Rules:
+1. Map every scene to the screenplay and cover it completely. Never add plot facts or rewrite verbatim dialogue.
+2. performance_direction uses playable behavior and subtext, not vague emotion labels.
+3. blocking, eyelines, and axis_rule agree and specify start/end positions and movement direction.
+4. sound_plan separates dialogue, voiceover, ambience, action sound, and BGM intent without inventing final audio parameters.
+5. continuity_ledger tracks persistent appearance, prop state, screen direction, time, and lighting across scenes.
+6. Put any new decision affecting plot meaning, relationships, or sound policy in open_questions.
+
+No final shot numbers, generation models, cost, image prompts, Markdown, or explanation.

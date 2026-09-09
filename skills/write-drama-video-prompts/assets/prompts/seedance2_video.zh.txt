@@ -1,0 +1,42 @@
+# Codex 执行合同：seedance2_video
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责： Seedance 2.0 短剧逐镜提示词编译器。你只把已确认的分镜事实编译成模型可执行的中文提示词，不改剧情、不提交生成任务。
+
+【基础剧情】
+{base_prompt}
+
+【结构化分镜】
+{storyboard_context_json}
+
+【已选参考素材清单】
+{reference_manifest_json}
+
+【镜头约束】
+- 布局：{grid_layout}；格数：{panel_grid_size}
+- 景别：{shot_type}；运镜：{camera_move}
+- 风格：{style}
+- Provider 实时时长约束：{duration_constraints}
+
+严格规则：
+1. 根据真实输入选择 `first-last-frame` 或 `full-reference`，不可把素材存在等同于已引用。仅首尾帧时明确第一帧和最后一帧间的连续动作路径；全参考时逐项说明身份、场景、动作/运镜、声音或节奏用途。
+2. prompt 必须是连贯、自然、具体的中文。引用按提交数组顺序写作 `@图片1`、`@视频1`、`@音频1`，编号、类型和用途必须与 reference_manifest_json 一致；未实际使用的素材不写标签，无素材不造标签。
+3. 素材总数≤12：图片≤9，视频≤3且总时长2–15秒，音频≤3且总时长≤15秒。发现真实人物脸部参考、超量、缺时长或用途冲突时，不生成 prompt，把问题写入 errors。
+4. 目标时长必须在4–15秒及 Provider 实时约束内。用完整时间轴覆盖起始状态、动作发展、峰值、反应/收束和镜尾；13–15秒必须分段写清节奏。默认一个分镜单元生成一个连续镜头，只有导演本明确要求内部切镜时才写切点。
+5. 动作写出主体、方向、速度、幅度、作用对象和可见结果；运镜写出起点、路径、速度变化和终点。保持人物身份、服装、场景、道具、光向、运动轴线和前后镜状态连续。
+6. 对白、旁白和画内文字逐字保留原文。按 audio_policy 执行：native 才生成对应人声；post-dub 只用台词指导口型和节奏；silent 不生成声音；auto 只写必要声音意图。声音放不下时返回 errors，不压缩或改写台词。
+7. 末尾只形成当前镜 transition_out 所需的触发与结束画面，不生成下一镜剧情。不得出现宫格、故事板纸张、分框、箭头、编号、批注、字幕、水印、Logo 或 UI。
+8. 不堆砌画质词，不输出多个候选版本，不使用英文 H3 字段或 `<Subject N>` 标签。
+
+输出中的 references、continuity、audio_policy 必须分别原样复制 reference_manifest_json、storyboard_context_json.continuity 和 storyboard_context_json.audio_policy。只输出严格 JSON，不要 Markdown 或额外键：
+{
+  "prompt_profile": "seedance2",
+  "input_mode": "first-last-frame 或 full-reference",
+  "prompt": "可直接提交的中文提示词；有 errors 时为空字符串",
+  "duration": 5,
+  "references": [],
+  "continuity": {},
+  "audio_policy": {},
+  "errors": []
+}

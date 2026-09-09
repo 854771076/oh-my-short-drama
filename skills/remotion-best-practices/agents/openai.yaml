@@ -1,0 +1,4 @@
+interface:
+  display_name: "Remotion 剪辑规范"
+  short_description: "用帧确定时间线完成本地短剧剪辑、字幕、声音与渲染。"
+  default_prompt: "请按 Remotion 短剧剪辑规范实现当前项目的可复现时间线和审片渲染。"

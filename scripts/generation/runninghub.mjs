@@ -1,0 +1,210 @@
+import { readFile, stat } from 'node:fs/promises'
+import { basename } from 'node:path'
+import { credential } from './credentials.mjs'
+
+const BASE_URL = (process.env.RUNNINGHUB_BASE_URL || 'https://www.runninghub.ai').replace(/\/+$/, '')
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+const H3_MODEL = 'minimax-h3-reference-to-video'
+const H3_WORKFLOW_ID = process.env.RUNNINGHUB_H3_WORKFLOW_ID || '2086743729407733762'
+const H3_TEMPLATE = JSON.parse(await readFile(new URL('./minimax-h3-workflow.json', import.meta.url), 'utf8'))
+const H3_RATIOS = { '16:9': '16:9 (Widescreen)', '9:16': '9:16 (Portrait Widescreen)' }
+const H3_MEGAPIXELS = { '480p': 0.4, '720p': 0.9, '1K': 1, '2K': 2 }
+
+function apiKey() {
+  const value = credential('RUNNINGHUB_API_KEY')
+  if (!value) throw new Error('RUNNINGHUB_API_KEY 未配置')
+  return value
+}
+
+function confirm(input) {
+  if (input.confirmed !== true) throw new Error('付费生成前必须取得用户确认，并传 confirmed=true')
+}
+
+async function responseJson(response) {
+  const raw = await response.text()
+  let data
+  try { data = raw ? JSON.parse(raw) : {} } catch { throw new Error('RUNNINGHUB_RESPONSE_INVALID_JSON') }
+  if (!response.ok) throw new Error(`RUNNINGHUB_REQUEST_FAILED(${response.status}): ${String(data?.msg || data?.message || raw).slice(0, 500)}`)
+  return data
+}
+
+async function request(path, init) {
+  return responseJson(await fetch(`${BASE_URL}${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${apiKey()}`, ...(init?.headers || {}) },
+    signal: AbortSignal.timeout(init?.timeout ?? 120_000),
+  }))
+}
+
+async function upload(path) {
+  if ((await stat(path)).size > MAX_UPLOAD_BYTES) throw new Error(`RunningHub 参考素材超过 200MB：${path}`)
+  const form = new FormData()
+  form.append('file', new Blob([await readFile(path)]), basename(path))
+  const payload = await request('/openapi/v2/media/upload/binary', { method: 'POST', body: form })
+  if (![0, 200, '0', '200', undefined].includes(payload.code)) throw new Error(`RUNNINGHUB_UPLOAD_FAILED: ${String(payload.msg || payload.code)}`)
+  const filename = payload?.data?.filename || payload?.data?.fileName
+  if (!filename) throw new Error('RUNNINGHUB_UPLOAD_FILENAME_MISSING')
+  return filename
+}
+
+function replaceMarkers(value, prompt, assets) {
+  if (value === '@prompt') return prompt
+  const match = typeof value === 'string' && /^@asset:(\d+)$/.exec(value)
+  if (match) {
+    const asset = assets[Number(match[1])]
+    if (!asset) throw new Error(`RunningHub 素材占位不存在：${value}`)
+    return asset
+  }
+  if (Array.isArray(value)) return value.map((item) => replaceMarkers(item, prompt, assets))
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, replaceMarkers(child, prompt, assets)]))
+  return value
+}
+
+function validateVideoPrompt(input) {
+  if (input.prompt_profile !== 'h3') return
+  if (!['T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA'].includes(input.input_mode)) throw new Error('MiniMax H3 input_mode 无效')
+  if (input.prompt.includes('@图片') || input.prompt.includes('@视频') || input.prompt.includes('@音频')) throw new Error('MiniMax H3 提示词不得混入 Seedance 引用语法')
+  const sections = input.input_mode === 'Ref2VA'
+    ? ['subject_definitions:', 'summary:', 'retention_analysis:', 'detailed_description:', 'overall_soundscape:', 'non_diegetic_music:']
+    : ['integrated_multimodal_description:', 'overall_soundscape:', 'non_diegetic_music:']
+  const positions = sections.map((section) => input.prompt.indexOf(section))
+  if (positions.some((position) => position < 0) || positions.some((position, index) => index > 0 && position <= positions[index - 1])) throw new Error('MiniMax H3 提示词段落结构无效')
+}
+
+function h3Paths(input, key, fallback = []) {
+  const values = input[key] ?? fallback
+  if (!Array.isArray(values) || values.some((value) => typeof value !== 'string' || !value.trim())) throw new Error(`RunningHub H3 ${key} 必须是本地文件路径数组`)
+  return values
+}
+
+function validateH3References(input, groups) {
+  const counts = Object.fromEntries(groups.map(([name, paths]) => [name, paths.length]))
+  const manifest = Array.isArray(input.reference_manifest) ? input.reference_manifest : []
+  if (manifest.length !== counts.images + counts.videos + counts.audios) throw new Error('RunningHub H3 reference_manifest 与实际素材数量不一致')
+  for (const [name, paths] of groups) {
+    const type = name.slice(0, -1)
+    const items = manifest.filter((item) => item?.type === type)
+    if (items.length !== paths.length || items.some((item, index) => item.order !== index + 1)) throw new Error(`RunningHub H3 ${type} 素材顺序无效`)
+  }
+  const keyframes = manifest.filter((item) => ['first_frame', 'last_frame'].includes(item.role))
+  const references = manifest.filter((item) => ['reference_image', 'reference_video', 'reference_audio'].includes(item.role))
+  if (keyframes.length + references.length !== manifest.length || keyframes.some((item) => item.type !== 'image')) throw new Error('RunningHub H3 reference_manifest 包含无效素材角色')
+  const expected = { T2VA: [0, 0], I2VA: [1, 0], FL2VA: [2, 0], L2VA: [1, 0], Ref2VA: [0, 1] }[input.input_mode]
+  if (!expected || keyframes.length !== expected[0] || (expected[1] ? references.length < expected[1] : references.length !== 0)) throw new Error(`RunningHub H3 素材与 ${input.input_mode} 不匹配`)
+  if (input.input_mode === 'I2VA' && keyframes[0]?.role !== 'first_frame') throw new Error('RunningHub H3 I2VA 必须使用 first_frame')
+  if (input.input_mode === 'FL2VA' && keyframes.map((item) => item.role).join() !== 'first_frame,last_frame') throw new Error('RunningHub H3 FL2VA 必须依次使用 first_frame、last_frame')
+  if (input.input_mode === 'L2VA' && keyframes[0]?.role !== 'last_frame') throw new Error('RunningHub H3 L2VA 必须使用 last_frame')
+  const roles = { image: 'reference_image', video: 'reference_video', audio: 'reference_audio' }
+  if (references.some((item) => item.role !== roles[item.type])) throw new Error('RunningHub H3 参考素材 role 与类型不匹配')
+}
+
+async function submitH3(input) {
+  confirm(input)
+  const duration = Math.max(5, Math.round(input.duration || 5))
+  const ratio = input.ratio || '16:9'
+  const resolution = input.resolution || '1K'
+  if (duration > 15) throw new Error('RunningHub H3 duration 必须为 1–15 秒，1–4 秒会归一为 5 秒')
+  if (!H3_RATIOS[ratio]) throw new Error('RunningHub H3 ratio 只能是 16:9 或 9:16')
+  if (!H3_MEGAPIXELS[resolution]) throw new Error('RunningHub H3 resolution 只能是 480p、720p、1K 或 2K')
+  const groups = [
+    ['images', h3Paths(input, 'reference_image_paths', input.reference_paths || []), 9, 100, 'LoadImage', 'ref_images.ref_image_'],
+    ['videos', h3Paths(input, 'reference_video_paths'), 2, 120, 'VHS_LoadVideo', 'ref_videos.ref_video_'],
+    ['audios', h3Paths(input, 'reference_audio_paths'), 2, 140, 'LoadAudio', 'ref_audios.ref_audio_'],
+  ]
+  for (const [name, paths, maximum] of groups) if (paths.length > maximum) throw new Error(`RunningHub H3 ${name} 数量超过 ${maximum}`)
+  validateH3References(input, groups)
+  if (!input.prompt?.trim() && groups.every(([, paths]) => paths.length === 0)) throw new Error('RunningHub H3 纯文本生成必须提供 prompt')
+  const workflow = structuredClone(H3_TEMPLATE)
+  workflow['25'].inputs.value = input.prompt || ''
+  workflow['28'].inputs.value = duration
+  workflow['26'].inputs.aspect_ratio = H3_RATIOS[ratio]
+  workflow['26'].inputs.megapixels = H3_MEGAPIXELS[resolution]
+  for (const [name, paths, , start, classType, slot] of groups) {
+    const uploaded = []
+    for (const path of paths) uploaded.push(await upload(path))
+    uploaded.forEach((asset, index) => {
+      const id = String(start + index)
+      const inputs = name === 'videos'
+        ? { video: asset, force_rate: 0, custom_width: 0, custom_height: 0, frame_load_cap: 0, skip_first_frames: 0, select_every_nth: 1 }
+        : name === 'images' ? { image: asset } : { audio: asset }
+      workflow[id] = { inputs, class_type: classType, _meta: { title: classType } }
+      workflow['31'].inputs[`${slot}${index}`] = [id, 0]
+    })
+  }
+  const payload = await request('/task/openapi/create', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey: apiKey(), workflowId: H3_WORKFLOW_ID, workflow: JSON.stringify(workflow), addMetadata: false }),
+  })
+  if (Number(payload.code) !== 0 || !payload?.data?.taskId) throw new Error(`RUNNINGHUB_H3_SUBMIT_FAILED: ${String(payload.msg || payload.code)}`)
+  return { task_id: payload.data.taskId, provider: 'runninghub', media_type: 'video', model: H3_MODEL, workflow_id: H3_WORKFLOW_ID, status: 'submitted' }
+}
+
+async function submit(input, modality) {
+  confirm(input)
+  if (modality === 'video') validateVideoPrompt(input)
+  const workflowEnv = { image: 'RUNNINGHUB_IMAGE_WORKFLOW_ID', video: 'RUNNINGHUB_VIDEO_WORKFLOW_ID', audio: 'RUNNINGHUB_AUDIO_WORKFLOW_ID' }
+  const workflowId = input.workflow_id || process.env[workflowEnv[modality]]
+  if (!workflowId?.trim()) throw new Error(`RunningHub ${modality} workflow_id 未配置`)
+  if (!Array.isArray(input.node_info_list) || input.node_info_list.length === 0) throw new Error('RunningHub node_info_list 必填')
+  const paths = Array.isArray(input.reference_paths) ? input.reference_paths : []
+  const assets = []
+  for (const path of paths) assets.push(await upload(path))
+  const nodeInfoList = replaceMarkers(input.node_info_list, input.prompt || '', assets)
+  const payload = await request('/task/openapi/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey: apiKey(), workflowId, nodeInfoList, addMetadata: true }),
+  })
+  if (Number(payload.code) !== 0) throw new Error(`RUNNINGHUB_SUBMIT_FAILED: ${String(payload.msg || payload.code)}`)
+  const taskId = payload?.data?.taskId
+  if (!taskId) throw new Error('RUNNINGHUB_TASK_ID_MISSING')
+  return { task_id: taskId, provider: 'runninghub', media_type: modality, status: 'submitted' }
+}
+
+function outputUrls(data, found = []) {
+  if (!data || typeof data !== 'object') return found
+  for (const name of ['url', 'fileUrl', 'videoUrl', 'video_url', 'downloadUrl', 'download_url']) {
+    const value = data[name]
+    if (typeof value === 'string' && /^https?:\/\//.test(value)) found.push(value)
+  }
+  for (const child of Object.values(data)) if (child && typeof child === 'object') outputUrls(child, found)
+  return [...new Set(found)]
+}
+
+export const runninghub = {
+  label: 'RunningHub', credentialEnv: 'RUNNINGHUB_API_KEY',
+  catalog: { image: [process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID].filter(Boolean), video: [H3_MODEL, process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID].filter(Boolean), audio: [process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID].filter(Boolean) },
+  capabilities: { text: false, image: true, video: true, audio: true },
+  async models() {
+    return { provider: 'runninghub', video_models: [H3_MODEL], workflows: { image: process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID || null, video: process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID || null, h3_video: H3_WORKFLOW_ID, audio: process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID || null } }
+  },
+  async testConnection() {
+    const value = apiKey()
+    const payload = await request('/uc/openapi/accountStatus', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apikey: value }), timeout: 20_000 })
+    if (Number(payload.code) !== 0) throw new Error(`RUNNINGHUB_REQUEST_FAILED(${payload.code}): ${String(payload.msg || '认证失败')}`)
+  },
+  async text() { throw new Error('RunningHub 不提供通用文本生成') },
+  async image(input) { return submit(input, 'image') },
+  async submitVideo(input) { validateVideoPrompt(input); return input.model === H3_MODEL ? submitH3(input) : submit(input, 'video') },
+  async audio(input) { return submit(input, 'audio') },
+  async task(input) {
+    if (!input.task_id?.trim()) throw new Error('task_id 必填')
+    const payload = await request('/openapi/v2/query', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: input.task_id }), timeout: 30_000,
+    })
+    if ([804, 813].includes(Number(payload.code))) return { provider: 'runninghub', status: 'pending' }
+    if (Number(payload.code) === 805) return { provider: 'runninghub', status: 'failed', error: String(payload.msg || '任务失败') }
+    if (![0, 200].includes(Number(payload.code))) return { provider: 'runninghub', status: 'failed', error: String(payload.msg || payload.code) }
+    const urls = outputUrls(payload.data ?? payload)
+    return urls.length ? { provider: 'runninghub', status: 'completed', outputs: urls.map((url) => ({ url, media_type: input.media_type })) } : { provider: 'runninghub', status: 'pending' }
+  },
+}
+
+export function selfCheck() {
+  if (replaceMarkers({ text: '@prompt', image: '@asset:0' }, 'hello', ['a.png']).image !== 'a.png') throw new Error('RunningHub marker 自检失败')
+  if (outputUrls([{ url: 'https://example.com/a.png' }, { fileUrl: 'https://example.com/b.png' }]).length !== 2) throw new Error('RunningHub 输出归一化失败')
+  validateVideoPrompt({ prompt_profile: 'h3', input_mode: 'T2VA', prompt: 'integrated_multimodal_description: A\noverall_soundscape: A\nnon_diegetic_music: N/A' })
+  validateH3References({ input_mode: 'FL2VA', reference_manifest: [{ type: 'image', order: 1, role: 'first_frame' }, { type: 'image', order: 2, role: 'last_frame' }] }, [['images', ['a', 'b']], ['videos', []], ['audios', []]])
+  try { validateH3References({ input_mode: 'I2VA', reference_manifest: [] }, [['images', []], ['videos', []], ['audios', []]]); throw new Error('RunningHub H3 模式自检失败') } catch (error) { if (!String(error.message).includes('I2VA')) throw error }
+  if (H3_TEMPLATE['31']?.class_type !== 'MiniMaxH3ReferenceToVideo') throw new Error('RunningHub H3 内置工作流无效')
+}

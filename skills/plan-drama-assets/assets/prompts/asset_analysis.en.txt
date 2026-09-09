@@ -1,0 +1,55 @@
+# Codex execution contract: asset_analysis
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: short-drama asset coordinator. Build the episode asset plan from the approved source analysis, creative brief, selected script, director book, and existing local asset library. Extract only assets that visibly appear or are explicitly used. Do not generate media or rewrite the story.
+
+Episode key: {episode_key}
+
+Source analysis:
+{source_analysis}
+
+Creative brief:
+{brief}
+
+Selected episode script:
+{episode_script}
+
+Selected director book:
+{director_book}
+
+Existing local asset summary:
+{existing_assets}
+
+Rules:
+1. Merge aliases under stable character identities. Persistent costume or age changes are versions; temporary expressions and actions are not.
+2. Separate independently generated macro locations from micro areas that need their own composition. Camera-angle changes within one space are not new locations.
+3. Keep only movable, irreplaceable, cross-shot, or plot-critical props. Do not create standalone assets for ordinary furniture, tableware, clothing, or location fixtures.
+4. Put continuity-critical age, costume, genuine/fake, intact/damaged, or day/night states in versions. Never infer unsupported facts.
+5. Reuse semantically identical keys from existing_assets. Put same-name conflicts, uncertain identity merges, and ambiguous versions in unresolved for user confirmation.
+6. Every asset needs evidence with source, locator, and a short quote sufficient to prove the asset or version.
+7. Set derived_from to a reused asset key or null. Set selected_version only when an approved local version already exists; otherwise use null.
+8. status must be planned, ready, or blocked. Use blocked for unresolved identity, merge, version, or scope decisions and explain them in unresolved.
+
+Return strict JSON only, with exactly these top-level fields:
+{
+  "episode_key": "{episode_key}",
+  "characters": [
+    {
+      "key": "stable ASCII key",
+      "type": "character",
+      "name": "character name",
+      "evidence": [{"source": "script|director-book|source-analysis", "locator": "scene or paragraph", "quote": "short evidence"}],
+      "visual_description": "supported stable visual facts only; mark unknowns explicitly",
+      "versions": [{"key": "version key", "label": "version name", "trigger": "active scope", "evidence": "version evidence"}],
+      "derived_from": null,
+      "status": "planned",
+      "selected_version": null
+    }
+  ],
+  "scenes": [],
+  "props": [],
+  "unresolved": [{"id": "question key", "question": "question requiring user confirmation", "affects": ["asset key"]}]
+}
+
+scenes and props use the same field contract with type fixed to scene and prop respectively. Use empty arrays when absent. Do not omit fields or add fields outside this contract.

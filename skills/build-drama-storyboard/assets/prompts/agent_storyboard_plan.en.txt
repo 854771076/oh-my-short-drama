@@ -1,0 +1,100 @@
+# Codex execution contract: agent_storyboard_plan
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: storyboard planning director.
+Generate an initial panel sequence for one clip.
+
+Character library names:
+{characters_lib_name}
+
+Location library names:
+{locations_lib_name}
+
+Character introduction mapping:
+{characters_introduction}
+
+Character appearance list:
+{characters_appearance_list}
+
+Character full descriptions:
+{characters_full_description}
+
+Prop descriptions:
+{props_description}
+
+Clip metadata JSON:
+{clip_json}
+
+Clip content:
+{clip_content}
+
+Task:
+Create a coherent panel plan that covers the full clip content in chronological order.
+Treat one shot as one irreducible visible narrative beat. Merge dialogue, listening, ordinary reactions, and continuous action when they share the same blocking. Create a new shot only for a reveal, action turn, viewpoint change, or clear rhythm break. Never add repeated action, an empty reaction, or a shot with no new story information.
+Each panel is one video-model generation: one time, one place, and one continuous camera take. Split every montage, cross-cut, location change, camera cut, or chain of independent causal actions into separate panels and relate them with shot_group.
+
+{storyboard_scene_types}
+
+{cinematography_vocabulary}
+
+Output format (JSON array only):
+Every panel must include the complete director contract: `narrative_purpose`; `shot_group: {id, type, role, pattern}`; `motion_plan: {subject, start_state, end_state, verb, camera_role}`; `scene_strategy: {scene_id, objective, viewpoint, tone, pacing, visual_motif, sound_motif}`; `rhythm_plan: {beat_role, intensity}`; `edit_plan: {cut_motivation, axis, screen_direction, transition, sound_bridge, intended_duration, transition_in, transition_out}`; `dialogue_plan: {mode, focus}`; and `visual_plan: {emphasis, standout, technique}`. `pattern` must be one of standard/reaction-first/action-stacked/reaction-omitted/action-hidden/delayed-reaction/synchronous/reaction-chain/repeated-variation/contrapuntal/omitted-action/chain-link and stay identical inside a group. Keep `scene_strategy` identical for every panel sharing a scene_id. `duration` is generated source length; `intended_duration` is the planned final edit hold and must be greater than zero and no longer than `duration`.
+After completing the full ordered panel array, design one shared transition contract for every adjacent pair. Store the same contract as the source panel's `transition_out` and the target panel's `transition_in`. The first panel has no `transition_in`, the last panel has no `transition_out`, and every middle panel has both.
+Each `transition_in`/`transition_out` is `{source_shot_key, target_shot_key, kind, motivation, source_end, target_start, screen_direction, trigger, audio_bridge, confidence}`. During planning, use stringified `panel_number` values for the shot keys. `kind` must be action-hold-hard-cut/occlusion-cut/whip-pan-cut/action-match-cut/match-cut/motivated-light-cut/dissolve-time-cut/black-cut. Contract `screen_direction` must be left-to-right/right-to-left/up/down/in/out/neutral, and `confidence` must be high/medium/low.
+Prefer evidenced action, occlusion, whip, composition, story-motivated light, time, or black-frame bridges. Low-confidence contracts must fall back to `action-hold-hard-cut` with `neutral` direction. Never use an unmotivated flash, random smoke, or arbitrary spatial distortion as a fallback. Omit `audio_bridge` when the story provides no sound motivation.
+Allowed values: shot group type = single/montage/progression/causal/contrast; role = setup/action/reaction/bridge/payoff; camera_role = observe/follow/reveal/contrast/hold; beat_role = setup/build/turn/climax/release/transition with integer intensity 1–5; axis = establishing/same-axis/reverse/neutral/insert; screen_direction = left-to-right/right-to-left/neutral; transition = hard-cut/match-cut/J-cut/L-cut/dissolve/fade/continuous; dialogue mode = speaker/listener/two-shot/over-shoulder/dirty-single/clean-single/environment/long-take/none; dialogue focus = speaker/listener/relation/environment/action/none; visual technique = standard/metaphor/reveal/callback/contrast/withhold/spectacle, with boolean standout.
+First set the scene objective, viewpoint, tone, pacing, and audiovisual motifs, then design shot groups and shot-level change. Use visible subjects, distinct start/end states, and executable verbs; fade, slide, pop, or zoom alone is not story motion. Apart from intentional holds, at least 80% of shots must show a visible state change. A causal group normally needs action plus reaction/payoff in the pattern order; reaction-omitted may omit the reaction, omitted-action/action-hidden may omit visible action, reaction-first reverses the order, and synchronous/repeated-variation/contrapuntal do not impose order. Do not use one dialogue coverage mode for 3 consecutive dialogue shots. Scenes of 4+ shots need intensity variation; keep roughly 70% standard and at most roughly 30% standout shots reserved for turns or climaxes. Motivate every cut and preserve axis, eyeline, and screen direction. J/L cuts and sound bridges need a concrete sound source. Equal start/end states are allowed only for an intentional hold whose purpose explains the pause.
+[
+  {
+    "panel_number": 1,
+    "shot_number": 1,
+    "description": "visual action description",
+    "characters": [
+      { "name": "Character Name", "appearance": "appearance name", "slot": "the position beneath the throne steps at the center of the hall" }
+    ],
+    "location": "location name",
+    "scene_type": "daily",
+    "source_text": "exact or near-exact source excerpt",
+    "shot_type": "medium shot",
+    "camera_move": "static",
+    "video_prompt": "short visual motion prompt",
+    "duration": 5,
+    "continuity_mode": "independent or previous-tail",
+    "continuity_reason": "specific reason for a hard cut or tail-frame continuation"
+  }
+]
+
+Planning rules:
+1. Keep strict chronological order.
+   - props may contain only assets explicitly present in the current shot source_text and actually visible or handled in that shot.
+   - The prop library is only a candidate list. Never carry a prop forward from a previous shot without current-shot evidence; use [] when no prop is evidenced.
+   - Before returning, remove from each shot every prop not explicitly present in that shot source_text, and remove the same prop from description.
+2. Avoid missing key beats from clip_content.
+3. Keep panel transitions smooth and logically continuous.
+4. Use locations and characters consistent with provided libraries and mappings.
+   - `clip_json.characters` is the minimum cast list for this clip. If `clip_content` or the structured screenplay explicitly mentions additional character assets, include them in relationship reasoning too.
+   - In wide, long, medium, and multi-character relationship shots, every core character still present in the current scene and not explicitly exited must appear in the `characters` array and be positioned or acknowledged in `description`.
+   - Close-ups, inserts, reaction shots, and reverse shots may include only what the camera can actually see, but `description` must make the tight framing clear so the character is not perceived as disappearing.
+   - Dialogue shots must include at least the speaker. If the listener, shoulder, silhouette, or reaction is visible, include the listener in `characters` and describe their screen position.
+
+   Macro vs. micro location selection:
+   - The location library annotates each entry as macro (overall setting) or micro (specific room/area inside a macro).
+   - Shot-scale drives the choice:
+     - Wide / establishing / aerial / exterior shots → select the **macro** entry. Fill the `location` field with just the macro name (e.g. `"Lin Manor"`).
+     - Medium / close-up / interior-detail shots → select the **micro** entry. Fill the `location` field with the **full path** `"macroName/microName"` (e.g. `"Lin Manor/Main Hall"`).
+   - Fallback: if the source text only mentions the macro without specifying a sub-location, pick the macro and use its plain name.
+   - If the source says characters move toward / enter a specific local area, bind subsequent related shots to the corresponding full micro path, such as `"Zixiao Palace/Palace Hall Entrance"` or `"Zixiao Palace/Main Hall"`.
+   - Establishing shots may use the macro. After entering a local area, medium, close-up, and relationship shots should keep using that micro path until the scene clearly changes.
+   - Never emit a bare micro name without its macro prefix — always output the full `macroName/microName` path for micro entries.
+
+5. Prefer concrete, visible actions over abstract wording.
+6. If location context contains available slots, treat them as preferred placement anchors rather than mandatory hard boundaries.
+7. Prefer assigning a `slot` by copying one full placement phrase from `available_slots` verbatim when a character is stably positioned in the scene.
+8. You may omit `slot` when the shot is mainly about movement, entry/exit, path traversal, transition space, temporary space, empty space, imagination, dream, memory, or abstract/non-literal space.
+9. When no `slot` is used, decide placement freely from source text, action flow, and cinematic staging instead of forcing one of the provided slots.
+10. Do not shorten, rewrite, summarize, or replace a provided slot phrase with a short token such as `slot_1`, `left`, or `throne_front`.
+11. `duration` is required. Estimate it from visible action, actual speaking time, movement, and camera rhythm, and keep it within {shot_duration_constraints}. Include editing handles only when the constraint allows them. Do not mechanically add or remove shots to hit an exact episode total or assign one fixed duration to every shot.
+12. Return strict JSON only.
+13. ⚠️ JSON SAFETY: All quotation marks in text (""''「」 etc.) MUST be converted to corner brackets「」in JSON string values. NEVER use raw ASCII double quotes " inside string values.
+14. Continuity is required: use independent for the episode opener, scene/time changes, black frames, title cards, or explicit hard cuts; otherwise default to previous-tail. A Part boundary alone never breaks continuity.

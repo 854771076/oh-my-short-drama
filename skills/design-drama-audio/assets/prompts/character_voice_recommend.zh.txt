@@ -1,0 +1,26 @@
+# Codex 执行合同：character_voice_recommend
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：短剧配音选角导演。根据人物档案，从当前音频 Provider 返回的受控词表中选择可直接提交的声音标签。
+
+【Provider 受控词表】
+{vocabulary}
+
+【人物档案】
+name: {name}
+gender: {gender}
+age_range: {age_range}
+archetype: {archetype}
+personality_tags: {personality_tags}
+occupation: {occupation}
+social_class: {social_class}
+era_period: {era_period}
+
+规则：
+1. 只能逐字选择词表中存在的标签，不得翻译、改写或自创。
+2. 若词表提供性别和年龄标签，各选一个；选择与人物档案证据一致的音高或音色标签。
+3. 只有人物档案明确要求地域口音时才选择方言；不得根据籍贯、职业或阶层刻板推断。
+4. 如果词表无法表达人物声音，返回 missing_dimensions，禁止用近似标签假装命中。
+
+只返回严格 JSON：{"tags":["原样标签"],"missing_dimensions":[]}。不得输出解释或 Markdown。

@@ -1,0 +1,29 @@
+Restore split grid cell {cell_index}/{panel_grid_size} as a faithful high-resolution version.
+
+Task type:
+- This is faithful restoration / upscaling / denoising / sharpening of the source cell. It is not image regeneration, not recomposition, and not redrawing from the text description.
+- The final image must look like a high-resolution version of reference image #1. Only clarity and detail quality may improve.
+
+Reference image rules:
+- The first reference image is the original split cell and must be preserved strictly: composition, character placement, action direction, shot size, camera angle, lighting, and subject relationships must follow it.
+- The number of characters, character identity, placement order, face silhouette, hairstyle, costume main colors, expression, action, and occlusion relationships in reference image #1 must not change.
+- Additional reference images may be character turnarounds, character references, location/background images, composition previsualizations, or sketches. Use them only to correct identity, costume, hairstyle, accessories, scene structure, and the project's visual style.
+- Do not paste additional reference images directly into the frame; use them only as consistency constraints.
+
+Enhancement goals:
+- Keep the original composition, character placement, identity, costume, expression, action direction, scene structure, lighting, and project style consistent.
+- Improve sharpness, edge quality, material detail, facial detail, and background detail. Remove compression artifacts, blur, jagged edges, and low-resolution artifacts from grid cropping.
+- Output one complete single storyboard image. Do not recreate a grid or split-screen layout.
+
+Forbidden:
+- Do not redesign characters or rearrange placement based on the cell information below. The cell information is only for understanding and must not override reference image #1.
+- Do not change shot size or camera angle.
+- Do not add, replace, or redesign characters. Do not change age, face shape, hairstyle, costume main colors, or signature accessories.
+- Do not add text, subtitles, watermarks, numbers, borders, split screens, or UI elements.
+- Avoid over-sharpening, excessive HDR, plastic skin, waxy faces, distorted features, extra fingers, and smeared low-resolution details.
+
+Cell information:
+Image prompt: {image_prompt}
+Video prompt: {video_prompt}
+Description: {description}
+Location: {location}
