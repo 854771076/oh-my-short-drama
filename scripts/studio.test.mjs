@@ -7,12 +7,19 @@ import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { createStudioServer, DEFAULT_WORKSPACE_ROOT, initializeWorkspace } from './studio.mjs'
 import { renderDocument } from '../studio/document-view.js'
+import { parseRoute, projectRoute } from '../studio/router.js'
 
 const execute = promisify(execFile)
 const pluginRoot = resolve(import.meta.dirname, '..')
 const run = (script, args) => execute(process.execPath, [resolve(pluginRoot, 'scripts', script), ...args])
 
 assert.equal(DEFAULT_WORKSPACE_ROOT, resolve(homedir(), 'darma_project'))
+
+test('Dashboard 项目路由可在刷新后恢复', () => {
+  assert.deepEqual(parseRoute(projectRoute('demo drama', 'assets')), { projectKey: 'demo drama', view: 'assets' })
+  assert.deepEqual(parseRoute('#/projects/demo/unknown'), { projectKey: 'demo', view: 'overview' })
+  assert.equal(parseRoute('#/'), null)
+})
 
 test('结构化文档递归展示字段并转义内容', () => {
   const html = renderDocument({ episode_key: 'ep-001', characters: [{ name: '<林乔>' }] })
@@ -168,6 +175,15 @@ test('Dashboard 通过本地 HTTP API 初始化工作区并创建项目', async 
     const importedBody = await imported.json()
     assert.equal(imported.status, 201, importedBody.error)
     assert.equal(importedBody.assets.find((item) => item.key === 'scene-demo').versions[0].sizeBytes, 3)
+
+    const unconfirmedDelete = await fetch(`${base}/api/v1/projects/demo-drama`, { method: 'DELETE', headers: { 'x-short-drama-csrf': bootstrap.csrfToken } })
+    assert.equal(unconfirmedDelete.status, 400)
+    assert.equal((await fetch(`${base}/api/v1/projects/demo-drama`)).status, 200)
+
+    const deleted = await fetch(`${base}/api/v1/projects/demo-drama`, { method: 'DELETE', headers: { 'x-short-drama-csrf': bootstrap.csrfToken, 'x-short-drama-confirmed': 'true' } })
+    assert.equal(deleted.status, 200, await deleted.text())
+    await assert.rejects(stat(projectRoot), { code: 'ENOENT' })
+    assert.deepEqual((await fetch(`${base}/api/v1/workspace`).then((response) => response.json())).projects, [])
   })
   await rm(workspace, { recursive: true, force: true })
 })

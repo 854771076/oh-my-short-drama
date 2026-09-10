@@ -372,8 +372,16 @@ export function createStudioServer({ workspaceRoot: rootArg, providerTester = te
         return json(response, 200, { workspace: { ...workspace, path: workspaceRoot }, projects: await listProjects(workspaceRoot), csrfToken })
       }
       if (request.method === 'GET' && url.pathname === '/api/v1/providers') return json(response, 200, { providers: providerSetupCatalog() })
-      if (request.method === 'POST') {
+      if (request.method === 'POST' || request.method === 'DELETE') {
         if (request.headers['x-short-drama-csrf'] !== csrfToken) throw Object.assign(new Error('操作凭证无效，请刷新页面'), { status: 403 })
+        if (request.method === 'DELETE') {
+          const projectMatch = /^\/api\/v1\/projects\/([^/]+)$/.exec(url.pathname)
+          if (!projectMatch) throw Object.assign(new Error('接口不存在'), { status: 404 })
+          if (request.headers['x-short-drama-confirmed'] !== 'true') throw Object.assign(new Error('删除项目需要明确确认'), { status: 400 })
+          const key = decodeURIComponent(projectMatch[1])
+          await rm(await projectPath(workspaceRoot, key), { recursive: true })
+          return json(response, 200, { deleted: true, projectKey: key })
+        }
         if (url.pathname === '/api/v1/projects') return json(response, 201, await createProject(workspaceRoot, await body(request)))
         const credentialMatch = /^\/api\/v1\/providers\/([^/]+)\/credential$/.exec(url.pathname)
         if (credentialMatch) return json(response, 200, await configureProviderCredential(decodeURIComponent(credentialMatch[1]), await body(request)))
