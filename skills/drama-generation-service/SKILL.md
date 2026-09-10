@@ -11,6 +11,8 @@ description: 统一路由短剧图片、视频和音频生成 Provider。用于�
 
 付费前必须展示并确认：Provider、模型或工作流 ID、提示词版本、prompt_profile、input_mode、数量、尺寸/分辨率、时长、参考素材版本及其用途与顺序、声音策略和费用影响。所有图片、视频、音频调用必须传项目绝对路径 `project_root`、目标资产 key `target` 和 `prompt_document`：视频为 `{episode_key,version_id,shot_number}`；人物/场景/道具图为 `{kind:"asset-plan",episode_key,version_id,asset_key}`；分镜图为 `{kind:"storyboard",episode_key,version_id,shot_number}`；语音为 `{kind:"audio-plan",episode_key,version_id,line_index}`；音乐为 `{kind:"audio-plan",episode_key,version_id,track_key}`。只有不属于正式制作资产的 `other-*` 辅助图可传 `null`。视频还必须传 `prompt_version` 和结构化 `reference_manifest`，确认后才传 `confirmed: true`。
 
+批量生成按依赖关系分层：每一层所有门禁已通过、彼此无依赖的目标必须在同一批次全量并发调用，不设置本地并发上限，也不得等待一个目标完成后再提交下一个；并发数就是当前层全部 ready 目标数，由上游网关负责排队。只有派生场景、道具状态或其他明确依赖基础资产选版的目标进入下一层。每个目标仍保持独立请求、任务、失败状态和账本记录，单项失败不取消同批其他目标。
+
 生成入口以 `project.json.providers` 为已确认路由，实际 Provider 与模型/工作流必须一致。视频只能使用当前 selected 且已批准、无未决项的 `video-prompts` 版本；目标 key 固定为 `shot-epNNN-NNN`，提示词正文、模型、profile、输入模式、时长以及参考素材的类型、顺序、资产版本和用途必须逐项等于该镜合同。图片必须引用当前 selected 的资产计划或分镜，并与所属图片 Skill 留下的提示词正文一致；`reference_manifest` 与 `reference_paths` 等长，逐项绑定 selected 本地图片版本、用途和顺序。语音必须逐字匹配当前 approved `audio-plan` 的行，并匹配说话人—Provider—模型—voice 绑定；音乐必须匹配 `audio-plan.music_tracks` 的提示词、标题、标签、歌词、纯音乐开关、Provider 与模型。任何不一致都在请求 Provider 前拒绝。
 
 生成 MCP 在上述文档校验前先检查本地状态机，并复查全部已完成上游阶段的产物、选版、Skill 凭证和哈希。`generate_image` 的人物/场景/道具目标仅允许 `asset-generation`，分镜图仅允许 `media-production`；`submit_video`、`generate_audio`、`generate_music` 仅允许 `media-production`。门禁失败时不得创建请求快照、任务记录或访问 Provider。视频提示词必须先通过与 `project-store.mjs` 相同的完整合同校验，不把缺字段暴露为运行时 TypeError。
