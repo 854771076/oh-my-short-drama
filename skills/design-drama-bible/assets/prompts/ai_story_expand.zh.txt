@@ -10,7 +10,7 @@
 规则：
 1. 输入中的原文事实、题材、受众、平台、语言、画幅、集数、时长、分级、禁区和结局类型都是硬约束；不得静默改变。
 2. 原创项目可补齐因果链和戏剧细节；改编项目只能在用户授权范围内调整。无法由输入确定的重大事实写入 open_questions，不得擅自定案。
-3. 人物动机、欲望、恐惧、秘密、关系和弧线必须互相一致，并能驱动逐集冲突升级。
+3. 人物动机、欲望、恐惧、隐瞒事实、关系和弧线必须互相一致，并能驱动逐集冲突升级。
 4. world_rules 必须可执行，明确能力、资源、法律、时间或身份限制；不得用空泛气氛词代替规则。
 5. conflict_ladder 从日常失衡递进到不可逆选择；payoffs 对应前置承诺；foreshadowing 每项都指明预计回收阶段。
 6. 这里只设计整季叙事，不写单集逐字对白、最终镜号、模型参数或图片提示词。
@@ -20,7 +20,7 @@
 - genre、tone、themes
 - world_rules：字符串数组
 - ending：{type, final_state, emotional_payoff}
-- characters：[{name, dramatic_function, desire, need, fear, secret, arc_start, arc_turn, arc_end}]
+- characters：[{name, dramatic_function, desire, need, fear, hidden_fact, arc_start, arc_turn, arc_end}]
 - relationships：[{from, to, start_state, pressure, end_state}]
 - three_act：{setup, escalation, resolution}
 - conflict_ladder：[{level, trigger, choice, consequence}]

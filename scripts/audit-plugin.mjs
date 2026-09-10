@@ -79,6 +79,11 @@ for (const [prompt, skill] of Object.entries(map.prompts)) {
   }
 }
 
+for (const locale of ['zh', 'en']) {
+  const bible = await readFile(resolve(root, `skills/design-drama-bible/assets/prompts/ai_story_expand.${locale}.txt`), 'utf8')
+  if (!bible.includes('hidden_fact') || /\bfear,\s*secret,\s*arc_start\b/.test(bible)) failures.push(`故事圣经人物合同与密钥校验冲突：${locale}`)
+}
+
 const videoPromptRoot = resolve(root, 'skills/write-drama-video-prompts/assets/prompts')
 for (const locale of ['zh', 'en']) {
   const seedance = await readFile(resolve(videoPromptRoot, `seedance2_video.${locale}.txt`), 'utf8')
