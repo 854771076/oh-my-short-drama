@@ -15,7 +15,7 @@ Return strict JSON whose only top-level keys are: title, logline, adaptation_mod
 Rules:
 1. Put every unresolved parameter that changes the creative result in open_questions, use null for its field, and set approved to false.
 2. Use BCP 47 language tags and record output text, spoken dialogue, and subtitle language separately.
-3. Never choose episode count, duration, aspect ratio, platform, rating, or ending type from convention.
+3. Never choose episode count, duration, aspect ratio, platform, rating, or ending type from convention. episode_duration_seconds is a planning target, not an exact frame-level cutoff; treat it as a hard maximum only when the platform explicitly imposes one.
 4. Keep adaptation_mode consistent with source-analysis and record adaptation boundaries in creative_constraints.
 5. approved may be true only after open_questions is empty and the user has confirmed the whole brief.
 

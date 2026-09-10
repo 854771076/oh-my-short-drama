@@ -5,15 +5,15 @@ description: 配置并验证本地短剧插件的生成 Provider。用于选择 
 
 # 配置生成 Provider
 
-先调用 `list_generation_providers` 查看模态能力，再让用户为图片、视频和音频分别选择 Provider；不得假设所有模态使用同一家。文本资产默认由 Codex 直接完成，不需要外部文本 Provider。
+先调用 `list_generation_providers` 查看模态能力，再让用户为图片、视频、语音和音乐分别选择 Provider；不得假设所有模态使用同一家。文本资产默认由 Codex 直接完成，不需要外部文本 Provider。
 
-确认选择后，把三种模态的 `provider`、`model_or_workflow` 和视频 `prompt_profile` 写入一个不含凭据的更新 JSON，再执行 `node scripts/project-store.mjs update-project <项目目录> <更新 JSON>`；不允许只在对话里记住选择。生成 MCP 会拒绝与该本地配置不一致的调用。凭据使用环境变量或 Dashboard 本机私有凭据文件，环境变量优先；不得写入项目。
+确认选择后，把四种模态的 `provider`、`model_or_workflow`、模型 `parameters` 和视频 `prompt_profile` 写入一个不含凭据的更新 JSON，再执行 `node scripts/project-store.mjs update-project <项目目录> <更新 JSON>`；Dashboard 应按模型目录展示枚举、数字范围和布尔参数。生成 MCP 会补齐未显式传入的项目参数，并拒绝与已确认参数不一致的调用。旧项目没有 `parameters` 或 `music` 时仍可读取，在 Dashboard 保存一次生成配置即可补齐。凭据使用环境变量或 Dashboard 本机私有凭据文件，环境变量优先；不得写入项目。
 
 - StarRouter：环境变量 `STARROUTER_API_KEY`，可选基址与图片、视频、语音模型目录变量；协议见 [StarRouter 合同](../../references/starrouter-provider.md)。内置模型枚举如下：
   - image：`gpt-image-2`。
   - video：`MiniMax-H3`、`MiniMax-H3-Max`、`dreamina-seedance-2-0-fast-260128`、`dreamina-seedance-2-0-260128`、`doubao-seedance-2-0-260128`、`doubao-seedance-2-0-fast-260128`、`doubao-seedance-1-5-pro-251215`、`doubao-seedance-1-0-pro-250528`、`doubao-seedance-1-0-pro-fast-251015`。
-  - audio：`speech-2.8-hd`、`speech-2.8-turbo`。
-- RunningHub：环境变量 `RUNNINGHUB_API_KEY`，可选基址和通用图片/视频/音频工作流 ID；内置 H3 可用 `RUNNINGHUB_H3_WORKFLOW_ID` 覆盖平台工作流 ID。协议见 [RunningHub 合同](../../references/runninghub-provider.md)。
+  - audio：`speech-2.8-hd`、`speech-2.8-turbo`、`suno_music`（OP、ED、BGM、音乐短视频）。
+- RunningHub：环境变量 `RUNNINGHUB_API_KEY`，可选基址和通用图片/视频/音频工作流 ID；内置图片 `krea2-normal-v1`，可用 `RUNNINGHUB_KREA2_WORKFLOW_ID` 覆盖；内置 H3 可用 `RUNNINGHUB_H3_WORKFLOW_ID` 覆盖平台工作流 ID。协议见 [RunningHub 合同](../../references/runninghub-provider.md)。
 - Comfly：`COMFLY_TOKEN`、可选 `COMFLY_BASE_URL` 和 `COMFLY_APP_ID`；当前模型固定为 `minimax-h3`。协议见 [Comfly 合同](../../references/comfly-provider.md)。
 
 凭据不得写入项目文件、参数或聊天。环境变量覆盖的模型目录属于动态扩展，不会自动获得参数兼容性保证；先调用 `list_models` 探活并核对远端目录。401/403 归为认证，429 归为限流。不要用付费任务代替连接检查。新增 Provider 只注册生成适配器并补最小自检，不修改短剧创作 Skill。

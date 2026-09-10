@@ -18,5 +18,6 @@ Rules:
 5. suggested_colors is a preferred palette and never overrides an explicit source color. Exclude expression, action, camera, background, lighting, art style, quality terms, personality judgment, and plot narration.
 6. Include identity-relevant skin tone, iris color, scars, or tattoos only when explicit in the profile or source. Never infer protected traits from stereotypes.
 7. Every descriptions array contains exactly {candidate_count} items. Candidates may vary non-identity fabric or minor detail, while face, hairstyle, build, main colors, and signature markers remain consistent.
+8. The character remains recognizable as a small full-body figure without facial detail: body proportion, outer hair shape, large wardrobe shapes, and primary_identifier form one stable silhouette identity. Candidates must not change that silhouette combination or rely only on face or clothing color.
 
 Return strict JSON only: {"characters":[{"name":"canonical name","appearances":[{"id":1,"change_reason":"initial appearance","descriptions":["image-ready description"]}]}]}. No Markdown, explanation, or extra fields. Escape JSON strings normally without rewriting source punctuation.

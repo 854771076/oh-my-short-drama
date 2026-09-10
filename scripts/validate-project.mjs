@@ -227,7 +227,7 @@ async function validateControl() {
   for (const file of await readdir(requestDirectory)) {
     if (!/^req-[0-9a-f-]+\.json$/.test(file)) { failures.push(`生成请求文件名无效：${file}`); continue }
     const request = await json(resolve(requestDirectory, file))
-    if (!request || request.version !== 1 || `${request.requestId}.json` !== file || !['generate_image', 'submit_video', 'generate_audio'].includes(request.tool) || !request.arguments || typeof request.arguments !== 'object' || fingerprint(request.arguments) !== request.inputFingerprint) failures.push(`生成请求快照无效：${file}`)
+    if (!request || request.version !== 1 || `${request.requestId}.json` !== file || !['generate_image', 'submit_video', 'generate_audio', 'generate_music'].includes(request.tool) || !request.arguments || typeof request.arguments !== 'object' || fingerprint(request.arguments) !== request.inputFingerprint) failures.push(`生成请求快照无效：${file}`)
     else if (request.tool === 'submit_video') try {
       await validateVideoReferenceBindings(root, request.provider, request.arguments, request.arguments.reference_manifest || [], { requireSelected: false, at: Date.parse(request.createdAt) })
     } catch (error) { failures.push(`视频请求参考证据链无效：${file}：${error.message}`) }

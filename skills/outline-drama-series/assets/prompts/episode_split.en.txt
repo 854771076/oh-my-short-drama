@@ -8,7 +8,7 @@ Execution role: short-drama episode planner. From the approved brief, story bibl
 {CONTENT}
 
 Rules:
-1. Use the confirmed episode count and target duration from the brief. Never infer episode count from a fixed word quota.
+1. Use the confirmed episode count. Plan around the target duration without damaging actions, dialogue, or hooks merely to hit an exact second, and never infer episode count from a fixed word quota. By default the final cut may vary naturally by about ±15%; larger variance is not an automatic failure, but requires a recorded narrative reason and renewed user confirmation.
 2. Every episode must add an action, revelation, relationship change, or cost. Never repeat the prior episode's emotion without progression.
 3. opening_connection establishes or continues the prior hook; episode_goal is an active objective; turning_point changes the situation; ending_hook creates a question or action the next episode must answer.
 4. Fulfill the story bible's conflict ladder, foreshadowing, and payoffs. Do not spend the final climax early or omit required setup.

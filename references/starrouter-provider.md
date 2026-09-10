@@ -5,8 +5,13 @@
 - 图片：`/v1/images/generations`；有本地参考图时使用 multipart `/v1/images/edits`。支持 `1K/2K/4K + aspect_ratio` 尺寸推导和常用输出参数。
 - 视频：Seedance 使用 `/volcengine/doubao/contents/generations/tasks`；MiniMax H3/H3-Max 使用 OpenAI 兼容 `/v1/videos`，并通过 `/v1/videos/{task_id}` 查询。适配器按模型选择协议。
 - 语音：同步 `POST /v1/audio/speech`，把 OpenAI 兼容请求转换为 MiniMax T2A V2；默认模型为 `speech-2.8-hd`、`speech-2.8-turbo`。
+- 音乐：`POST /suno/submit/MUSIC` 提交 `suno_music`，`GET /suno/fetch/{task_id}` 轮询；生成结果作为 audio 资产保存。
 - 认证：仅从环境变量 `STARROUTER_API_KEY` 读取 Bearer Token。
-- 保底目录：图片 `gpt-image-2`，视频为适配器登记的 Seedance 系列及 `MiniMax-H3`、`MiniMax-H3-Max`，语音为上述两个 MiniMax 模型。可分别用 `STARROUTER_IMAGE_MODELS`、`STARROUTER_VIDEO_MODELS`、`STARROUTER_AUDIO_MODELS` 和 `STARROUTER_MULTIMODAL_VIDEO_MODELS` 提供逗号分隔目录；自定义模型仍需补能力合同。
+- 保底目录：图片 `gpt-image-2`，视频为适配器登记的 Seedance 系列及 `MiniMax-H3`、`MiniMax-H3-Max`，语音为上述两个 MiniMax 模型，音乐为 `suno_music`。可分别用 `STARROUTER_IMAGE_MODELS`、`STARROUTER_VIDEO_MODELS`、`STARROUTER_AUDIO_MODELS`、`STARROUTER_MUSIC_MODELS` 和 `STARROUTER_MULTIMODAL_VIDEO_MODELS` 提供逗号分隔目录；自定义模型仍需补能力合同。
+
+## Suno 音乐合同
+
+`generate_music` 使用项目路由模型 `suno_music` 和非空 `prompt`，可选 `title`、`tags`、`lyrics` 与 `make_instrumental`。StarRouter 当前不读取请求体的 `model`，由 `/MUSIC` 路径映射计费模型；有自定义歌词时把歌词作为上游 `prompt`，音乐方向保存在本地合同且以 `tags` 传给上游。纯音乐不能同时提供歌词。远端 task id 在本地加 `music:` 路由前缀，查询时移除前缀；只提取音乐响应中的音频 URL，避免把封面或 MV 视频误登记为音频。
 
 ## MiniMax H3/H3-Max 视频合同
 

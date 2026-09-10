@@ -5,6 +5,11 @@ import { dirname, resolve } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { call as callGeneration } from './generation/mcp.mjs'
+import { selfCheck as checkComfly } from './generation/comfly.mjs'
+import { selfCheck as checkRunningHub } from './generation/runninghub.mjs'
+import { selfCheck as checkStarRouter } from './generation/starrouter.mjs'
+import { selfCheck as checkProviders } from './generation/providers.mjs'
+import { selfCheck as checkLitterbox } from './media-hosting/litterbox.mjs'
 import { listReferenceUploads, publishReferenceImage, validateTemporaryReferenceUrl } from './media-hosting/publish.mjs'
 import { validateVideoReferenceBindings } from './reference-bindings.mjs'
 
@@ -95,10 +100,12 @@ async function checkMultiEpisodeEvidence() {
 
 async function main() {
   if (!process.argv.includes('--self-check')) throw new Error('仅支持 --self-check')
+  for (const script of ['asset-ledger.mjs', 'character-profiles.mjs', 'editing-store.mjs', 'export-edit-subtitles.mjs', 'file-lock.mjs', 'freeze-edit-candidate.mjs', 'media-tools.mjs', 'preflight.mjs', 'project-store.mjs', 'render-prompt.mjs', 'review-ledger.mjs', 'task-ledger.mjs', 'workflow-gates.mjs']) run(script, '--self-check')
+  for (const check of [checkComfly, checkRunningHub, checkStarRouter, checkProviders, checkLitterbox]) check()
   await checkMultiEpisodeEvidence()
   const root = await mkdtemp(resolve(tmpdir(), 'short-drama-integration-'))
   try {
-    const initialProject = await json(root, 'initial-project.json', { key: 'integration-drama', title: '集成测试短剧', providers: { image: { provider: 'starrouter', model_or_workflow: 'gpt-image-2', prompt_profile: null }, video: { provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2' }, audio: { provider: 'starrouter', model_or_workflow: 'speech-2.8-hd', prompt_profile: null } } })
+    const initialProject = await json(root, 'initial-project.json', { key: 'integration-drama', title: '集成测试短剧', providers: { image: { provider: 'starrouter', model_or_workflow: 'gpt-image-2', prompt_profile: null }, video: { provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2' }, audio: { provider: 'starrouter', model_or_workflow: 'speech-2.8-hd', prompt_profile: null, parameters: { speed: 1, response_format: 'flac' } }, music: { provider: 'starrouter', model_or_workflow: 'suno_music', prompt_profile: null, parameters: { make_instrumental: true } } } })
     run('project-store.mjs', 'init', root, initialProject)
     const initialized = JSON.parse(run('project-store.mjs', 'project', root))
     if (initialized.schema_version !== 1 || !('format' in initialized) || !('providers' in initialized) || initialized.creative?.art_style?.id !== 'system-realistic') throw new Error('项目规范 v1 初始化失败')
@@ -218,9 +225,13 @@ async function main() {
     await recordSkills(root, 'director-book', 'episodes/ep-001/director-book/v001.json')
     run('workflow.mjs', 'advance', root, 'asset-analysis')
 
-    const assetPlan = { episode_key: 'ep-001', characters: [{ key: 'char-a', type: 'character', name: 'A', evidence: [{}], versions: [{}], status: 'ready', selected_version: 'v001' }], scenes: [], props: [], unresolved: [] }
+    const assetPlan = { episode_key: 'ep-001', characters: [{ key: 'char-a', type: 'character', name: 'A', evidence: [{ source: 'script', locator: '第一场', quote: 'A：别绕弯子。' }], visual_description: '外观未知，待确认', versions: [{ key: 'v001', label: '基础造型', trigger: '第一场', evidence: '剧本第一场' }], derived_from: null, status: 'ready', selected_version: 'v001' }], scenes: [], props: [], unresolved: [] }
     run('project-store.mjs', 'put-episode-document', root, 'asset-plan', 'ep-001', 'v001', await json(root, 'asset-plan.json', assetPlan))
     run('project-store.mjs', 'select-episode-document', root, 'asset-plan', 'ep-001', 'v001')
+    run('project-store.mjs', 'put-episode-document', root, 'asset-plan', 'ep-001', 'v002', await json(root, 'asset-plan-v002.json', assetPlan))
+    await writeFile(resolve(root, 'episodes/ep-001/asset-plan/v002.json'), `${JSON.stringify({ ...assetPlan, characters: [{ ...assetPlan.characters[0], evidence: [{}] }] }, null, 2)}\n`)
+    const invalidSelection = spawnSync(process.execPath, [resolve(plugin, 'scripts/project-store.mjs'), 'select-episode-document', root, 'asset-plan', 'ep-001', 'v002'], { encoding: 'utf8' })
+    if (invalidSelection.status === 0 || !invalidSelection.stderr.includes('顶层字段')) throw new Error('被篡改的文档仍可选版')
     const currentStyle = JSON.parse(run('project-store.mjs', 'project', root)).creative.art_style
     run('project-store.mjs', 'put-document', root, 'art-style', await json(root, 'art-style.json', { mode: 'confirmed-default', style: currentStyle, decision_reason: '确认使用项目默认真人风格', approved: true }))
     const planAsProfile = spawnSync(process.execPath, [resolve(plugin, 'scripts/skill-runs.mjs'), 'record', root, 'asset-analysis', 'generate-character-profiles', 'episodes/ep-001/asset-plan/v001.json'], { encoding: 'utf8' })
@@ -266,13 +277,17 @@ async function main() {
     await recordSkills(root, 'production-plan', 'episodes/ep-001/production-plan/v001.json')
     run('workflow.mjs', 'advance', root, 'media-production')
 
-    const audioPlan = { episode_key: 'ep-001', source_versions: { script: 'v002', storyboard: 'v001', production_plan: 'v001' }, lines: [{ line_index: 1, speaker: 'A', line_type: 'dialogue', content: '别绕弯子。', emotion: '克制', emotion_strength: 0.2, pronunciation_notes: [], matched_shot: { shot_number: 1 } }], voice_bindings: [{ speaker: 'A', provider: 'starrouter', model: 'speech-2.8-hd', voice_id: 'male-qn-qingse' }], unresolved: [], approved: true }
+    const audioPlan = { episode_key: 'ep-001', source_versions: { script: 'v002', storyboard: 'v001', production_plan: 'v001' }, lines: [{ line_index: 1, speaker: 'A', line_type: 'dialogue', content: '别绕弯子。', emotion: '克制', emotion_strength: 0.2, pronunciation_notes: [], matched_shot: { shot_number: 1 } }], voice_bindings: [{ speaker: 'A', provider: 'starrouter', model: 'speech-2.8-hd', voice_id: 'male-qn-qingse' }], music_tracks: [{ key: 'op', purpose: 'op', title: '片头曲', prompt: '紧张悬疑电子乐', tags: 'cinematic,electronic', lyrics: '', make_instrumental: true, provider: 'starrouter', model: 'suno_music', matched_shots: [1] }], unresolved: [], approved: true }
     run('project-store.mjs', 'put-episode-document', root, 'audio-plan', 'ep-001', 'v001', await json(root, 'audio-plan.json', audioPlan))
     run('project-store.mjs', 'select-episode-document', root, 'audio-plan', 'ep-001', 'v001')
     try {
       await callGeneration('generate_audio', { provider: 'starrouter', model: 'speech-2.8-hd', input: '被篡改的台词', voice: 'male-qn-qingse', speed: 1, response_format: 'flac', confirmed: true, project_root: root, target: 'audio-ep001-a', prompt_document: audioPromptReference })
       throw new Error('与 audio-plan 不一致的台词未被拒绝')
     } catch (error) { if (!String(error.message).includes('台词不一致')) throw error }
+    try {
+      await callGeneration('generate_music', { provider: 'starrouter', model: 'suno_music', prompt: '紧张悬疑电子乐', title: '错误标题', tags: 'cinematic,electronic', lyrics: '', make_instrumental: true, confirmed: true, project_root: root, target: 'audio-ep001-op', prompt_document: { kind: 'audio-plan', episode_key: 'ep-001', version_id: 'v001', track_key: 'op' } })
+      throw new Error('与 audio-plan 不一致的音乐参数未被拒绝')
+    } catch (error) { if (!String(error.message).includes('title 不一致')) throw error }
     const auxiliaryAudioTemplate = resolve(plugin, 'skills/design-drama-audio/assets/prompts/character_voice_recommend.zh.txt')
     const auxiliaryAudioText = await readFile(auxiliaryAudioTemplate, 'utf8')
     const auxiliaryAudioVars = Object.fromEntries([...auxiliaryAudioText.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((match) => [match[1], '测试']))

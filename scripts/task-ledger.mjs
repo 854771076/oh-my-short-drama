@@ -57,7 +57,7 @@ export async function createRequestSnapshot(rootArg, input) {
   rejectSecrets(input)
   const required = ['tool', 'target', 'type', 'provider', 'arguments']
   for (const field of required) if (input[field] === undefined || input[field] === null || input[field] === '') throw new Error(`请求快照 ${field} 必填`)
-  if (!['generate_image', 'submit_video', 'generate_audio'].includes(input.tool)) throw new Error(`请求工具无效：${input.tool}`)
+  if (!['generate_image', 'submit_video', 'generate_audio', 'generate_music'].includes(input.tool)) throw new Error(`请求工具无效：${input.tool}`)
   if (!TYPES.has(input.type)) throw new Error(`请求类型无效：${input.type}`)
   if (!input.arguments || typeof input.arguments !== 'object' || Array.isArray(input.arguments)) throw new Error('请求 arguments 必须是对象')
   const raw = JSON.stringify(input.arguments)

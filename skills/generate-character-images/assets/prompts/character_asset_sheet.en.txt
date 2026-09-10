@@ -10,4 +10,6 @@ Use one 16:9 landscape canvas with a clean white background, clear grid columns,
 
 Use small supporting studies for a 45-degree view, front/back garment construction already supported by input, signature accessories and footwear, and four head-and-shoulder expressions grounded in the character profile. Omit missing categories instead of inventing clothing, accessories, brands, skin tone, tattoos, or props. Keep age, face, features, hair, proportions, garment structure, main colors, and permanent traits identical across every view.
 
+The left facial close-up is the face-identity source of truth; the right full-body views are the silhouette and proportion source of truth. Never average the panels into different faces. At thumbnail size the same person remains recognizable through body proportion, outer hair shape, large wardrobe shapes, and signature marker rather than color alone.
+
 Short labels in the project language are allowed; no paragraphs or garbled text. Exclude random wardrobe changes, duplicate angles, action poses, scene backgrounds, prop staging, comic panels, and poster composition. The project style controls medium, line, material, and rendering only, never identity.

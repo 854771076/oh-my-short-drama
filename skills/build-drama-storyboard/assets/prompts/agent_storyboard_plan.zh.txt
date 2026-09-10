@@ -51,12 +51,13 @@
     - edit_plan: {cut_motivation, axis, screen_direction, transition, sound_bridge, intended_duration, transition_in, transition_out}；axis 只能是 establishing/same-axis/reverse/neutral/insert，screen_direction 只能是 left-to-right/right-to-left/neutral，旧字段 transition 仍只能是 hard-cut/match-cut/J-cut/L-cut/dissolve/fade/continuous；intended_duration 是成片预计保留秒数，必须大于 0 且不超过 duration
     - 相邻镜共享转场合同：先完成完整有序镜头数组，再逐对设计同一份合同。前镜写入 transition_out，后镜写入内容完全一致的 transition_in；首镜没有 transition_in，末镜没有 transition_out，中间镜同时具有两者
     - transition_in/transition_out 结构均为 {source_shot_key, target_shot_key, kind, motivation, source_end, target_start, screen_direction, trigger, audio_bridge, confidence}；规划阶段 source_shot_key/target_shot_key 使用 panel_number 的字符串值
+    - 人物在前镜离画且未于后镜出现时，source_end 必须保留其离画边、最后姿态、运动方向和持物状态；该人物下一次入画时，target_start 必须延续这份画外状态，除非场景或时间明确重置
     - kind 只能是 action-hold-hard-cut/occlusion-cut/whip-pan-cut/action-match-cut/match-cut/motivated-light-cut/dissolve-time-cut/black-cut；screen_direction 只能是 left-to-right/right-to-left/up/down/in/out/neutral；confidence 只能是 high/medium/low
     - 优先使用有证据的动作、遮挡、甩镜、构图、剧情光线、时间或黑场桥。低置信度合同必须退回 action-hold-hard-cut 和 neutral，禁止用无来源闪白、随机烟雾或任意空间扭曲兜底；没有声音动机时省略 audio_bridge
     - dialogue_plan: {mode, focus}；mode 只能是 speaker/listener/two-shot/over-shoulder/dirty-single/clean-single/environment/long-take/none，focus 只能是 speaker/listener/relation/environment/action/none
     - visual_plan: {emphasis, standout, technique}；standout 为布尔值，technique 只能是 standard/metaphor/reveal/callback/contrast/withhold/spectacle
 
-   导演合同规则：先确定整场目标、视点、调性、节奏与视听母题，再组织镜头组和逐镜变化。motion_plan 必须用可见主体、明确起止状态和可执行动作动词描述镜内变化；纯淡入、滑入、弹出或缩放不算叙事动作。除有意 hold 外，至少 80% 镜头必须产生可见状态变化。因果组默认包含 action 与 reaction/payoff 并遵循 pattern 顺序；reaction-omitted 可省略反应，omitted-action/action-hidden 可省略可见动作，reaction-first 允许反应前置，synchronous/repeated-variation/contrapuntal 不强制先后。连续对白不得连续 3 镜使用同一种覆盖方式。4 镜以上场景必须有节奏强弱变化，并将约 70% 镜头保持标准清晰、约 30% 或更少设为服务转折/高潮的 standout，禁止平均用力。duration 是供视频模型生成的素材时长，intended_duration 是剪辑时间线预计保留时长，两者不得混用。剪切必须写清动机，遵守轴线、视线与屏幕运动方向；J/L cut 或声桥必须有具体声音来源。只有有意停顿时可用 camera_role=hold，且 narrative_purpose 必须说明停顿承载的信息或情绪。
+   导演合同规则：先确定整场目标、视点、调性、节奏与视听母题，再组织镜头组和逐镜变化。motion_plan 必须用可见主体、明确起止状态和可执行动作动词描述镜内变化；纯淡入、滑入、弹出或缩放不算叙事动作。除有意 hold 外，每镜都应产生与 narrative_purpose 对应的可见状态或信息变化。因果组默认包含 action 与 reaction/payoff 并遵循 pattern 顺序；reaction-omitted 可省略反应，omitted-action/action-hidden 可省略可见动作，reaction-first 允许反应前置，synchronous/repeated-variation/contrapuntal 不强制先后。逐列检查连续镜头的景别、机位、运动和对白覆盖；只有关系压迫、仪式感或蓄意单调等明确目的才允许无变化重复。长场景必须有可读的强弱变化，standout 只留给转折或高潮，不按固定比例凑数。duration 是供视频模型生成的素材时长，intended_duration 是剪辑时间线预计保留时长，两者不得混用。剪切必须写清动机，遵守轴线、视线与屏幕运动方向；J/L cut 或声桥必须有具体声音来源。只有有意停顿时可用 camera_role=hold，且 narrative_purpose 必须说明停顿承载的信息或情绪。
 
 3. source_text 规则（极其重要）：
    ⚠️ 每个分镜都必须包含，不得为null或空字符串
@@ -85,16 +86,16 @@
 
 4. 创意/氛围镜头（可选，0-1个）：
    - 仅在情绪高潮点考虑使用
-   - 隐喻：关键转折时使用（如乌鸦、时钟）
+   - 只能重构 source_text、已登记场景锚点或道具已有的视觉信息；不得为表达情绪临时添加乌鸦、时钟、天气、镜面或其他象征物
 
 5. 对话处理：
    - 正反打：连续对话可合并处理
    - 小动作：融入对话镜头，不需单独成镜
 
 6. ⚠️ 对话镜头规则（口型同步需求）：
-   - 说话者必须在可见画面中且口型可辨；同一调度中的连续对白可以合并
+   - dialogue_plan 聚焦 speaker 时，说话者在画面中可见且口型可辨；聚焦 listener、relation 或 environment 时，允许说话者在画外，但必须明确声音来源，并让所有可见非说话者保持闭口
    - 说话者应是画面主体，其他角色可按构图需要同框或位于背景
-   - 禁止在一个镜头中同时展示多个角色说话
+   - 同镜多人对白仅在 Provider 明确支持、说话时段不重叠且每张可见嘴部状态可写清时使用；否则拆镜或采用 post-dub
    - 普通聆听反应并入说话镜头；只有反应改变剧情信息或情绪方向时才单独切镜
 
 7. 复合内容处理（按叙事节拍，不按语法拆分）：
@@ -110,9 +111,8 @@
    - 避免连续两镜头内容完全相同
 
 2. 创意镜头语言：
-   - 隐喻象征：乌鸦(不祥)、日落(时间流逝)、阳光穿云(希望)
-   - 空镜氛围：滴水(紧张)、雨打窗(悲伤)、炉火(温馨)
-   - 情绪放大：镜中倒影(挣扎)、时钟(抉择)
+   - 只使用原文、已登记资产或场景固定锚点中已有的物件、光线、声音和空间关系，通过取景、遮挡、留白、重复或前后反差赋予意义
+   - visual_motif 必须能指出来源证据和本场回收方式；没有证据时使用 standard，不用通用象征物替观众解释情绪
 
 3. 智能理解用户输入的要求（节奏、情绪、画面、规则、色调等）
 

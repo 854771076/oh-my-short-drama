@@ -10,7 +10,7 @@ Codex → codex-short-drama → drama-generation MCP → StarRouter / RunningHub
 ## 核心原则
 
 - 文本资产由 Codex 直接生成，不调用外部文本模型。
-- 图片、视频和音频统一通过 `drama-generation-service` 路由。
+- 图片、视频、语音和音乐统一通过 `drama-generation-service` 路由。
 - 项目、剧集、分镜、素材、任务、选版和交付均在本地管理。
 - 所有媒体版本记录 Provider、模型、任务、参数、上游资产和 SHA-256。
 - 每次媒体调用完整保存模型入参、提示词和引用清单，并由任务记录绑定请求 SHA-256。
@@ -45,6 +45,7 @@ Codex → codex-short-drama → drama-generation MCP → StarRouter / RunningHub
 - 图片：`gpt-image-2`
 - 视频：Seedance 1.0、1.5、2.0、Fast 系列，以及 MiniMax H3 / H3-Max
 - 音频：`speech-2.8-hd`、`speech-2.8-turbo`
+- 音乐：`suno_music`，用于 OP、ED、BGM 和音乐短视频配乐
 
 ```bash
 export STARROUTER_API_KEY='your-key'
@@ -55,7 +56,7 @@ export STARROUTER_BASE_URL='https://starrouter.io/v1'
 
 ### RunningHub
 
-图片、视频和音频通过用户自己的工作流运行：
+图片、视频和音频可通过用户自己的工作流运行：
 
 ```bash
 export RUNNINGHUB_API_KEY='your-key'
@@ -66,7 +67,7 @@ export RUNNINGHUB_AUDIO_WORKFLOW_ID='workflow-id'
 
 详见 [RunningHub Provider 合同](references/runninghub-provider.md)。密钥不得写入项目配置、提示词、任务账本或版本记录。
 
-内置 `minimax-h3-reference-to-video` 专用工作流，可直接上传本地图片、视频和音频参考，不需要手写 `node_info_list`。
+内置 `krea2-normal-v1` 图片工作流和 `minimax-h3-reference-to-video` 视频工作流，不需要手写 `node_info_list`。
 
 ### Comfly
 
@@ -126,7 +127,7 @@ node scripts/studio.mjs serve
 
 通过 `project-store.mjs init project-key` 在默认根目录初始化项目后，Dashboard 会自动在本机启动并打开；从 Dashboard 页面内新建项目时不会重复打开窗口。
 
-然后打开 `http://127.0.0.1:4173`。工作台会按 `project.key` 连接一级目录中的真实项目，支持新建项目、供应商凭据与模型配置、项目校验、分集与已选文档、任务账本、交付预览、资产导入，以及确认后选版和撤回选版；项目 JSON 和媒体仍由原有账本脚本管理。
+然后打开 `http://127.0.0.1:4173`。工作台会按 `project.key` 连接一级目录中的真实项目，支持新建项目、供应商凭据与模型配置、非付费连接测试、项目校验、分集与已选文档、任务账本、交付预览、资产导入，以及确认后选版和撤回选版；项目 JSON 和媒体仍由原有账本脚本管理。
 
 ## 本地项目结构
 

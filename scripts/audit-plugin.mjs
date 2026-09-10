@@ -52,6 +52,8 @@ const actualPrompts = (await files(resolve(root, 'skills')))
 for (const path of actualPrompts.filter((path) => !expectedPrompts.includes(path))) failures.push(`未映射提示词：${path}`)
 for (const path of expectedPrompts.filter((path) => !actualPrompts.includes(path))) failures.push(`缺少提示词：${path}`)
 const promptVariables = (content) => [...new Set([...content.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((match) => match[1]))].sort()
+const unsupportedProfessionalRule = /(?:特写镜头必须使用固定镜头|特写镜头中使用任何镜头运动|对话镜头必须使用浅景深|极浅景深，背景完全虚化|1[–-]2\s*帧短促微震|至少\s*80%\s*镜头|约\s*70%\s*镜头|close-ups use a static camera|dialogue shots? must use (?:a )?shallow depth of field|background completely (?:blurred|separated)|brief\s+1[–-]2 frame micro-shake|at least\s*80%\s*of shots|roughly\s*70%\s*(?:of )?shots)/i
+if (!unsupportedProfessionalRule.test('特写镜头必须使用固定镜头') || !unsupportedProfessionalRule.test('brief 1–2 frame micro-shake') || unsupportedProfessionalRule.test('特写默认固定，但可为动作跟随而移动')) failures.push('摄影硬规则审计器自检失败')
 for (const [prompt, skill] of Object.entries(map.prompts)) {
   if (!skillNames.includes(skill)) failures.push(`提示词映射到不存在的 Skill：${prompt} -> ${skill}`)
   else {
@@ -70,6 +72,9 @@ for (const [prompt, skill] of Object.entries(map.prompts)) {
     }
     if (/(?:director[-_ ]desk|director_shot|active_camera|projectGuidance|assetNodeRefs|sourceNodeId|characterNodeIds|locationNodeId|propNodeIds|storyboardId|src\/app\/api|novel-promotion|OmniVoice|CosyVoice|系统自动添加|风格由系统|target 10[–-]14 shots|整集目标 10[–-]14 镜)/i.test(`${zh}\n${en}`)) {
       failures.push(`提示词残留系统耦合：${prompt}`)
+    }
+    if (unsupportedProfessionalRule.test(`${zh}\n${en}`)) {
+      failures.push(`提示词残留无普适依据的摄影硬规则：${prompt}`)
     }
   }
 }
@@ -163,7 +168,7 @@ const scriptStage = map.stages?.script || []
 for (const skill of ['short-drama', 'write-drama-episode', 'humanizer', 'review-drama-script']) if (!scriptStage.includes(skill)) failures.push(`剧本阶段缺少：${skill}`)
 for (const skill of ['remotion-best-practices', 'edit-drama-timeline']) if (!map.stages?.editing?.includes(skill)) failures.push(`剪辑阶段缺少：${skill}`)
 const editingGuide = await readFile(resolve(root, 'references/editing-workflow.md'), 'utf8')
-for (const token of ['selected', 'J/L-cut', '6–12 帧', '-14 至 -16 LUFS', '-1 dBTP', 'SRT', 'ASS']) if (!editingGuide.includes(token)) failures.push(`剪辑规范缺少：${token}`)
+for (const token of ['selected', 'J/L-cut', '6–12 帧', '-14 至 -16 LUFS', '-1 dBTP', 'SRT', 'ASS', 'freeze-edit-candidate.mjs', 'export-edit-subtitles.mjs']) if (!editingGuide.includes(token)) failures.push(`剪辑规范缺少：${token}`)
 const reviewSkill = await readFile(resolve(root, 'skills/review-drama-script/SKILL.md'), 'utf8')
 if (!reviewSkill.includes('../../references/writing/compliance-checklist.md')) failures.push('合规清单未接入剧本复核')
 if (!map.stages?.['asset-analysis']?.includes('generate-drama-art-style')) failures.push('资产分析阶段缺少画风生成 Skill')

@@ -17,16 +17,20 @@ Refine panel-level visual details and video prompts.
 For performance, preserve the acting plan already confirmed in the previous step and describe only visible, executable actions that fit the story.
 
 [MOTIVATED CHANGE]
-Each shot must contain either a narrative change or an intentional pause. Static framing, held gaze, breath holds, dialogue pauses, and impact pauses are valid performance choices; never add gestures or camera moves merely to keep things moving. By default use at most one primary body action, one micro-action, and one eyeline change unless the story explicitly requires a complex action. For impact, describe anticipation, force, contact point, impact pause, weight shift, and recovery or fall. At contact, localized directional motion blur and a brief 1–2 frame micro-shake are allowed, followed by immediate stability; forbid sustained global defocus and unmotivated shake.
+Each shot must contain either a narrative change or an intentional pause. Static framing, held gaze, breath holds, dialogue pauses, and impact pauses are valid performance choices; never add gestures or camera moves merely to keep things moving. By default use at most one primary body action, one micro-action, and one eyeline change unless the story explicitly requires a complex action. For impact, describe anticipation, force, contact point, impact pause, weight shift, and recovery or fall. At contact, localized directional motion blur and a brief contact-synchronized micro-shake are allowed, followed by immediate stability; forbid sustained global defocus and unmotivated shake.
 
 camera_move must contain exactly one canonical movement name. Do not join multiple movements with commas, slashes, or conjunctions.
+Close-ups default to locked framing and move only for an approved action follow, information reveal, or focus transfer. Camera behavior follows subject action, information power, or scene viewpoint; it may change speed or stability with an evidenced beat, but never performs independently of the character.
+Give each shot one primary readable fact and build hierarchy through scale, placement, occlusion, depth layers, light, color, or focus. Never add arbitrary neon, smoke, rim light, or generic symbols merely to look cinematic.
 Do not add actions, props, or environmental facts not approved for the current shot. Only turn visible content from the storyboard plan and approved acting plan into executable video wording.
 Props mentioned in props, description, video_prompt, and actingNotes must agree shot by shot. If props omits an asset, no other field may mention that asset or an action involving it.
+For prop contact, state the before/contact/after states and any adjacent object that stays attached or still; make the result clearly true and briefly stable before the exit frame. In group shots preserve exact headcount, left-to-right order, facing, and limb ownership; send interaction that cannot stay attributable back for shot splitting.
 
 [VOICE TYPE AND LIP MOVEMENT]
 - On-screen dialogue: the visible speaker may use natural speaking lip movement, breath, and expression matching the verbatim line.
 - Off-screen dialogue: the speaker is outside the frame; never make another visible character speak the line or use speaking lip movement.
 - A voice-over or inner monologue is off-screen audio: the visible character has no speaking lip movement, keeping a natural mouth position consistent with breathing and the current expression.
+- Use multiple speaking faces in one shot only when the Provider supports it, speech windows do not overlap, and every visible mouth state can be scheduled; otherwise split coverage or use post-dub.
 
 Panel input JSON:
 {panels_json}

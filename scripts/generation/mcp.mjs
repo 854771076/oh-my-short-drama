@@ -2,7 +2,7 @@
 import { createInterface } from 'node:readline'
 import { readFile, realpath } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
-import { adapter, providerCatalog, providerNames } from './providers.mjs'
+import { adapter, normalizeModelParameters, providerCatalog, providerNames, selfCheck as checkProviders } from './providers.mjs'
 import { selfCheck as checkStarRouter } from './starrouter.mjs'
 import { selfCheck as checkRunningHub } from './runninghub.mjs'
 import { selfCheck as checkComfly } from './comfly.mjs'
@@ -17,11 +17,12 @@ checkStarRouter()
 checkRunningHub()
 checkComfly()
 checkLitterbox()
+checkProviders()
 
 const provider = { type: 'string', enum: providerNames }
 const mediaType = { type: 'string', enum: ['image', 'video', 'audio'] }
 const imageResolution = { type: 'string', enum: ['1K', '2K', '4K'] }
-const imageAspectRatio = { type: 'string', enum: ['1:1', '16:9', '9:16', '4:3', '3:4'] }
+const imageAspectRatio = { type: 'string', enum: ['1:1', '16:9', '9:16', '4:3', '3:4', '2:3', '3:2'] }
 const audioMetadata = {
   type: 'object',
   properties: {
@@ -55,11 +56,14 @@ const tools = [
   }, ['service', 'project_root', 'asset_key', 'version_id', 'expires_in', 'usage_scope', 'confirmed', 'rights_confirmed', 'public_exposure_confirmed', 'usage_terms_confirmed']],
   ['list_models', '读取指定 Provider 的模型或工作流目录。', { provider }, ['provider']],
   ['generate_image', '使用用户选择的 Provider 生成图片；付费和上传本地参考文件前必须确认。', {
-    provider, model: { type: 'string' }, prompt: { type: 'string' }, size: { type: 'string' }, resolution: imageResolution, aspect_ratio: imageAspectRatio, n: { type: 'integer', minimum: 1, maximum: 4 }, quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'] }, style: { type: 'string' }, background: { type: 'string', enum: ['auto', 'opaque', 'transparent'] }, moderation: { type: 'string', enum: ['auto', 'low'] }, output_format: { type: 'string', enum: ['png', 'jpeg', 'webp'] }, output_compression: { type: 'integer', minimum: 1 }, partial_images: { type: 'integer', minimum: 1 }, user: { type: 'string' }, reference_manifest: { type: 'array', maxItems: 9, items: { type: 'object' } }, confirmed: { const: true }, ...workflow, ...projectTracking,
+    provider, model: { type: 'string' }, prompt: { type: 'string' }, size: { type: 'string' }, resolution: imageResolution, aspect_ratio: imageAspectRatio, seed: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1, maximum: 4 }, quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'] }, style: { type: 'string' }, background: { type: 'string', enum: ['auto', 'opaque', 'transparent'] }, moderation: { type: 'string', enum: ['auto', 'low'] }, output_format: { type: 'string', enum: ['png', 'jpeg', 'webp'] }, output_compression: { type: 'integer', minimum: 1 }, partial_images: { type: 'integer', minimum: 1 }, user: { type: 'string' }, reference_manifest: { type: 'array', maxItems: 9, items: { type: 'object' } }, confirmed: { const: true }, ...workflow, ...projectTracking,
   }, ['provider', 'prompt', 'reference_manifest', 'confirmed', 'project_root', 'target', 'prompt_document']],
   ['generate_audio', '使用用户选择的 Provider 生成语音或提交音频工作流。StarRouter 使用 model/input/voice，RunningHub 使用 prompt/workflow。', {
     provider, model: { type: 'string' }, input: { type: 'string' }, voice: { type: 'string' }, speed: { type: 'number', minimum: 0.5, maximum: 2 }, response_format: { type: 'string', enum: ['mp3', 'pcm', 'flac'] }, metadata: audioMetadata, prompt: { type: 'string' }, confirmed: { const: true }, ...workflow, ...projectTracking,
   }, ['provider', 'confirmed', 'project_root', 'target', 'prompt_document']],
+  ['generate_music', '使用 StarRouter 异步生成 OP、ED、BGM 或音乐短视频配乐。', {
+    provider, model: { type: 'string' }, prompt: { type: 'string' }, title: { type: 'string' }, tags: { type: 'string' }, lyrics: { type: 'string' }, make_instrumental: { type: 'boolean' }, confirmed: { const: true }, ...projectTracking,
+  }, ['provider', 'model', 'prompt', 'confirmed', 'project_root', 'target', 'prompt_document']],
   ['submit_video', '使用用户选择的 Provider 提交异步视频任务。', {
     provider, model: { type: 'string' }, prompt_profile: { type: 'string', enum: ['seedance2', 'h3', 'generic'] }, input_mode: { type: 'string', enum: ['first-last-frame', 'full-reference', 'T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA', 'generic'] }, prompt_version: { type: 'string' }, prompt: { type: 'string' }, frame_url: { type: 'string' }, images: { type: 'array', maxItems: 9, items: { type: 'string' } }, input_reference: { type: 'string' }, reference_urls: { type: 'array', items: { type: 'string' } }, reference_image_urls: { type: 'array', maxItems: 9, items: { type: 'string' } }, reference_video_urls: { type: 'array', maxItems: 3, items: { type: 'string' } }, reference_audio_urls: { type: 'array', maxItems: 3, items: { type: 'string' } }, reference_manifest: { type: 'array', maxItems: 12, items: { type: 'object' } }, reference_only: { type: 'boolean' }, duration: { type: 'integer', minimum: 1, maximum: 15 }, size: { type: 'string', enum: ['480P', '768P', '2K'] }, resolution: { type: 'string', enum: ['480p', '720p', '1080p', '480P', '768P', '1K', '2K'] }, ratio: { type: 'string', enum: ['21:9', '16:9', '9:16', '1:1', '4:3', '3:4'] }, generate_audio: { type: 'boolean' }, watermark: { type: 'boolean' }, seed: { type: 'integer', minimum: 1 }, fps: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1 }, response_format: { type: 'string' }, user: { type: 'string' }, metadata: { type: 'object' }, extra_options: { type: 'object' }, confirmed: { const: true }, ...workflow, ...projectTracking,
   }, ['provider', 'prompt_profile', 'input_mode', 'prompt_version', 'prompt', 'confirmed', 'project_root', 'target', 'prompt_document']],
@@ -72,7 +76,7 @@ function send(message) { process.stdout.write(`${JSON.stringify(message)}\n`) }
 function ok(id, result) { send({ jsonrpc: '2.0', id, result }) }
 function fail(id, error) { send({ jsonrpc: '2.0', id, error: { code: -32000, message: error instanceof Error ? error.message : String(error) } }) }
 
-async function validateProjectInputs(projectRoot, type, target, promptDocument, providerName, args) {
+async function validateProjectInputs(projectRoot, type, target, promptDocument, providerName, args, configuredType = type) {
   const root = await realpath(resolve(projectRoot))
   const assetRoot = await realpath(resolve(root, 'assets'))
   const prefixes = { image: ['char-', 'scene-', 'prop-', 'board-', 'other-'], video: ['shot-'], audio: ['audio-'] }
@@ -84,11 +88,16 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
     }
   }
   const project = JSON.parse(await readFile(resolve(root, '.short-drama/project.json'), 'utf8'))
-  const configured = project.providers?.[type]
+  const configured = project.providers?.[configuredType]
   const requestedModel = args.model || args.workflow_id
-  if (!configured?.provider || configured.provider !== providerName) throw new Error(`${type} Provider 必须与 project.json 已确认配置一致`)
-  if (!requestedModel) throw new Error(`${type} 模型或工作流必须显式解析并写入请求`)
-  if (configured.model_or_workflow && configured.model_or_workflow !== requestedModel) throw new Error(`${type} 模型或工作流必须与 project.json 已确认配置一致`)
+  if (!configured?.provider || configured.provider !== providerName) throw new Error(`${configuredType} Provider 必须与 project.json 已确认配置一致`)
+  if (!requestedModel) throw new Error(`${configuredType} 模型或工作流必须显式解析并写入请求`)
+  if (configured.model_or_workflow && configured.model_or_workflow !== requestedModel) throw new Error(`${configuredType} 模型或工作流必须与 project.json 已确认配置一致`)
+  const parameters = configured.parameters === undefined ? {} : normalizeModelParameters(providerName, requestedModel, configured.parameters)
+  for (const [key, value] of Object.entries(parameters)) {
+    if (args[key] !== undefined && JSON.stringify(args[key]) !== JSON.stringify(value)) throw new Error(`${configuredType} 参数 ${key} 必须与 project.json 已确认配置一致`)
+    args[key] = value
+  }
   if (type === 'image') {
     if ([...(args.reference_image_paths || []), ...(args.reference_video_paths || []), ...(args.reference_audio_paths || [])].length) throw new Error('图片生成本地参考只使用 reference_paths')
     const paths = args.reference_paths || []
@@ -143,10 +152,11 @@ export async function call(name, args = {}) {
     return publishReferenceImage(projectRoot, input)
   }
   const selected = adapter(args.provider)
-  const actions = { list_models: 'models', generate_image: 'image', generate_audio: 'audio', submit_video: 'submitVideo', get_generation_task: 'task' }
+  const actions = { list_models: 'models', generate_image: 'image', generate_audio: 'audio', generate_music: 'music', submit_video: 'submitVideo', get_generation_task: 'task' }
   const action = actions[name]
   if (!action) throw new Error(`未知工具：${name}`)
-  if (!['generate_image', 'generate_audio', 'submit_video'].includes(name)) return selected[action](args)
+  if (!['generate_image', 'generate_audio', 'generate_music', 'submit_video'].includes(name)) return selected[action](args)
+  if (typeof selected[action] !== 'function') throw new Error(`${args.provider} 不支持 ${name}`)
   const { project_root: projectRoot, target, prompt_document: promptDocument, ...rawProviderArgs } = args
   const providerArgs = { ...rawProviderArgs }
   if (args.provider === 'runninghub') {
@@ -155,10 +165,10 @@ export async function call(name, args = {}) {
       providerArgs.workflow_id ||= process.env.RUNNINGHUB_H3_WORKFLOW_ID || '2086743729407733762'
       if (Number.isInteger(providerArgs.duration) && providerArgs.duration < 5) providerArgs.duration = 5
     }
-    else providerArgs.workflow_id ||= process.env[workflowEnv]
+    else if (providerArgs.model !== 'krea2-normal-v1') providerArgs.workflow_id ||= process.env[workflowEnv]
   }
-  const type = name === 'generate_image' ? 'image' : name === 'generate_audio' ? 'audio' : 'video'
-  await validateProjectInputs(projectRoot, type, target, promptDocument, args.provider, providerArgs)
+  const type = name === 'generate_image' ? 'image' : ['generate_audio', 'generate_music'].includes(name) ? 'audio' : 'video'
+  await validateProjectInputs(projectRoot, type, target, promptDocument, args.provider, providerArgs, name === 'generate_music' ? 'music' : type)
   const snapshot = await createRequestSnapshot(projectRoot, { tool: name, target, type, provider: args.provider, modelOrWorkflow: providerArgs.model || providerArgs.workflow_id, promptDocument, arguments: providerArgs })
   await reserveTask(projectRoot, { taskId: snapshot.requestId, target, type, provider: args.provider, requestPath: snapshot.requestPath })
   let result

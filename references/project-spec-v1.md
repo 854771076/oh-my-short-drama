@@ -61,7 +61,7 @@
 
 正式生成图片分别引用当前 `asset-plan` 的资产 key 或 `storyboard` 的镜号，音频逐句引用当前 `audio-plan` 的 `line_index`；入口在付费前核对选版、批准状态、提示词正文、逐字台词和音色绑定。仅 `other-*` 辅助图允许没有独立制作文档。临时发布到 Litterbox 的参考图另写 `.short-drama/uploads/upload-<uuid>.json`，记录本地资产版本、哈希、公开 URL 与到期时间；`list_reference_uploads` 可跨会话查询有效或过期收据。有效同版本收据默认复用，`force_reupload` 只在用户再次确认延长时效后使用。
 
-生成 Provider 必须与 `project.json.providers` 的已确认选择一致。视频提交还会读取当前 selected、approved 且无未决项的 `video-prompts`，逐项核对目标镜号、模型/工作流、提示词正文、profile、输入模式、时长和参考素材清单；账本中的参考资产必须仍是 selected 版本。该校验发生在付费请求之前。
+生成 Provider、模型及项目级 `parameters` 必须与 `project.json.providers` 的已确认选择一致；调用未显式传参数时使用这里保存的默认值，显式传入不同值时在付费前拒绝。视频提交还会读取当前 selected、approved 且无未决项的 `video-prompts`，逐项核对目标镜号、模型/工作流、提示词正文、profile、输入模式、时长和参考素材清单；账本中的参考资产必须仍是 selected 版本。该校验发生在付费请求之前。
 
 交付 `manifest.json` 当前为 v2：除成片、SRT、ASS 的相对路径、大小与 SHA-256 外，还固定记录 `editing/<episode>/timeline.json` 和已批准 `review.json` 的相对路径、大小与 SHA-256。任一输入或交付文件变化都会使交付门禁失败，必须重新审片并生成新的交付版本。
 
@@ -107,9 +107,10 @@
     "default_panel_grid_size": 4
   },
   "providers": {
-    "image": { "provider": "starrouter", "model_or_workflow": "gpt-image-2", "prompt_profile": null },
-    "video": { "provider": "starrouter", "model_or_workflow": "dreamina-seedance-2-0-260128", "prompt_profile": "seedance2" },
-    "audio": { "provider": null, "model_or_workflow": null, "prompt_profile": null }
+    "image": { "provider": "starrouter", "model_or_workflow": "gpt-image-2", "prompt_profile": null, "parameters": { "resolution": "1K", "aspect_ratio": "1:1", "n": 1, "quality": "auto" } },
+    "video": { "provider": "starrouter", "model_or_workflow": "dreamina-seedance-2-0-260128", "prompt_profile": "seedance2", "parameters": { "duration": 5, "resolution": "720p", "ratio": "9:16", "generate_audio": false, "watermark": false } },
+    "audio": { "provider": null, "model_or_workflow": null, "prompt_profile": null, "parameters": {} },
+    "music": { "provider": "starrouter", "model_or_workflow": "suno_music", "prompt_profile": null, "parameters": { "make_instrumental": false } }
   },
   "createdAt": "2026-01-01T00:00:00.000Z",
   "updatedAt": "2026-01-01T00:00:00.000Z"
@@ -152,6 +153,8 @@ key 表示稳定身份，名称、描述和文件可以更新，key 不随版本
 ```
 
 `status` 只能是 `draft`、`approved`、`in-production`、`completed`。
+
+`project.format.episode_duration_seconds` 与 `episode.target_duration_seconds` 都表示策划目标，不是要求成片精确卡秒的硬截止。默认实际成片可在目标值约 ±15% 内自然浮动；超过该范围需要记录叙事原因并重新请用户确认。平台明确规定最大时长时，以平台上限为硬约束。
 
 ## 来源与媒体版本
 

@@ -25,7 +25,7 @@ export async function runPreflight(projectRoot, mode = 'init', persist = true) {
   let selectedProviders = {}
   try {
     const project = JSON.parse(await readFile(resolve(root, '.short-drama/project.json'), 'utf8'))
-    selectedProviders = Object.fromEntries(['image', 'video', 'audio'].map((modality) => [modality, project.providers?.[modality]?.provider || null]))
+    selectedProviders = Object.fromEntries(['image', 'video', 'audio', 'music'].map((modality) => [modality, project.providers?.[modality]?.provider || null]))
   } catch (error) {
     if (mode !== 'init') throw new Error(`无法读取 project.json：${error.message}`)
   }

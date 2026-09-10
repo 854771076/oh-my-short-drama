@@ -25,7 +25,7 @@ Shot information:
 5. The result must fill the frame. Never reproduce grids, panels, collage, split-screen, borders, numbering, subtitles, watermarks, logos, or UI; the grid is a narrative-keyframe reference, not the output format.
 6. Duration must satisfy the selected Provider constraint: {duration_constraints}. Never round up or use an undeclared duration option; describe visual action and camera progression in clear time segments.
 7. Avoid repeated quality buzzwords. Keep only details that support narrative and visual continuity.
-8. An impact may use localized directional motion blur and a brief 1–2 frame micro-shake, but must return immediately to stability. Do not use sustained shake, full-frame blur, or unmotivated motion.
+8. An impact may use localized directional motion blur and a brief contact-synchronized micro-shake, but must return immediately to stability. Do not use sustained shake, full-frame blur, or unmotivated motion.
 9. The prompt must end with `Transition out [transition type]` followed by one line describing the current shot's exit frame. Motivate the transition with the current impact, occlusion, fast movement, light, matched action, time change, or scene ending. Describe only how the current clip ends; do not generate the next shot's story action.
 
 [STRUCTURED STORYBOARD CONTEXT]

@@ -5,7 +5,7 @@ async function json(path) { return JSON.parse(await readFile(path, 'utf8')) }
 
 export function validDocumentReferenceShape(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || !/^ep-\d{3}$/.test(value.episode_key) || !/^v\d{3}$/.test(value.version_id)) return false
-  if (value.kind === 'audio-plan') return Number.isInteger(value.line_index) && value.line_index > 0 && Object.keys(value).length === 4
+  if (value.kind === 'audio-plan') return ((Number.isInteger(value.line_index) && value.line_index > 0) || (typeof value.track_key === 'string' && value.track_key.length > 0)) && Object.keys(value).length === 4
   if (value.kind === 'storyboard') return Number.isInteger(value.shot_number) && value.shot_number > 0 && Object.keys(value).length === 4
   if (value.kind === 'asset-plan') return typeof value.asset_key === 'string' && value.asset_key.length > 0 && Object.keys(value).length === 4
   return value.kind === undefined && Number.isInteger(value.shot_number) && value.shot_number > 0 && Object.keys(value).length === 3
@@ -50,6 +50,14 @@ export async function validateGenerationDocumentReference(root, type, target, re
   if (type === 'audio') {
     if (reference.kind !== 'audio-plan' || !target.startsWith(`audio-${reference.episode_key.replace('-', '')}-`)) throw new Error('音频 target 与 audio-plan 引用不一致')
     const document = await referencedDocument(root, reference, requireCurrent)
+    if (reference.track_key) {
+      const track = document.approved === true && !document.unresolved?.length && document.music_tracks?.find((item) => item.key === reference.track_key)
+      if (!track) throw new Error('audio-plan 音乐曲目不存在、未批准或仍有未决项')
+      for (const [field, actual] of Object.entries({ prompt: args.prompt, title: args.title, tags: args.tags, lyrics: args.lyrics || '', make_instrumental: args.make_instrumental === true, provider, model })) {
+        if ((track[field] ?? '') !== actual) throw new Error(`音乐参数与 audio-plan ${field} 不一致`)
+      }
+      return
+    }
     const line = document.approved === true && !document.unresolved?.length && document.lines?.find((item) => item.line_index === reference.line_index)
     if (!line) throw new Error('audio-plan 台词不存在、未批准或仍有未决项')
     if (typeof args.input === 'string' && args.input !== line.content) throw new Error('音频 input 与 audio-plan 台词不一致')

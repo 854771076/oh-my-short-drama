@@ -45,7 +45,7 @@ function versionKey(value, field = 'version') {
   return value
 }
 
-const providerDefaults = () => ({ provider: null, model_or_workflow: null, prompt_profile: null })
+const providerDefaults = () => ({ provider: null, model_or_workflow: null, prompt_profile: null, parameters: {} })
 const defaultArtStyle = () => ({
   id: 'system-realistic',
   name: '真人风格',
@@ -76,7 +76,7 @@ function projectDefaults(key, title) {
     languages: { output: null, spoken: null, subtitle: null },
     creative: { adaptation_mode: null, genre: null, tone: null, rating: null, art_style: defaultArtStyle() },
     storyboard: { type: 'single', default_panel_grid_size: null },
-    providers: { image: providerDefaults(), video: providerDefaults(), audio: providerDefaults() },
+    providers: { image: providerDefaults(), video: providerDefaults(), audio: providerDefaults(), music: providerDefaults() },
     createdAt: null,
     updatedAt: null,
   }
@@ -122,11 +122,14 @@ function validateProject(project) {
   exactKeys(project.storyboard, ['type', 'default_panel_grid_size'], 'project.storyboard')
   if (project.storyboard.type !== null && !STORYBOARD_TYPES.has(project.storyboard.type)) throw new Error('storyboard.type 无效')
   if (project.storyboard.default_panel_grid_size !== null && (!Number.isInteger(project.storyboard.default_panel_grid_size) || project.storyboard.default_panel_grid_size < 1 || project.storyboard.default_panel_grid_size > 16)) throw new Error('storyboard.default_panel_grid_size 必须为 1–16 或 null')
-  exactKeys(project.providers, ['image', 'video', 'audio'], 'project.providers')
-  for (const modality of ['image', 'video', 'audio']) {
+  const providerModalities = Object.hasOwn(project.providers, 'music') ? ['image', 'video', 'audio', 'music'] : ['image', 'video', 'audio']
+  exactKeys(project.providers, providerModalities, 'project.providers')
+  for (const modality of providerModalities) {
     const config = project.providers[modality]
-    exactKeys(config, ['provider', 'model_or_workflow', 'prompt_profile'], `project.providers.${modality}`)
+    const providerFields = Object.hasOwn(config, 'parameters') ? ['provider', 'model_or_workflow', 'prompt_profile', 'parameters'] : ['provider', 'model_or_workflow', 'prompt_profile']
+    exactKeys(config, providerFields, `project.providers.${modality}`)
     nullableString(config.provider, `providers.${modality}.provider`); nullableString(config.model_or_workflow, `providers.${modality}.model_or_workflow`)
+    if (config.parameters !== undefined && (!config.parameters || typeof config.parameters !== 'object' || Array.isArray(config.parameters))) throw new Error(`providers.${modality}.parameters 必须是对象`)
     if (config.model_or_workflow !== null && config.provider === null) throw new Error(`providers.${modality}.model_or_workflow 需要 provider`)
     if (modality === 'video') {
       if (config.prompt_profile !== null && !PROMPT_PROFILES.has(config.prompt_profile)) throw new Error('providers.video.prompt_profile 无效')
@@ -193,16 +196,36 @@ function validateAssetPlan(document) {
     if (!Array.isArray(document[group])) throw new Error(`asset-plan ${group}[] 必填`)
     for (const item of document[group]) {
       if (!item || typeof item !== 'object' || Array.isArray(item)) throw new Error(`${group} 资产必须是对象`)
+      exactKeys(item, ['key', 'type', 'name', 'evidence', 'visual_description', 'versions', 'derived_from', 'status', 'selected_version'], `${group} 资产`)
       safeKey(item.key, `${group}.key`)
       if (keys.has(item.key)) throw new Error(`asset key 重复：${item.key}`)
       keys.add(item.key)
       if (item.type !== type) throw new Error(`${item.key}.type 必须是 ${type}`)
       if (typeof item.name !== 'string' || !item.name.trim()) throw new Error(`${item.key}.name 必填`)
       if (!Array.isArray(item.evidence) || item.evidence.length === 0) throw new Error(`${item.key}.evidence[] 必填`)
+      for (const [index, evidence] of item.evidence.entries()) {
+        exactKeys(evidence, ['source', 'locator', 'quote'], `${item.key}.evidence[${index}]`)
+        if (!['script', 'director-book', 'source-analysis'].includes(evidence.source) || ![evidence.locator, evidence.quote].every((value) => typeof value === 'string' && value.trim())) throw new Error(`${item.key}.evidence[${index}] 无效`)
+      }
+      if (typeof item.visual_description !== 'string' || !item.visual_description.trim()) throw new Error(`${item.key}.visual_description 必填`)
       if (!Array.isArray(item.versions) || item.versions.length === 0) throw new Error(`${item.key}.versions[] 必填`)
+      const versionKeys = new Set()
+      for (const [index, version] of item.versions.entries()) {
+        exactKeys(version, ['key', 'label', 'trigger', 'evidence'], `${item.key}.versions[${index}]`)
+        versionKey(version.key, `${item.key}.versions[${index}].key`)
+        if (versionKeys.has(version.key)) throw new Error(`${item.key} 版本 key 重复：${version.key}`)
+        versionKeys.add(version.key)
+        if (![version.label, version.trigger, version.evidence].every((value) => typeof value === 'string' && value.trim())) throw new Error(`${item.key}.versions[${index}] 描述不完整`)
+      }
+      if (item.derived_from !== null) safeKey(item.derived_from, `${item.key}.derived_from`)
       if (!['planned', 'ready', 'blocked'].includes(item.status)) throw new Error(`${item.key}.status 无效`)
-      if (item.selected_version !== null) versionKey(item.selected_version, `${item.key}.selected_version`)
+      if (item.selected_version !== null && (!versionKeys.has(versionKey(item.selected_version, `${item.key}.selected_version`)))) throw new Error(`${item.key}.selected_version 不在 versions[]`)
     }
+  }
+  for (const [index, unresolved] of document.unresolved.entries()) {
+    exactKeys(unresolved, ['id', 'question', 'affects'], `asset-plan unresolved[${index}]`)
+    safeKey(unresolved.id, `asset-plan unresolved[${index}].id`)
+    if (typeof unresolved.question !== 'string' || !unresolved.question.trim() || !Array.isArray(unresolved.affects) || unresolved.affects.some((key) => { try { safeKey(key); return false } catch { return true } })) throw new Error(`asset-plan unresolved[${index}] 无效`)
   }
 }
 
@@ -242,6 +265,11 @@ function validateVideoPrompts(document, episodeKey) {
     if (!Number.isFinite(shot.duration) || shot.duration <= 0) throw new Error(`video-prompts shot ${shot.shot_number} duration 无效`)
     if (typeof shot.prompt !== 'string' || (!shot.prompt.trim() && shot.errors.length === 0)) throw new Error(`video-prompts shot ${shot.shot_number} prompt 为空且无错误`)
     if (shot.prompt_profile === 'seedance2' && (shot.duration < 4 || shot.duration > 15)) throw new Error(`video-prompts shot ${shot.shot_number} Seedance 2.0 时长必须为 4–15 秒`)
+    if (shot.prompt_profile === 'seedance2' && shot.errors.length === 0) {
+      const ranges = [...shot.prompt.matchAll(/\[(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*(?:s|秒)\]/g)].map((match) => match.slice(1).map(Number))
+      if (shot.duration >= 13 && ranges.length === 0) throw new Error(`video-prompts shot ${shot.shot_number} 13–15 秒提示词必须使用时间段`)
+      if (ranges.length && (ranges[0][0] !== 0 || ranges.some(([start, end], index) => end <= start || (index > 0 && start !== ranges[index - 1][1])) || ranges.at(-1)[1] !== shot.duration)) throw new Error(`video-prompts shot ${shot.shot_number} 时间段必须从 0 连续覆盖完整时长`)
+    }
     if (shot.prompt_profile === 'h3' && shot.errors.length === 0) {
       if (shot.duration < (shot.model_or_workflow === 'MiniMax-H3-Max' ? 5 : 4) || shot.duration > 15) throw new Error(`video-prompts shot ${shot.shot_number} MiniMax H3 时长无效`)
       if (shot.model_or_workflow === 'MiniMax-H3-Max' && shot.input_mode === 'Ref2VA') throw new Error(`video-prompts shot ${shot.shot_number} H3-Max 不支持 Ref2VA`)
@@ -267,7 +295,7 @@ function validateDocument(kind, document, episodeKey) {
     'director-book': ['episode_key', 'source_script_version', 'scenes', 'continuity_ledger', 'open_questions'],
     'production-plan': ['episode_key', 'source_versions', 'shots', 'totals', 'unresolved', 'approved'],
     'art-style': ['mode', 'style', 'decision_reason', 'approved'],
-    'audio-plan': ['episode_key', 'source_versions', 'lines', 'voice_bindings', 'unresolved', 'approved'],
+    'audio-plan': document.music_tracks === undefined ? ['episode_key', 'source_versions', 'lines', 'voice_bindings', 'unresolved', 'approved'] : ['episode_key', 'source_versions', 'lines', 'voice_bindings', 'music_tracks', 'unresolved', 'approved'],
   }
   if (contracts[kind]) exactKeys(document, contracts[kind], kind)
   if (kind === 'source-analysis' && !['original', 'faithful_adaptation', 'authorized_adaptation'].includes(document.adaptation_mode)) throw new Error('source-analysis adaptation_mode 无效')
@@ -284,6 +312,16 @@ function validateDocument(kind, document, episodeKey) {
       for (const field of fields) if (!(field in line)) throw new Error(`audio-plan lines[${index}] 缺少 ${field}`)
       if (line.line_index !== index + 1 || typeof line.speaker !== 'string' || !line.speaker || typeof line.content !== 'string' || !line.content || !Array.isArray(line.pronunciation_notes) || typeof line.emotion_strength !== 'number' || line.emotion_strength < 0.1 || line.emotion_strength > 0.5) throw new Error(`audio-plan lines[${index}] 无效`)
     })
+    if (document.music_tracks !== undefined) {
+      if (!Array.isArray(document.music_tracks)) throw new Error('audio-plan music_tracks 必须是数组')
+      document.music_tracks.forEach((track, index) => {
+        exactKeys(track, ['key', 'purpose', 'title', 'prompt', 'tags', 'lyrics', 'make_instrumental', 'provider', 'model', 'matched_shots'], `audio-plan music_tracks[${index}]`)
+        if (!/^(?:op|ed|bgm|music-video)(?:-[a-z0-9]+)*$/.test(track.key) || !['op', 'ed', 'bgm', 'music-video'].includes(track.purpose)) throw new Error(`audio-plan music_tracks[${index}] key/purpose 无效`)
+        for (const field of ['title', 'prompt', 'tags', 'provider', 'model']) if (typeof track[field] !== 'string' || !track[field].trim()) throw new Error(`audio-plan music_tracks[${index}].${field} 必填`)
+        if (typeof track.lyrics !== 'string' || typeof track.make_instrumental !== 'boolean' || !Array.isArray(track.matched_shots) || track.matched_shots.some((shot) => !Number.isInteger(shot) || shot <= 0)) throw new Error(`audio-plan music_tracks[${index}] 内容无效`)
+        if (track.make_instrumental && track.lyrics.trim()) throw new Error(`audio-plan music_tracks[${index}] 纯音乐不能包含歌词`)
+      })
+    }
     if (document.approved && document.unresolved.length) throw new Error('audio-plan 存在未决项时不得 approved')
   }
   if (kind === 'outline') {
@@ -298,8 +336,13 @@ function validateDocument(kind, document, episodeKey) {
     if (!document.dimensions || typeof document.dimensions !== 'object' || Array.isArray(document.dimensions)) throw new Error('script-review dimensions 必须是对象')
     for (const dimension of ['opening', 'pace', 'payoff', 'dialogue', 'continuity', 'production_feasibility']) {
       if (!['passed', 'failed'].includes(document.dimensions[dimension]?.status)) throw new Error(`script-review ${dimension}.status 无效`)
+      if (typeof document.dimensions[dimension]?.note !== 'string') throw new Error(`script-review ${dimension}.note 必须是字符串`)
     }
     if (!Array.isArray(document.issues) || !document.compliance || typeof document.compliance.passed !== 'boolean' || !Array.isArray(document.compliance.issues) || typeof document.approved !== 'boolean') throw new Error('script-review issues/compliance/approved 无效')
+    for (const [index, issue] of document.issues.entries()) {
+      for (const field of ['scene_or_line', 'severity', 'dimension', 'finding', 'required_change']) if (typeof issue?.[field] !== 'string' || !issue[field].trim()) throw new Error(`script-review issues[${index}].${field} 必填`)
+      if (!['P0', 'P1', 'P2'].includes(issue.severity) || !['opening', 'pace', 'payoff', 'dialogue', 'continuity', 'production_feasibility', 'compliance'].includes(issue.dimension)) throw new Error(`script-review issues[${index}] 分类无效`)
+    }
     if (document.approved && (document.compliance.passed !== true || Object.values(document.dimensions).some((item) => item.status !== 'passed') || document.issues.some((item) => ['P0', 'P1'].includes(item?.severity)))) throw new Error('script-review 存在阻断项时不得 approved')
   }
   if (['director-book', 'production-plan'].includes(kind)) {
@@ -307,10 +350,14 @@ function validateDocument(kind, document, episodeKey) {
     if (!Array.isArray(kind === 'director-book' ? document.scenes : document.shots) || (kind === 'director-book' ? document.scenes : document.shots).length === 0) throw new Error(`${kind} 内容数组必填且不得为空`)
   }
   if (kind === 'director-book') {
+    versionKey(document.source_script_version, 'director-book source_script_version')
+    if (!Array.isArray(document.continuity_ledger) || !Array.isArray(document.open_questions)) throw new Error('director-book continuity_ledger/open_questions 必须是数组')
     const fields = ['scene_key', 'source_scene', 'dramatic_objective', 'beats', 'subtext', 'performance_direction', 'blocking', 'eyelines', 'axis_rule', 'camera_strategy', 'lighting_and_color', 'sound_plan', 'transition_in', 'transition_out', 'continuity_state', 'asset_requirements', 'prohibited_changes']
+    const sceneKeys = new Set()
     document.scenes.forEach((scene, index) => {
       for (const field of fields) if (!(field in scene)) throw new Error(`director-book scenes[${index}] 缺少 ${field}`)
-      if (typeof scene.scene_key !== 'string' || !scene.scene_key || !Array.isArray(scene.beats) || scene.beats.length === 0) throw new Error(`director-book scenes[${index}] scene_key/beats 无效`)
+      if (typeof scene.scene_key !== 'string' || !scene.scene_key || sceneKeys.has(scene.scene_key) || typeof scene.source_scene !== 'string' || !scene.source_scene.trim() || typeof scene.dramatic_objective !== 'string' || !scene.dramatic_objective.trim() || !Array.isArray(scene.beats) || scene.beats.length === 0 || !Array.isArray(scene.asset_requirements) || !Array.isArray(scene.prohibited_changes)) throw new Error(`director-book scenes[${index}] 场次合同无效`)
+      sceneKeys.add(scene.scene_key)
     })
   }
   if (kind === 'production-plan' && (typeof document.approved !== 'boolean' || !Array.isArray(document.unresolved))) throw new Error('production-plan approved/unresolved 无效')
@@ -337,19 +384,47 @@ function validateDocument(kind, document, episodeKey) {
   }
   if (kind === 'storyboard') {
     exactKeys(document, ['episode_key', 'source_versions', 'panels'], 'storyboard')
+    if (!document.source_versions || typeof document.source_versions !== 'object' || Array.isArray(document.source_versions) || Object.keys(document.source_versions).length === 0) throw new Error('storyboard source_versions 必须是非空对象')
+    for (const [source, version] of Object.entries(document.source_versions)) versionKey(version, `storyboard source_versions.${source}`)
     if (!Array.isArray(document.panels) || document.panels.length === 0) throw new Error('storyboard panels[] 必填')
     const fields = ['panel_number', 'shot_number', 'description', 'characters', 'location', 'source_text', 'duration']
     for (const [index, panel] of document.panels.entries()) {
       for (const field of fields) if (!(field in panel)) throw new Error(`storyboard panels[${index}] 缺少 ${field}`)
       if (panel.shot_number !== panel.panel_number) throw new Error(`storyboard panels[${index}] shot_number 必须等于 panel_number`)
-      if (!Array.isArray(panel.characters)) throw new Error(`storyboard panels[${index}].characters 必须是数组`)
-      if (!Number.isInteger(panel.duration) || panel.duration <= 0 || typeof panel.description !== 'string' || !panel.description || typeof panel.source_text !== 'string' || !panel.source_text) throw new Error(`storyboard panels[${index}] 描述、来源或时长无效`)
+      if (!Array.isArray(panel.characters) || panel.characters.some((character) => !character || typeof character !== 'object' || Array.isArray(character) || typeof character.name !== 'string' || !character.name.trim())) throw new Error(`storyboard panels[${index}].characters 无效`)
+      if (!Number.isInteger(panel.duration) || panel.duration <= 0 || typeof panel.description !== 'string' || !panel.description.trim() || typeof panel.location !== 'string' || !panel.location.trim() || typeof panel.source_text !== 'string' || !panel.source_text.trim()) throw new Error(`storyboard panels[${index}] 描述、场景、来源或时长无效`)
     }
     const numbers = document.panels.map((panel) => panel.panel_number)
     if (numbers.some((number, index) => number !== index + 1)) throw new Error('storyboard panel_number 必须从 1 连续递增')
     if (document.episode_key && document.episode_key !== episodeKey) throw new Error('storyboard episode_key 与目标分集不一致')
   }
   if (kind === 'video-prompts') validateVideoPrompts(document, episodeKey)
+}
+
+async function validateEpisodeDocument(kind, episodeKey, document) {
+  validateDocument(kind, document, episodeKey)
+  if (kind === 'asset-plan') {
+    validateAssetPlan(document)
+    if (document.episode_key !== episodeKey) throw new Error('asset-plan episode_key 与目标分集不一致')
+  }
+  if (kind !== 'video-prompts') return
+  const ledger = await readJson(resolve(root, '.short-drama', 'assets.json'))
+  for (const shot of document.shots) {
+    await access(resolve(episodeRoot(episodeKey), 'production-plan', `${safeKey(shot.production_plan_version, 'production plan version')}.json`))
+    await access(resolve(episodeRoot(episodeKey), 'storyboard', `${safeKey(shot.storyboard_version, 'storyboard version')}.json`))
+    for (const type of ['image', 'video', 'audio']) {
+      const references = shot.references.filter((item) => item?.type === type)
+      if (references.some((item, index) => item.order !== index + 1)) throw new Error(`video-prompts shot ${shot.shot_number} ${type} 引用顺序无效`)
+    }
+    for (const reference of shot.references) {
+      safeKey(reference.asset_key, 'reference asset key'); versionKey(reference.version_id, 'reference version id')
+      if (typeof reference.role !== 'string' || !reference.role.trim()) throw new Error(`video-prompts shot ${shot.shot_number} 引用用途必填`)
+      const asset = ledger.assets?.[reference.asset_key]
+      const version = asset?.versions?.find((item) => item.id === reference.version_id)
+      if (!version || asset.selectedVersionId !== reference.version_id) throw new Error(`video-prompts shot ${shot.shot_number} 引用必须是已选本地版本：${reference.asset_key}@${reference.version_id}`)
+      await access(resolve(root, version.localPath))
+    }
+  }
 }
 
 async function readJson(path) { return JSON.parse(await readFile(path, 'utf8')) }
@@ -382,9 +457,15 @@ async function main() {
     const now = new Date().toISOString()
     validateProject({ ...projectDefaults('short-drama', '短剧'), createdAt: now, updatedAt: now })
     try { safeKey('../bad'); throw new Error('路径自检失败') } catch (error) { if (!String(error.message).includes('无效')) throw error }
-    validateAssetPlan({ episode_key: 'ep-001', characters: [{ key: 'char-a', type: 'character', name: 'A', evidence: [{}], versions: [{}], status: 'planned', selected_version: null }], scenes: [], props: [], unresolved: [] })
+    const assetPlan = { episode_key: 'ep-001', characters: [{ key: 'char-a', type: 'character', name: 'A', evidence: [{ source: 'script', locator: 'scene-001', quote: 'A 入场' }], visual_description: '外观未知，待确认', versions: [{ key: 'v001', label: '基础造型', trigger: '首次出场', evidence: 'scene-001' }], derived_from: null, status: 'planned', selected_version: null }], scenes: [], props: [], unresolved: [] }
+    validateAssetPlan(assetPlan)
+    try { validateAssetPlan({ ...assetPlan, characters: [{ ...assetPlan.characters[0], evidence: [{}] }] }); throw new Error('资产证据自检失败') } catch (error) { if (!String(error.message).includes('顶层字段')) throw error }
     validateDocument('outline', { episodes: [{ key: 'ep-001', order: 1 }], coverage_check: {}, continuity_check: {} })
+    validateDocument('audio-plan', { episode_key: 'ep-001', source_versions: {}, lines: [], voice_bindings: [], music_tracks: [{ key: 'op', purpose: 'op', title: '片头曲', prompt: '紧张悬疑电子乐', tags: 'cinematic,electronic', lyrics: '', make_instrumental: true, provider: 'starrouter', model: 'suno_music', matched_shots: [1] }], unresolved: [], approved: true }, 'ep-001')
     validateVideoPrompts({ episode_key: 'ep-001', source_versions: {}, unresolved: [], approved: true, shots: [{ shot_number: 1, production_plan_version: 'v001', storyboard_version: 'v001', provider: 'runninghub', model_or_workflow: 'minimax-h3-reference-to-video', prompt_profile: 'h3', input_mode: 'Ref2VA', prompt: 'subject_definitions:\nA\nsummary:\nA\nretention_analysis:\nA\ndetailed_description:\nA\noverall_soundscape:\nA\nnon_diegetic_music:\nN/A', duration: 5, references: [], continuity: {}, audio_policy: {}, errors: [] }] }, 'ep-001')
+    const seedance = { episode_key: 'ep-001', source_versions: {}, unresolved: [], approved: true, shots: [{ shot_number: 1, production_plan_version: 'v001', storyboard_version: 'v001', provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: 'first-last-frame', prompt: '[0–5s] 人物走到门口。[5–15s] 人物停下并回头。', duration: 15, references: [], continuity: {}, audio_policy: {}, errors: [] }] }
+    validateVideoPrompts(seedance, 'ep-001')
+    try { validateVideoPrompts({ ...seedance, shots: [{ ...seedance.shots[0], prompt: '[1–8s] 人物走动。[9–15s] 人物停下。' }] }, 'ep-001'); throw new Error('时间段自检失败') } catch (error) { if (!String(error.message).includes('从 0 连续覆盖')) throw error }
     return console.log('ok')
   }
   if (command === 'init') {
@@ -583,30 +664,7 @@ async function main() {
     if (!inputPath) throw new Error('用法：put-episode-document <项目目录> <script-review|director-book|asset-plan|production-plan|storyboard|video-prompts|audio-plan> <episode key> <version> <JSON>')
     await readJson(resolve(episodeRoot(episodeKey), 'episode.json'))
     const document = await readJson(resolve(inputPath))
-    validateDocument(kind, document, episodeKey)
-    if (kind === 'asset-plan') {
-      validateAssetPlan(document)
-      if (document.episode_key !== episodeKey) throw new Error('asset-plan episode_key 与目标分集不一致')
-    }
-    if (kind === 'video-prompts') {
-      const ledger = await readJson(resolve(root, '.short-drama', 'assets.json'))
-      for (const shot of document.shots) {
-        await access(resolve(episodeRoot(episodeKey), 'production-plan', `${safeKey(shot.production_plan_version, 'production plan version')}.json`))
-        await access(resolve(episodeRoot(episodeKey), 'storyboard', `${safeKey(shot.storyboard_version, 'storyboard version')}.json`))
-        for (const type of ['image', 'video', 'audio']) {
-          const references = shot.references.filter((item) => item?.type === type)
-          if (references.some((item, index) => item.order !== index + 1)) throw new Error(`video-prompts shot ${shot.shot_number} ${type} 引用顺序无效`)
-        }
-        for (const reference of shot.references) {
-          safeKey(reference.asset_key, 'reference asset key'); versionKey(reference.version_id, 'reference version id')
-          if (typeof reference.role !== 'string' || !reference.role.trim()) throw new Error(`video-prompts shot ${shot.shot_number} 引用用途必填`)
-          const asset = ledger.assets?.[reference.asset_key]
-          const version = asset?.versions?.find((item) => item.id === reference.version_id)
-          if (!version || asset.selectedVersionId !== reference.version_id) throw new Error(`video-prompts shot ${shot.shot_number} 引用必须是已选本地版本：${reference.asset_key}@${reference.version_id}`)
-          await access(resolve(root, version.localPath))
-        }
-      }
-    }
+    await validateEpisodeDocument(kind, episodeKey, document)
     await writeJson(resolve(episodeRoot(episodeKey), kind, `${versionId}.json`), document, true)
     return console.log(versionId)
   }
@@ -615,8 +673,7 @@ async function main() {
     if (!EPISODE_DOCUMENTS.has(kind) || !inputPath) throw new Error('用法：validate-episode-document <项目目录> <类型> <episode key> <JSON>')
     validateEpisodeKey(episodeKey)
     const document = await readJson(resolve(inputPath))
-    validateDocument(kind, document, episodeKey)
-    if (kind === 'asset-plan') validateAssetPlan(document)
+    await validateEpisodeDocument(kind, episodeKey, document)
     return console.log('ok')
   }
   if (command === 'put-script') {
@@ -656,7 +713,8 @@ async function main() {
     const [kind, episodeKey, versionId] = process.argv.slice(4)
     if (!EPISODE_DOCUMENTS.has(kind)) throw new Error('episode document 类型无效')
     validateEpisodeKey(episodeKey); versionKey(versionId, `${kind} version`)
-    await readJson(resolve(episodeRoot(episodeKey), kind, `${versionId}.json`))
+    const document = await readJson(resolve(episodeRoot(episodeKey), kind, `${versionId}.json`))
+    await validateEpisodeDocument(kind, episodeKey, document)
     const invalidationStage = { 'script-review': 'script', 'director-book': 'director-book', 'asset-plan': 'asset-analysis', storyboard: 'production-plan', 'production-plan': 'production-plan', 'video-prompts': 'production-plan', 'audio-plan': 'media-production' }[kind]
     await invalidateFrom(root, invalidationStage)
     const selected = { versionId, path: `episodes/${episodeKey}/${kind}/${versionId}.json`, selectedAt: new Date().toISOString() }

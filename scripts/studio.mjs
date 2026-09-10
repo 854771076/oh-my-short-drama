@@ -10,7 +10,7 @@ import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
-import { providerSetupCatalog, testProviderConnection } from './generation/providers.mjs'
+import { normalizeModelParameters, providerSetupCatalog, testProviderConnection } from './generation/providers.mjs'
 import { saveCredential } from './generation/credentials.mjs'
 
 const execute = promisify(execFile)
@@ -231,13 +231,16 @@ async function configureProjectProviders(workspaceRoot, key, input) {
   const root = await projectPath(workspaceRoot, key)
   const catalog = providerSetupCatalog()
   const providers = {}
-  for (const type of ['image', 'video', 'audio']) {
+  for (const type of ['image', 'video', 'audio', 'music']) {
     const selected = input.providers?.[type]
-    if (!selected?.provider && !selected?.model_or_workflow) { providers[type] = { provider: null, model_or_workflow: null, prompt_profile: null }; continue }
+    if (!selected?.provider && !selected?.model_or_workflow) { providers[type] = { provider: null, model_or_workflow: null, prompt_profile: null, parameters: {} }; continue }
     const provider = catalog.find((item) => item.key === selected?.provider)
     const model = provider?.models[type]?.find((item) => item.id === selected?.model_or_workflow)
     if (!provider || !provider.configured || !model) throw Object.assign(new Error(`${type} 的供应商未配置或模型不受支持`), { status: 400 })
-    providers[type] = { provider: provider.key, model_or_workflow: model.id, prompt_profile: model.promptProfile }
+    let parameters
+    try { parameters = normalizeModelParameters(provider.key, model.id, selected.parameters) }
+    catch (error) { throw Object.assign(error, { status: 400 }) }
+    providers[type] = { provider: provider.key, model_or_workflow: model.id, prompt_profile: model.promptProfile, parameters }
   }
   const temporary = await mkdtemp(resolve(tmpdir(), 'short-drama-providers-'))
   try {

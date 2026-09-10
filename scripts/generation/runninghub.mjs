@@ -7,6 +7,13 @@ const MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 const H3_MODEL = 'minimax-h3-reference-to-video'
 const H3_WORKFLOW_ID = process.env.RUNNINGHUB_H3_WORKFLOW_ID || '2086743729407733762'
 const H3_TEMPLATE = JSON.parse(await readFile(new URL('./minimax-h3-workflow.json', import.meta.url), 'utf8'))
+const KREA2_MODEL = 'krea2-normal-v1'
+const KREA2_WORKFLOW_ID = process.env.RUNNINGHUB_KREA2_WORKFLOW_ID || '2096515700701929473'
+const KREA2_TEMPLATE = JSON.parse(await readFile(new URL('./krea2-normal-v1-workflow.json', import.meta.url), 'utf8'))
+const KREA2_DIMENSIONS = {
+  '1K': { '1:1': [1024, 1024], '16:9': [1024, 576], '9:16': [576, 1024], '3:4': [768, 1024], '4:3': [1024, 768], '2:3': [680, 1024], '3:2': [1024, 680] },
+  '2K': { '1:1': [2048, 2048], '16:9': [2048, 1152], '9:16': [1152, 2048], '3:4': [1536, 2048], '4:3': [2048, 1536], '2:3': [1360, 2048], '3:2': [2048, 1360] },
+}
 const H3_RATIOS = { '16:9': '16:9 (Widescreen)', '9:16': '9:16 (Portrait Widescreen)' }
 const H3_MEGAPIXELS = { '480p': 0.4, '720p': 0.9, '1K': 1, '2K': 2 }
 
@@ -139,6 +146,27 @@ async function submitH3(input) {
   return { task_id: payload.data.taskId, provider: 'runninghub', media_type: 'video', model: H3_MODEL, workflow_id: H3_WORKFLOW_ID, status: 'submitted' }
 }
 
+async function submitKrea2(input) {
+  confirm(input)
+  if (!input.prompt?.trim()) throw new Error('RunningHub Krea2 prompt 必填')
+  if (input.reference_paths?.length) throw new Error('RunningHub Krea2 普通工作流暂不支持参考图')
+  if (input.n !== undefined && input.n !== 1) throw new Error('RunningHub Krea2 当前每次只生成 1 张图片')
+  const resolution = input.resolution || '2K'
+  const ratio = input.aspect_ratio || '4:3'
+  const dimensions = KREA2_DIMENSIONS[resolution]?.[ratio]
+  if (!dimensions) throw new Error('RunningHub Krea2 仅支持 1K/2K 与 1:1、16:9、9:16、3:4、4:3、2:3、3:2')
+  const workflow = structuredClone(KREA2_TEMPLATE)
+  workflow['5'].inputs.text = input.prompt
+  ;[workflow['8'].inputs.width, workflow['8'].inputs.height] = dimensions
+  if (Number.isInteger(input.seed) && input.seed > 0) workflow['51'].inputs.seed = input.seed
+  const payload = await request('/task/openapi/create', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey: apiKey(), workflowId: KREA2_WORKFLOW_ID, workflow: JSON.stringify(workflow), addMetadata: false }),
+  })
+  if (Number(payload.code) !== 0 || !payload?.data?.taskId) throw new Error(`RUNNINGHUB_KREA2_SUBMIT_FAILED: ${String(payload.msg || payload.code)}`)
+  return { task_id: payload.data.taskId, provider: 'runninghub', media_type: 'image', model: KREA2_MODEL, workflow_id: KREA2_WORKFLOW_ID, status: 'submitted' }
+}
+
 async function submit(input, modality) {
   confirm(input)
   if (modality === 'video') validateVideoPrompt(input)
@@ -173,10 +201,10 @@ function outputUrls(data, found = []) {
 
 export const runninghub = {
   label: 'RunningHub', credentialEnv: 'RUNNINGHUB_API_KEY',
-  catalog: { image: [process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID].filter(Boolean), video: [H3_MODEL, process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID].filter(Boolean), audio: [process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID].filter(Boolean) },
+  catalog: { image: [...new Set([KREA2_MODEL, process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID].filter(Boolean))], video: [H3_MODEL, process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID].filter(Boolean), audio: [process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID].filter(Boolean) },
   capabilities: { text: false, image: true, video: true, audio: true },
   async models() {
-    return { provider: 'runninghub', video_models: [H3_MODEL], workflows: { image: process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID || null, video: process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID || null, h3_video: H3_WORKFLOW_ID, audio: process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID || null } }
+    return { provider: 'runninghub', image_models: [KREA2_MODEL], video_models: [H3_MODEL], workflows: { image: process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID || null, krea2_image: KREA2_WORKFLOW_ID, video: process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID || null, h3_video: H3_WORKFLOW_ID, audio: process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID || null } }
   },
   async testConnection() {
     const value = apiKey()
@@ -184,7 +212,7 @@ export const runninghub = {
     if (Number(payload.code) !== 0) throw new Error(`RUNNINGHUB_REQUEST_FAILED(${payload.code}): ${String(payload.msg || '认证失败')}`)
   },
   async text() { throw new Error('RunningHub 不提供通用文本生成') },
-  async image(input) { return submit(input, 'image') },
+  async image(input) { return input.model === KREA2_MODEL ? submitKrea2(input) : submit(input, 'image') },
   async submitVideo(input) { validateVideoPrompt(input); return input.model === H3_MODEL ? submitH3(input) : submit(input, 'video') },
   async audio(input) { return submit(input, 'audio') },
   async task(input) {
@@ -207,4 +235,5 @@ export function selfCheck() {
   validateH3References({ input_mode: 'FL2VA', reference_manifest: [{ type: 'image', order: 1, role: 'first_frame' }, { type: 'image', order: 2, role: 'last_frame' }] }, [['images', ['a', 'b']], ['videos', []], ['audios', []]])
   try { validateH3References({ input_mode: 'I2VA', reference_manifest: [] }, [['images', []], ['videos', []], ['audios', []]]); throw new Error('RunningHub H3 模式自检失败') } catch (error) { if (!String(error.message).includes('I2VA')) throw error }
   if (H3_TEMPLATE['31']?.class_type !== 'MiniMaxH3ReferenceToVideo') throw new Error('RunningHub H3 内置工作流无效')
+  if (KREA2_TEMPLATE['5']?.class_type !== 'CLIPTextEncode' || KREA2_DIMENSIONS['2K']['9:16'].join('x') !== '1152x2048') throw new Error('RunningHub Krea2 内置工作流无效')
 }

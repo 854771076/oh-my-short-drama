@@ -12,6 +12,7 @@ function configuredModels(name, defaults) {
 
 const IMAGE_MODELS = configuredModels('STARROUTER_IMAGE_MODELS', ['gpt-image-2'])
 const AUDIO_MODELS = configuredModels('STARROUTER_AUDIO_MODELS', ['speech-2.8-hd', 'speech-2.8-turbo'])
+const MUSIC_MODELS = configuredModels('STARROUTER_MUSIC_MODELS', ['suno_music'])
 const VIDEO_MODELS = configuredModels('STARROUTER_VIDEO_MODELS', [
   'MiniMax-H3',
   'MiniMax-H3-Max',
@@ -331,10 +332,42 @@ function audioResult(bytes, contentType, format) {
   return { provider: 'starrouter', task_id: `starrouter-sync-${randomUUID()}`, status: 'completed', outputs: [{ b64_json: `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`, media_type: 'audio', content_type: mime, format }] }
 }
 
+function musicPayload(input) {
+  if (!MUSIC_MODELS.includes(input.model)) throw new Error(`未注册的音乐模型：${input.model}`)
+  if (typeof input.prompt !== 'string' || !input.prompt.trim()) throw new Error('音乐 prompt 必填')
+  if (input.title !== undefined && (typeof input.title !== 'string' || !input.title.trim())) throw new Error('音乐 title 必须是非空字符串')
+  if (input.tags !== undefined && (typeof input.tags !== 'string' || !input.tags.trim())) throw new Error('音乐 tags 必须是非空字符串')
+  if (input.lyrics !== undefined && typeof input.lyrics !== 'string') throw new Error('音乐 lyrics 必须是字符串')
+  const instrumental = input.make_instrumental === true
+  if (instrumental && input.lyrics?.trim()) throw new Error('纯音乐不能同时提供 lyrics')
+  return Object.fromEntries(Object.entries({
+    prompt: input.lyrics?.trim() || input.prompt.trim(),
+    title: input.title?.trim(),
+    tags: input.tags?.trim(),
+    make_instrumental: instrumental,
+  }).filter(([, value]) => value !== undefined && value !== ''))
+}
+
+function musicTaskId(data) {
+  const value = typeof data?.data === 'string' ? data.data : data?.data?.task_id || data?.data?.id || data?.task_id || data?.id
+  if (!value) throw new Error('STARROUTER_MUSIC_TASK_ID_MISSING')
+  return `music:${value}`
+}
+
+function findMusicUrls(value, found = []) {
+  if (!value || typeof value !== 'object') return found
+  for (const name of ['audio_url', 'audioUrl', 'source_audio_url', 'sourceAudioUrl', 'stream_audio_url', 'streamAudioUrl']) {
+    const candidate = value[name]
+    if (typeof candidate === 'string' && /^https?:\/\//.test(candidate)) found.push(candidate)
+  }
+  for (const child of Object.values(value)) if (child && typeof child === 'object') findMusicUrls(child, found)
+  return [...new Set(found)]
+}
+
 export const starrouter = {
   label: 'StarRouter', credentialEnv: 'STARROUTER_API_KEY',
-  catalog: { image: IMAGE_MODELS, video: VIDEO_MODELS, audio: AUDIO_MODELS },
-  capabilities: { text: false, image: true, video: true, audio: true },
+  catalog: { image: IMAGE_MODELS, video: VIDEO_MODELS, audio: AUDIO_MODELS, music: MUSIC_MODELS },
+  capabilities: { text: false, image: true, video: true, audio: true, music: true },
   async models() {
     const data = await request('/v1/models', { timeout: 20_000 })
     return { catalog: starrouter.catalog, remote: data.data || [] }
@@ -375,6 +408,14 @@ export const starrouter = {
       body: JSON.stringify(payload),
     })
     return audioResult(new Uint8Array(await response.arrayBuffer()), response.headers.get('content-type'), payload.response_format)
+  },
+
+  async music(input) {
+    confirm(input)
+    const data = await request('/suno/submit/MUSIC', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(musicPayload(input)), timeout: 30_000,
+    })
+    return { provider: 'starrouter', task_id: musicTaskId(data), media_type: 'audio', model: input.model, status: 'submitted' }
   },
 
   async submitVideo(input) {
@@ -437,6 +478,16 @@ export const starrouter = {
 
   async task(input) {
     if (!input.task_id?.trim()) throw new Error('task_id 必填')
+    if (input.task_id.startsWith('music:')) {
+      const data = await request(`/suno/fetch/${encodeURIComponent(input.task_id.slice(6))}`, { timeout: 30_000 })
+      const status = String(data?.data?.status || data?.status || data?.state || 'PENDING').toUpperCase()
+      if (['FAILED', 'ERROR'].includes(status)) return { provider: 'starrouter', status: 'failed', error: data?.data?.error_message || data?.message || data?.error?.message }
+      if (['SUCCEEDED', 'SUCCESS', 'DONE', 'COMPLETED', 'FINISHED'].includes(status)) {
+        const urls = findMusicUrls(data)
+        return urls.length ? { provider: 'starrouter', status: 'completed', outputs: urls.map((url) => ({ url, media_type: 'audio' })) } : { provider: 'starrouter', status: 'failed', error: '任务完成但未返回音乐 URL' }
+      }
+      return { provider: 'starrouter', status: 'pending' }
+    }
     const path = input.task_id.startsWith('task_') ? `/v1/videos/${encodeURIComponent(input.task_id)}` : `/volcengine/doubao/contents/generations/tasks/${encodeURIComponent(input.task_id)}`
     const data = await request(path, { timeout: 30_000 })
     const rawStatus = data?.data?.status || data?.status || data?.state || 'PENDING'
@@ -466,4 +517,6 @@ export function selfCheck() {
   try { h3Payload({ model: 'MiniMax-H3', prompt_profile: 'h3', input_mode: 'FL2VA', prompt: 'A', duration: 4, size: '768P', images: ['https://example.com/1.png', 'https://example.com/2.png', 'https://example.com/3.png'] }); throw new Error('H3 图片上限自检失败') } catch (error) { if (!String(error.message).includes('最多两张')) throw error }
   try { validateSeedance2Contract({ model: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: 'full-reference', duration: 5, reference_manifest: Array.from({ length: 10 }, (_, index) => ({ type: 'image', order: index + 1 })) }, { image: 10, video: 0, audio: 0 }); throw new Error('Seedance 素材上限自检失败') } catch (error) { if (!String(error.message).includes('超过图片')) throw error }
   try { h3Payload({ model: 'MiniMax-H3-Max', prompt_profile: 'h3', input_mode: 'Ref2VA', prompt: 'A', reference_video_urls: ['https://example.com/a.mp4'] }); throw new Error('H3-Max 参考素材校验失败') } catch (error) { if (!String(error.message).includes('不支持参考素材')) throw error }
+  if (musicPayload({ model: 'suno_music', prompt: '电影感片尾曲', make_instrumental: true }).make_instrumental !== true) throw new Error('音乐请求自检失败')
+  if (musicTaskId({ data: 'abc' }) !== 'music:abc' || findMusicUrls({ data: [{ audio_url: 'https://example.com/a.mp3' }] }).length !== 1) throw new Error('音乐任务归一化失败')
 }

@@ -30,6 +30,8 @@ Requirements:
 7. The current shot's source_text and description are the evidence ceiling for visible action. Do not infer new hand actions, support actions, scanning, or environmental obstacles from mood, the character profile, or neighboring shots.
 8. Do not carry a one-off action that already ended or was released into later shots unless that later shot's source_text states it again.
 9. Visible action may omit unsupported categories. Do not invent details merely to fill expression, body language, micro-action, or eyeline categories.
+10. A silent character in frame still performs a relationship task: assess the partner, conceal a response, wait for an opening, or protect the situation. A reaction may begin when the key information lands rather than mechanically after the line ends; a difficult reply shows an evidenced assessment or pause before speech. Do not invent a new plot reaction.
+11. If source_text already contains ongoing work, daily business, exertion, impact, or injury, let the tactic travel through that action, breath, and weight. An evidenced interruption can punctuate a beat. Physical load and breathing must continue across the cut rather than resetting immediately.
 
 Output format (JSON array only):
 [
@@ -49,5 +51,6 @@ Strict constraints:
 2. Array length must equal {panel_count}.
 3. Each character object must contain only "name" and "acting". Acting must use exactly: "Goal: ...; Obstacle: ...; Strategy: ...; Visible action: ...".
 4. Keep character names exactly consistent with panel input.
-5. ⚠️ JSON SAFETY: All quotation marks in text (""''「」 etc.) MUST be converted to corner brackets「」in JSON string values. NEVER use raw ASCII double quotes " inside string values.
-6. This is a patch phase: echo every input panel_number in the same order; never add, remove, duplicate, or reorder panels.
+5. Every visible character's action must express a speaking, listening, or relationship task; never leave them neutral until a line ends and then switch them on mechanically.
+6. ⚠️ JSON SAFETY: All quotation marks in text (""''「」 etc.) MUST be converted to corner brackets「」in JSON string values. NEVER use raw ASCII double quotes " inside string values.
+7. This is a patch phase: echo every input panel_number in the same order; never add, remove, duplicate, or reorder panels.

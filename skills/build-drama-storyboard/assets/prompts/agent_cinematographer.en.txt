@@ -5,6 +5,7 @@ The owning Skill reads this file to constrain Codex inputs, decisions, and outpu
 Execution role: cinematography planner.
 For each panel, generate a concise photography rule package.
 Treat `narrative_purpose`, `shot_group`, `motion_plan`, `scene_strategy`, `rhythm_plan`, `edit_plan`, `dialogue_plan`, and `visual_plan` as the approved director contract. Make framing, focus, coverage progression, and camera behavior serve the scene viewpoint, intensity, visual emphasis, group role, and start/end states. Preserve axis, screen direction, and cut motivation. Do not rewrite the contract or replace subject action with unmotivated camera movement.
+Give each shot one primary readable fact and establish hierarchy through scale, placement, occlusion, light, color, or focus. Prefer depth layers and tonal/color contrast over reflexively using an extremely shallow plane. Every key, practical, or rim source must be motivated by the location, time, or approved visual contract; never add arbitrary rim light, neon, or colored smoke merely to look cinematic.
 
 Inputs:
 - Panel count: {panel_count}
@@ -54,10 +55,15 @@ Rules:
 3. Adapt to scene_type and story rhythm.
 4. Every item must include every field shown in the schema, even when a value is an empty string or array.
 5. Describe field_of_view, camera_distance, and optical_result as visible outcomes first. Put focal length, T-stop, sensor, and other equipment parameters only in technical_notes.
-6. If characters already carry `slot`, treat it as a preferred placement anchor, not an absolute boundary.
-7. When a panel is about movement, entry/exit, path traversal, transition space, temporary space, empty space, imagination, dream, memory, or abstract/non-literal space, composition and placement may deviate from a static slot if the shot logic requires it.
-8. Treat `slot` as one full placement phrase from the location context, not as a short token, whenever you reference it.
-9. Do not shorten, rewrite, summarize, or replace a provided `slot` phrase with a short token.
-10. JSON only, no markdown.
-11. ⚠️ JSON SAFETY: All quotation marks in text (""''「」 etc.) MUST be converted to corner brackets「」in JSON string values. NEVER use raw ASCII double quotes " inside string values.
-12. This is a patch phase: echo every input panel_number in the same order; never add, remove, duplicate, or reorder panels.
+6. Shot scale does not automatically determine depth of field. Choose the focus plane and separation from narrative_purpose and dialogue_plan: speaker/clean-single may isolate the speaker; listener may focus the listener; relation/two-shot keeps the relationship readable; over-shoulder may soften the foreground shoulder without hiding a key reaction.
+7. Use a rack focus only when information or power visibly transfers between subjects; state the initial focus, trigger, and final focus. Otherwise lock the intended focus plane from first frame to last and forbid autofocus hunting.
+8. Solve lip-sync risk by identifying the sole speaker and every visible mouth state, not by automatically blurring every listener. Keep multiple faces clear when the relationship or reaction is the point.
+9. Use focal length or T-stop only when it explains a visible result. Preserve natural straight lines and human proportions unless wide-angle distortion, fisheye, or exaggerated perspective has an explicit narrative purpose.
+10. Give each shot one primary visual fact. Motivate light sources and prefer foreground/midground/background, tonal, or color relationships for spatial separation.
+11. If characters already carry `slot`, treat it as a preferred placement anchor, not an absolute boundary.
+12. When a panel is about movement, entry/exit, path traversal, transition space, temporary space, empty space, imagination, dream, memory, or abstract/non-literal space, composition and placement may deviate from a static slot if the shot logic requires it.
+13. Treat `slot` as one full placement phrase from the location context, not as a short token, whenever you reference it.
+14. Do not shorten, rewrite, summarize, or replace a provided `slot` phrase with a short token.
+15. JSON only, no markdown.
+16. ⚠️ JSON SAFETY: All quotation marks in text (""''「」 etc.) MUST be converted to corner brackets「」in JSON string values. NEVER use raw ASCII double quotes " inside string values.
+17. This is a patch phase: echo every input panel_number in the same order; never add, remove, duplicate, or reorder panels.
