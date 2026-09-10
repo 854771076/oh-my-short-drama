@@ -45,6 +45,8 @@
 
 用户未明确指定其他绝对路径时，新项目统一位于 `~/darma_project/<project-key>`；Dashboard 与 `project-store.mjs init <相对项目目录>` 使用同一默认根目录。新项目还会在项目根创建 `AGENTS.md` 作为 Codex 的项目级恢复入口；若目录已有用户自己的 `AGENTS.md`，初始化不会覆盖。更换会话时只要从项目根或其子目录打开任务，SessionStart hook 会向上定位 `.short-drama/project.json` 并恢复阶段；从无关目录打开时必须显式给出项目路径。不要建立跨项目全局记忆，避免旧选版、旧 Provider 或旧阶段污染当前项目。
 
+初始化必须原子创建 `assets.json`、`tasks.json`、`shot-reviews.json` 与 `skill-runs.json` 空账本。`format.resolution` 使用“宽x高”，方向必须与 `aspect_ratio` 一致；Provider、模型和 `parameters` 必须通过已注册目录校验。更新 Provider 参数时整组替换，不能残留上一模型字段。
+
 每个版本目录通过 `selected.json` 指向当前入选版本。版本文件不可覆盖；剧本初稿、Humanizer 成稿和后续修改依次产生新版本。`script-review` 必须记录并匹配当前 selected 剧本版本，批准后才允许进入导演本。剪辑、审片和交付必须按 `ep-NNN` 分集保存，禁止多集共用 timeline 或 manifest。复制项目时保留相对路径，删除 `.short-drama/tasks.json` 中仍在运行的外部任务前必须先核对 Provider 状态。
 
 资产计划包含人物时，必须先由 `generate-character-profiles` 生成并确认 `assets/characters/profiles.json`；计划中的每个规范人物名都必须存在于人物档案，不能用资产计划本身冒充人物档案执行证据。

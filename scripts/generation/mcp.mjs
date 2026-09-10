@@ -12,6 +12,9 @@ import { mediaHostCatalog, mediaHostNames } from '../media-hosting/providers.mjs
 import { listReferenceUploads, publishReferenceImage } from '../media-hosting/publish.mjs'
 import { selfCheck as checkLitterbox } from '../media-hosting/litterbox.mjs'
 import { validateVideoReferenceBindings } from '../reference-bindings.mjs'
+import { inspectStage } from '../workflow-gates.mjs'
+import { stages } from '../workflow-stages.mjs'
+import { validateProject, validateVideoPrompts } from '../project-store.mjs'
 
 checkStarRouter()
 checkRunningHub()
@@ -72,6 +75,20 @@ const tools = [
   name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false },
 }))
 
+async function enforceGenerationStage(projectRoot, name, target) {
+  const root = await realpath(resolve(projectRoot))
+  const state = JSON.parse(await readFile(resolve(root, '.short-drama/state.json'), 'utf8'))
+  const allowed = name === 'generate_image'
+    ? target?.startsWith('board-') ? ['media-production'] : target?.startsWith('other-') ? ['asset-generation', 'media-production'] : ['asset-generation']
+    : ['media-production']
+  if (!allowed.includes(state.stage)) throw new Error(`${name} 只能在 ${allowed.join(' 或 ')} 阶段执行；当前阶段为 ${state.stage}`)
+  for (const stage of stages.slice(0, stages.indexOf(state.stage))) {
+    if (!state.completed?.includes(stage)) throw new Error(`生成门禁未通过：上游阶段 ${stage} 未完成`)
+    const gate = await inspectStage(root, stage)
+    if (!gate.ready) throw new Error(`生成门禁未通过：${stage}：${gate.missing.join('；')}`)
+  }
+}
+
 function send(message) { process.stdout.write(`${JSON.stringify(message)}\n`) }
 function ok(id, result) { send({ jsonrpc: '2.0', id, result }) }
 function fail(id, error) { send({ jsonrpc: '2.0', id, error: { code: -32000, message: error instanceof Error ? error.message : String(error) } }) }
@@ -87,7 +104,7 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
       if (path !== assetRoot && !path.startsWith(`${assetRoot}${sep}`)) throw new Error(`${field} 只能上传当前项目 assets/ 内文件`)
     }
   }
-  const project = JSON.parse(await readFile(resolve(root, '.short-drama/project.json'), 'utf8'))
+  const project = validateProject(JSON.parse(await readFile(resolve(root, '.short-drama/project.json'), 'utf8')))
   const configured = project.providers?.[configuredType]
   const requestedModel = args.model || args.workflow_id
   if (!configured?.provider || configured.provider !== providerName) throw new Error(`${configuredType} Provider 必须与 project.json 已确认配置一致`)
@@ -123,6 +140,7 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
   const documentPath = resolve(root, 'episodes', promptDocument.episode_key, 'video-prompts', `${promptDocument.version_id}.json`)
   if (resolve(root, selected.path) !== documentPath) throw new Error('selected 视频提示词路径无效')
   const document = JSON.parse(await readFile(documentPath, 'utf8'))
+  validateVideoPrompts(document, promptDocument.episode_key)
   const shot = document.approved === true && !document.unresolved?.length && document.shots?.find((item) => item.shot_number === promptDocument.shot_number)
   if (!shot || shot.errors?.length) throw new Error('视频提示词镜头不存在、未批准或仍有错误')
   for (const [field, actual] of Object.entries({ provider: providerName, model_or_workflow: requestedModel, prompt_profile: args.prompt_profile, input_mode: args.input_mode, prompt: args.prompt, duration: args.duration })) {
@@ -159,6 +177,7 @@ export async function call(name, args = {}) {
   if (typeof selected[action] !== 'function') throw new Error(`${args.provider} 不支持 ${name}`)
   const { project_root: projectRoot, target, prompt_document: promptDocument, ...rawProviderArgs } = args
   const providerArgs = { ...rawProviderArgs }
+  await enforceGenerationStage(projectRoot, name, target)
   if (args.provider === 'runninghub') {
     const workflowEnv = name === 'generate_image' ? 'RUNNINGHUB_IMAGE_WORKFLOW_ID' : name === 'generate_audio' ? 'RUNNINGHUB_AUDIO_WORKFLOW_ID' : 'RUNNINGHUB_VIDEO_WORKFLOW_ID'
     if (providerArgs.model === 'minimax-h3-reference-to-video') {
@@ -190,7 +209,7 @@ function serve() {
     try { message = JSON.parse(line) } catch { return }
     if (message.method === 'notifications/initialized') return
     try {
-      if (message.method === 'initialize') return ok(message.id, { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'drama-generation', version: '0.3.0' } })
+      if (message.method === 'initialize') return ok(message.id, { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'drama-generation', version: '0.4.0' } })
       if (message.method === 'tools/list') return ok(message.id, { tools })
       if (message.method === 'tools/call') return ok(message.id, { content: [{ type: 'text', text: JSON.stringify(await call(message.params?.name, message.params?.arguments)) }] })
       fail(message.id, new Error(`不支持的方法：${message.method}`))

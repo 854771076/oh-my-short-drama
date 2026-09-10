@@ -105,10 +105,18 @@ async function main() {
   await checkMultiEpisodeEvidence()
   const root = await mkdtemp(resolve(tmpdir(), 'short-drama-integration-'))
   try {
-    const initialProject = await json(root, 'initial-project.json', { key: 'integration-drama', title: '集成测试短剧', providers: { image: { provider: 'starrouter', model_or_workflow: 'gpt-image-2', prompt_profile: null }, video: { provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2' }, audio: { provider: 'starrouter', model_or_workflow: 'speech-2.8-hd', prompt_profile: null, parameters: { speed: 1, response_format: 'flac' } }, music: { provider: 'starrouter', model_or_workflow: 'suno_music', prompt_profile: null, parameters: { make_instrumental: true } } } })
+    const initialProject = await json(root, 'initial-project.json', { key: 'integration-drama', title: '集成测试短剧', providers: { image: { provider: 'starrouter', model_or_workflow: 'gpt-image-2', prompt_profile: null }, video: { provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', parameters: { watermark: true } }, audio: { provider: 'starrouter', model_or_workflow: 'speech-2.8-hd', prompt_profile: null, parameters: { speed: 1, response_format: 'flac' } }, music: { provider: 'starrouter', model_or_workflow: 'suno_music', prompt_profile: null, parameters: { make_instrumental: true } } } })
     run('project-store.mjs', 'init', root, initialProject)
     const initialized = JSON.parse(run('project-store.mjs', 'project', root))
     if (initialized.schema_version !== 1 || !('format' in initialized) || !('providers' in initialized) || initialized.creative?.art_style?.id !== 'system-realistic') throw new Error('项目规范 v1 初始化失败')
+    for (const [name, field] of [['assets.json', 'assets'], ['tasks.json', 'tasks'], ['shot-reviews.json', 'reviews']]) {
+      const ledger = JSON.parse(await readFile(resolve(root, '.short-drama', name), 'utf8'))
+      if (ledger.version !== 1 || !ledger[field] || typeof ledger[field] !== 'object') throw new Error(`初始化缺少 ${name}`)
+    }
+    const invalidFormat = spawnSync(process.execPath, [resolve(plugin, 'scripts/project-store.mjs'), 'update-project', root, await json(root, 'invalid-format.json', { format: { aspect_ratio: '16:9', resolution: '1080x1920' } })], { encoding: 'utf8' })
+    if (invalidFormat.status === 0 || !invalidFormat.stderr.includes('必须与 format.aspect_ratio 一致')) throw new Error('画幅与分辨率冲突未被拒绝')
+    run('project-store.mjs', 'update-project', root, await json(root, 'replace-video-parameters.json', { providers: { video: { parameters: { duration: 5 } } } }))
+    if (Object.keys(JSON.parse(run('project-store.mjs', 'project', root)).providers.video.parameters).join() !== 'duration') throw new Error('模型参数更新未整体替换旧字段')
     const mediaHosts = await callGeneration('list_media_hosts')
     if (!mediaHosts.litterbox?.free || mediaHosts.litterbox?.permanent || mediaHosts.litterbox?.expiries?.join(',') !== '1h,12h,24h,72h') throw new Error('Litterbox MCP 能力目录无效')
     const environment = JSON.parse(await readFile(resolve(root, '.short-drama/environment.json'), 'utf8'))
@@ -175,16 +183,9 @@ async function main() {
     await Promise.all([runAsync('task-ledger.mjs', 'put', root, taskA), runAsync('task-ledger.mjs', 'put', root, taskB), runAsync('task-ledger.mjs', 'put', root, taskC), runAsync('task-ledger.mjs', 'put', root, taskD)])
     if (Object.keys(JSON.parse(run('task-ledger.mjs', 'list', root)).tasks).length !== 4) throw new Error('并发任务账本写入丢失')
     try {
-      await callGeneration('generate_image', { provider: 'starrouter', model: 'invalid-model', prompt: '路径边界测试', reference_paths: ['/etc/hosts'], reference_manifest: [], confirmed: true, project_root: root, target: 'char-outside', prompt_document: null })
-      throw new Error('项目外上传路径未被拒绝')
-    } catch (error) { if (!String(error.message).includes('assets/ 内文件')) throw error }
-    try {
-      await callGeneration('generate_image', { provider: 'starrouter', model: 'gpt-image-2', prompt: '失败请求也必须保留的提示词', reference_manifest: [], output_compression: 0, confirmed: true, project_root: root, target: 'other-failed', prompt_document: null })
-      throw new Error('生成失败留档自检未触发')
-    } catch (error) { if (!String(error.message).includes('正整数')) throw error }
-    const failed = Object.values(JSON.parse(run('task-ledger.mjs', 'list', root)).tasks).find((task) => task.target === 'other-failed')
-    const failedRequest = JSON.parse(await readFile(resolve(root, failed.requestPath), 'utf8'))
-    if (failed.status !== 'failed' || failedRequest.arguments.prompt !== '失败请求也必须保留的提示词') throw new Error('失败生成请求未完整留档')
+      await callGeneration('generate_image', { provider: 'starrouter', model: 'gpt-image-2', prompt: '越级调用', reference_manifest: [], confirmed: true, project_root: root, target: 'other-early', prompt_document: null })
+      throw new Error('分析阶段仍可调用媒体生成')
+    } catch (error) { if (!String(error.message).includes('只能在 asset-generation 或 media-production')) throw error }
     const source = { source_scope: {}, adaptation_mode: 'original', facts: [], timeline: [], characters: [], locations: [], props: [], conflicts: [], themes: [], visual_challenges: [], content_constraints: [], user_requirements: [], contradictions: [], open_questions: [], coverage: { complete: true, ranges: [] } }
     const brief = { title: '测试', logline: '', adaptation_mode: 'original', genre: '', audience: '', platform: '', tone: '', core_conflict: '', output_language: 'zh-CN', spoken_language: 'zh-CN', subtitle_language: 'zh-CN', aspect_ratio: '9:16', episode_count: 1, episode_duration_seconds: 30, rating: '', existing_materials: [], required_deliverables: [], prohibited_content: [], ending_type: '', creative_constraints: [], open_questions: [], approved: true }
     const bible = { premise: '', genre: '', tone: '', themes: [], world_rules: [], ending: {}, characters: [], relationships: [], three_act: {}, conflict_ladder: [], promises_and_payoffs: [], foreshadowing: [], continuity_rules: [], adaptation_constraints: [], open_questions: [] }
@@ -241,6 +242,17 @@ async function main() {
     await recordSkills(root, 'asset-analysis', 'episodes/ep-001/asset-plan/v001.json')
     run('workflow.mjs', 'advance', root, 'asset-generation')
     try {
+      await callGeneration('generate_image', { provider: 'starrouter', model: 'invalid-model', prompt: '路径边界测试', reference_paths: ['/etc/hosts'], reference_manifest: [], confirmed: true, project_root: root, target: 'char-outside', prompt_document: null })
+      throw new Error('项目外上传路径未被拒绝')
+    } catch (error) { if (!String(error.message).includes('assets/ 内文件')) throw error }
+    try {
+      await callGeneration('generate_image', { provider: 'starrouter', model: 'gpt-image-2', prompt: '失败请求也必须保留的提示词', reference_manifest: [], output_compression: 0, confirmed: true, project_root: root, target: 'other-failed', prompt_document: null })
+      throw new Error('生成失败留档自检未触发')
+    } catch (error) { if (!String(error.message).includes('正整数')) throw error }
+    const failed = Object.values(JSON.parse(run('task-ledger.mjs', 'list', root)).tasks).find((task) => task.target === 'other-failed')
+    const failedRequest = JSON.parse(await readFile(resolve(root, failed.requestPath), 'utf8'))
+    if (failed.status !== 'failed' || failedRequest.arguments.prompt !== '失败请求也必须保留的提示词') throw new Error('失败生成请求未完整留档')
+    try {
       await callGeneration('generate_image', { provider: 'starrouter', model: 'gpt-image-2', prompt: '没有对应提示词运行记录', reference_manifest: [], confirmed: true, project_root: root, target: 'char-a', prompt_document: { kind: 'asset-plan', episode_key: 'ep-001', version_id: 'v001', asset_key: 'char-a' } })
       throw new Error('无关图片提示词未被拒绝')
     } catch (error) { if (!String(error.message).includes('对应 Skill')) throw error }
@@ -269,14 +281,13 @@ async function main() {
     }
     run('project-store.mjs', 'put-episode-document', root, 'video-prompts', 'ep-001', 'v001', await json(root, 'video-prompts.json', videoPrompts))
     run('project-store.mjs', 'select-episode-document', root, 'video-prompts', 'ep-001', 'v001')
+    await recordSkills(root, 'production-plan', 'episodes/ep-001/production-plan/v001.json')
+    run('workflow.mjs', 'advance', root, 'media-production')
     const boundVideo = { provider: 'starrouter', model: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: 'first-last-frame', prompt_version: 'v001', prompt: videoPrompts.shots[0].prompt, duration: 5, frame_url: uploadReceipt.url, reference_manifest: videoPrompts.shots[0].references, confirmed: true, project_root: root, target: 'shot-ep001-001', prompt_document: { episode_key: 'ep-001', version_id: 'v001', shot_number: 1 } }
     try { await callGeneration('submit_video', { ...boundVideo, prompt: '被篡改的提示词' }); throw new Error('视频提示词绑定自检未触发') } catch (error) { if (!String(error.message).includes('prompt 不一致')) throw error }
     try { await callGeneration('submit_video', { ...boundVideo, fps: 25 }); throw new Error('Seedance 参数自检未触发') } catch (error) { if (!String(error.message).includes('fps 仅支持 24')) throw error }
     const boundFailure = Object.values(JSON.parse(run('task-ledger.mjs', 'list', root)).tasks).find((task) => task.target === 'shot-ep001-001' && task.status === 'failed')
     if (!boundFailure) throw new Error('通过文档绑定校验后的失败视频请求未留档')
-    await recordSkills(root, 'production-plan', 'episodes/ep-001/production-plan/v001.json')
-    run('workflow.mjs', 'advance', root, 'media-production')
-
     const audioPlan = { episode_key: 'ep-001', source_versions: { script: 'v002', storyboard: 'v001', production_plan: 'v001' }, lines: [{ line_index: 1, speaker: 'A', line_type: 'dialogue', content: '别绕弯子。', emotion: '克制', emotion_strength: 0.2, pronunciation_notes: [], matched_shot: { shot_number: 1 } }], voice_bindings: [{ speaker: 'A', provider: 'starrouter', model: 'speech-2.8-hd', voice_id: 'male-qn-qingse' }], music_tracks: [{ key: 'op', purpose: 'op', title: '片头曲', prompt: '紧张悬疑电子乐', tags: 'cinematic,electronic', lyrics: '', make_instrumental: true, provider: 'starrouter', model: 'suno_music', matched_shots: [1] }], unresolved: [], approved: true }
     run('project-store.mjs', 'put-episode-document', root, 'audio-plan', 'ep-001', 'v001', await json(root, 'audio-plan.json', audioPlan))
     run('project-store.mjs', 'select-episode-document', root, 'audio-plan', 'ep-001', 'v001')

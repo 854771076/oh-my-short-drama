@@ -9,6 +9,8 @@ description: 配置并验证本地短剧插件的生成 Provider。用于选择 
 
 确认选择后，把四种模态的 `provider`、`model_or_workflow`、模型 `parameters` 和视频 `prompt_profile` 写入一个不含凭据的更新 JSON，再执行 `node scripts/project-store.mjs update-project <项目目录> <更新 JSON>`；Dashboard 应按模型目录展示枚举、数字范围和布尔参数。生成 MCP 会补齐未显式传入的项目参数，并拒绝与已确认参数不一致的调用。旧项目没有 `parameters` 或 `music` 时仍可读取，在 Dashboard 保存一次生成配置即可补齐。凭据使用环境变量或 Dashboard 本机私有凭据文件，环境变量优先；不得写入项目。
 
+不要直接编辑 `project.json`。项目存储会拒绝未注册 Provider、该 Provider 不支持的模型/模态和模型枚举之外的参数；模型切换时 `parameters` 整体替换而非与旧字段合并。Comfly `minimax-h3` 不接收 `generate_audio` 参数，声音策略写入制作计划的 `audio_strategy`，不能伪装成 Provider 参数。
+
 - StarRouter：环境变量 `STARROUTER_API_KEY`，可选基址与图片、视频、语音模型目录变量；协议见 [StarRouter 合同](../../references/starrouter-provider.md)。内置模型枚举如下：
   - image：`gpt-image-2`。
   - video：`MiniMax-H3`、`MiniMax-H3-Max`、`dreamina-seedance-2-0-fast-260128`、`dreamina-seedance-2-0-260128`、`doubao-seedance-2-0-260128`、`doubao-seedance-2-0-fast-260128`、`doubao-seedance-1-5-pro-251215`、`doubao-seedance-1-0-pro-250528`、`doubao-seedance-1-0-pro-fast-251015`。

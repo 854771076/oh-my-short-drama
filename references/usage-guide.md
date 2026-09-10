@@ -17,6 +17,8 @@
 
 文本资产默认由 Codex 直接生成，不使用外部文本模型。图片、视频、音频才进入生成 Provider 路由。
 
+付费确认只授权费用，不改变阶段。生成 MCP 会在请求落盘前检查当前阶段和全部上游门禁；直接编辑 `selected.json`、项目配置或占位文档不能使越级调用通过。
+
 每一步不是只“参考”表中的 Skill：进入阶段后运行 `node scripts/skill-runs.mjs required <项目目录> <阶段>`，完整读取并执行返回的每个原子 Skill，再用 `record` 关联实际项目产物。`workflow.mjs advance` 会拒绝没有 Skill 执行凭证的剧本、导演本、资产、分镜、制作计划、媒体或剪辑结果。
 
 ## 原子 Skill

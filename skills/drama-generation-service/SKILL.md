@@ -13,6 +13,8 @@ description: 统一路由短剧图片、视频和音频生成 Provider。用于�
 
 生成入口以 `project.json.providers` 为已确认路由，实际 Provider 与模型/工作流必须一致。视频只能使用当前 selected 且已批准、无未决项的 `video-prompts` 版本；目标 key 固定为 `shot-epNNN-NNN`，提示词正文、模型、profile、输入模式、时长以及参考素材的类型、顺序、资产版本和用途必须逐项等于该镜合同。图片必须引用当前 selected 的资产计划或分镜，并与所属图片 Skill 留下的提示词正文一致；`reference_manifest` 与 `reference_paths` 等长，逐项绑定 selected 本地图片版本、用途和顺序。语音必须逐字匹配当前 approved `audio-plan` 的行，并匹配说话人—Provider—模型—voice 绑定；音乐必须匹配 `audio-plan.music_tracks` 的提示词、标题、标签、歌词、纯音乐开关、Provider 与模型。任何不一致都在请求 Provider 前拒绝。
 
+生成 MCP 在上述文档校验前先检查本地状态机，并复查全部已完成上游阶段的产物、选版、Skill 凭证和哈希。`generate_image` 的人物/场景/道具目标仅允许 `asset-generation`，分镜图仅允许 `media-production`；`submit_video`、`generate_audio`、`generate_music` 仅允许 `media-production`。门禁失败时不得创建请求快照、任务记录或访问 Provider。视频提示词必须先通过与 `project-store.mjs` 相同的完整合同校验，不把缺字段暴露为运行时 TypeError。
+
 - StarRouter：图片可直接生成或用本地 `reference_paths` 编辑；Seedance 和 MiniMax H3/H3-Max 视频提交后用 `get_generation_task` 查询；MiniMax 语音通过同步 `/v1/audio/speech` 生成；`suno_music` 异步生成 OP、ED、BGM 或音乐短视频配乐。
 - RunningHub：通用图片/视频/音频使用工作流 ID 和 `node_info_list`；内置 `krea2-normal-v1` 图片与 `minimax-h3-reference-to-video` 视频不需要节点配置。
 - Comfly：当前只接入 `minimax-h3` 的 Ref2VA 视频；固定 `input_mode=Ref2VA`，支持 1–3 张公开 HTTPS 参考图片或 1 段公开视频，二者互斥，不支持参考音频。工作流按素材数与尺寸确定，不能让用户直接填写内部编号。

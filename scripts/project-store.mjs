@@ -4,11 +4,13 @@ import { createReadStream } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { COPYFILE_EXCL } from 'node:constants'
 import { basename, dirname, extname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { stages } from './workflow-stages.mjs'
 import { withFileLock } from './file-lock.mjs'
 import { runPreflight } from './preflight.mjs'
 import { invalidateFrom } from './invalidate-workflow.mjs'
 import { DEFAULT_WORKSPACE_ROOT, openStudio } from './studio.mjs'
+import { normalizeModelParameters, providerSetupCatalog } from './generation/providers.mjs'
 
 const root = process.argv[2] === 'init' ? resolve(DEFAULT_WORKSPACE_ROOT, process.argv[3] || 'short-drama') : resolve(process.argv[3] || process.cwd())
 const EPISODE_DOCUMENTS = new Set(['script-review', 'director-book', 'asset-plan', 'production-plan', 'storyboard', 'video-prompts', 'audio-plan'])
@@ -101,7 +103,7 @@ function validateArtStyle(style, label = 'art_style') {
   for (const field of ['palette', 'baseline', 'lighting', 'narrative_arc', 'motion_language', 'negative_constraints']) if (!(field in bible)) throw new Error(`${label}.visualBible.${field} 必填`)
 }
 
-function validateProject(project) {
+export function validateProject(project) {
   exactKeys(project, ['schema_version', 'key', 'title', 'description', 'format', 'languages', 'creative', 'storyboard', 'providers', 'createdAt', 'updatedAt'], 'project.json')
   if (project.schema_version !== 1) throw new Error('project.json schema_version 必须为 1')
   projectKey(project.key)
@@ -109,7 +111,12 @@ function validateProject(project) {
   nullableString(project.description, 'description')
   exactKeys(project.format, ['aspect_ratio', 'resolution', 'fps', 'episode_count', 'episode_duration_seconds'], 'project.format')
   if (project.format.aspect_ratio !== null && !ASPECT_RATIOS.has(project.format.aspect_ratio)) throw new Error('format.aspect_ratio 无效')
-  if (project.format.resolution !== null && !/^\d+x\d+$/.test(project.format.resolution)) throw new Error('format.resolution 必须为 1080x1920 格式')
+  if (project.format.resolution !== null && !/^\d+x\d+$/.test(project.format.resolution)) throw new Error('format.resolution 必须为 宽x高 格式')
+  if (project.format.aspect_ratio !== null && project.format.resolution !== null) {
+    const [width, height] = project.format.resolution.split('x').map(Number)
+    const [ratioWidth, ratioHeight] = project.format.aspect_ratio.split(':').map(Number)
+    if (Math.abs(width / height - ratioWidth / ratioHeight) / (ratioWidth / ratioHeight) > 0.03) throw new Error('format.resolution 必须与 format.aspect_ratio 一致')
+  }
   for (const field of ['fps', 'episode_count', 'episode_duration_seconds']) if (project.format[field] !== null && (!Number.isInteger(project.format[field]) || project.format[field] <= 0)) throw new Error(`format.${field} 必须是正整数或 null`)
   exactKeys(project.languages, ['output', 'spoken', 'subtitle'], 'project.languages')
   for (const field of ['output', 'spoken', 'subtitle']) nullableString(project.languages[field], `languages.${field}`)
@@ -131,6 +138,12 @@ function validateProject(project) {
     nullableString(config.provider, `providers.${modality}.provider`); nullableString(config.model_or_workflow, `providers.${modality}.model_or_workflow`)
     if (config.parameters !== undefined && (!config.parameters || typeof config.parameters !== 'object' || Array.isArray(config.parameters))) throw new Error(`providers.${modality}.parameters 必须是对象`)
     if (config.model_or_workflow !== null && config.provider === null) throw new Error(`providers.${modality}.model_or_workflow 需要 provider`)
+    if (config.provider !== null) {
+      const registered = providerSetupCatalog().find((item) => item.key === config.provider)
+      if (!registered) throw new Error(`providers.${modality}.provider 未注册：${config.provider}`)
+      if (config.model_or_workflow !== null && !(registered.models?.[modality] || []).some((item) => item.id === config.model_or_workflow)) throw new Error(`providers.${modality}.model_or_workflow 不受 ${config.provider} 支持`)
+      if (config.model_or_workflow !== null && config.parameters !== undefined) normalizeModelParameters(config.provider, config.model_or_workflow, config.parameters)
+    }
     if (modality === 'video') {
       if (config.prompt_profile !== null && !PROMPT_PROFILES.has(config.prompt_profile)) throw new Error('providers.video.prompt_profile 无效')
     } else if (config.prompt_profile !== null) throw new Error(`providers.${modality}.prompt_profile 必须为 null`)
@@ -247,7 +260,7 @@ function validatePromptRoute(value, label, allowUnresolved = false) {
   if (value.prompt_profile === 'seedance2' && !['first-last-frame', 'full-reference'].includes(value.input_mode)) throw new Error(`${label}.input_mode 与 Seedance 2.0 不匹配`)
 }
 
-function validateVideoPrompts(document, episodeKey) {
+export function validateVideoPrompts(document, episodeKey) {
   exactKeys(document, ['episode_key', 'source_versions', 'shots', 'unresolved', 'approved'], 'video-prompts')
   if (document.episode_key !== episodeKey) throw new Error('video-prompts episode_key 与目标分集不一致')
   if (!document.source_versions || typeof document.source_versions !== 'object' || Array.isArray(document.source_versions)) throw new Error('video-prompts source_versions 必须是对象')
@@ -456,6 +469,14 @@ async function main() {
     versionKey('v001')
     const now = new Date().toISOString()
     validateProject({ ...projectDefaults('short-drama', '短剧'), createdAt: now, updatedAt: now })
+    try {
+      validateProject({ ...projectDefaults('short-drama', '短剧'), format: { aspect_ratio: '16:9', resolution: '1080x1920', fps: 24, episode_count: 1, episode_duration_seconds: 60 }, createdAt: now, updatedAt: now })
+      throw new Error('画幅与分辨率一致性自检失败')
+    } catch (error) { if (!String(error.message).includes('必须与 format.aspect_ratio 一致')) throw error }
+    try {
+      validateProject({ ...projectDefaults('short-drama', '短剧'), providers: { ...projectDefaults('short-drama', '短剧').providers, video: { provider: 'comfly', model_or_workflow: 'minimax-h3', prompt_profile: 'h3', parameters: { duration: 8, resolution: '1K', ratio: '16:9', generate_audio: true } } }, createdAt: now, updatedAt: now })
+      throw new Error('Provider 参数枚举自检失败')
+    } catch (error) { if (!String(error.message).includes('模型参数不受支持')) throw error }
     try { safeKey('../bad'); throw new Error('路径自检失败') } catch (error) { if (!String(error.message).includes('无效')) throw error }
     const assetPlan = { episode_key: 'ep-001', characters: [{ key: 'char-a', type: 'character', name: 'A', evidence: [{ source: 'script', locator: 'scene-001', quote: 'A 入场' }], visual_description: '外观未知，待确认', versions: [{ key: 'v001', label: '基础造型', trigger: '首次出场', evidence: 'scene-001' }], derived_from: null, status: 'planned', selected_version: null }], scenes: [], props: [], unresolved: [] }
     validateAssetPlan(assetPlan)
@@ -487,6 +508,9 @@ async function main() {
     await writeJson(resolve(root, '.short-drama/project.json'), project, true)
     await writeJson(resolve(root, '.short-drama/state.json'), { version: 1, stage: stages[0], completed: [], invalidatedAt: {}, updatedAt: now }, true)
     await writeJson(resolve(root, '.short-drama/skill-runs.json'), { version: 1, runs: {} }, true)
+    await writeJson(resolve(root, '.short-drama/assets.json'), { version: 1, assets: {} }, true)
+    await writeJson(resolve(root, '.short-drama/tasks.json'), { version: 1, tasks: {} }, true)
+    await writeJson(resolve(root, '.short-drama/shot-reviews.json'), { version: 1, reviews: {} }, true)
     await writeJson(resolve(root, 'source/manifest.json'), { version: 1, sources: {} }, true)
     await runPreflight(root, 'init')
     await writeText(resolve(root, '.short-drama/RESUME.md'), '# 短剧项目恢复入口\n\n每次新会话先读取 `project.json`、`state.json`、`skill-runs.json`、`environment.json` 与 `source/manifest.json`，再运行插件的 `validate-project.mjs`、`workflow.mjs status` 和 `skill-runs.mjs required`。只执行当前阶段返回的原子 Skill；文本由 Codex 生成，媒体才调用 Provider。提示词渲染记录在 `prompt-runs/`，媒体调用记录在 `requests/`，临时公开参考图记录在 `uploads/`；先查询有效收据，不能直接重复上传。\n', true)
@@ -561,6 +585,7 @@ async function main() {
     if ('schema_version' in update && update.schema_version !== current.schema_version) throw new Error('schema_version 不可直接修改')
     if ('createdAt' in update) throw new Error('createdAt 不可修改')
     const next = mergeObject(current, { ...update, key: current.key, schema_version: current.schema_version, createdAt: current.createdAt, updatedAt: new Date().toISOString() })
+    for (const modality of ['image', 'video', 'audio', 'music']) if (Object.hasOwn(update.providers?.[modality] || {}, 'parameters')) next.providers[modality].parameters = update.providers[modality].parameters
     validateProject(next)
     const keys = Object.keys(update).filter((key) => key !== 'updatedAt')
     const artStyleChanged = JSON.stringify(current.creative.art_style) !== JSON.stringify(next.creative.art_style)
@@ -732,4 +757,4 @@ async function main() {
   throw new Error('用法：project-store.mjs init|project|validate-project-config|migrate-project-config|update-project|put-source|select-source|put-document|put-episode|update-episode|list-episodes|put-script|select-script|script|put-episode-document|validate-episode-document|select-episode-document|episode-document ...')
 }
 
-main().catch((error) => { console.error(error.message); process.exitCode = 1 })
+if (resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) main().catch((error) => { console.error(error.message); process.exitCode = 1 })
