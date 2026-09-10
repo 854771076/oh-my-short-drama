@@ -34,14 +34,14 @@ const parameterCatalog = {
       { key: 'aspect_ratio', label: '画幅', type: 'select', options: ['1:1', '16:9', '9:16', '3:4', '4:3', '2:3', '3:2'], default: '4:3' },
     ],
     'minimax-h3-reference-to-video': [
-      { key: 'duration', label: '时长（秒）', type: 'number', min: 5, max: 15, default: 5 },
+      { key: 'duration', label: '默认时长（秒）', type: 'number', min: 5, max: 15, default: 5, overridable: true },
       { key: 'resolution', label: '分辨率', type: 'select', options: ['480p', '720p', '1K', '2K'], default: '1K' },
       { key: 'ratio', label: '画幅', type: 'select', options: ['16:9', '9:16'], default: '9:16' },
     ],
   },
   comfly: {
     'minimax-h3': [
-      { key: 'duration', label: '时长（秒）', type: 'number', min: 5, max: 15, default: 5 },
+      { key: 'duration', label: '默认时长（秒）', type: 'number', min: 5, max: 15, default: 5, overridable: true },
       { key: 'resolution', label: '分辨率', type: 'select', options: ['720p', '1K', '2K'], default: '1K' },
       { key: 'ratio', label: '画幅', type: 'select', options: ['16:9', '9:16'], default: '9:16' },
     ],
@@ -49,12 +49,12 @@ const parameterCatalog = {
 }
 
 for (const model of ['MiniMax-H3', 'MiniMax-H3-Max']) parameterCatalog.starrouter[model] = [
-  { key: 'duration', label: '时长（秒）', type: 'number', min: model.endsWith('-Max') ? 5 : 4, max: 15, default: 5 },
+  { key: 'duration', label: '默认时长（秒）', type: 'number', min: model.endsWith('-Max') ? 5 : 4, max: 15, default: 5, overridable: true },
   { key: 'size', label: '分辨率', type: 'select', options: model.endsWith('-Max') ? ['480P', '768P'] : ['768P', '2K'], default: '768P' },
   { key: 'ratio', label: '画幅', type: 'select', options: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'], default: '9:16' },
 ]
 for (const model of adapters.starrouter.catalog.video.filter((id) => /seedance/.test(id))) parameterCatalog.starrouter[model] = [
-  { key: 'duration', label: '时长（秒）', type: 'number', min: /seedance-2-0/.test(model) ? 4 : 1, max: 15, default: 5 },
+  { key: 'duration', label: '默认时长（秒）', type: 'number', min: /seedance-2-0/.test(model) ? 4 : 1, max: 15, default: 5, overridable: true },
   { key: 'resolution', label: '分辨率', type: 'select', options: ['480p', '720p', '1080p'], default: '720p' },
   { key: 'ratio', label: '画幅', type: 'select', options: ['16:9', '9:16', '1:1', '4:3', '3:4'], default: '9:16' },
   { key: 'generate_audio', label: '生成原生声音', type: 'boolean', default: false },
@@ -78,6 +78,16 @@ export function normalizeModelParameters(provider, model, values = {}) {
   }))
 }
 
+export function applyConfiguredModelParameters(provider, model, configured, requested) {
+  const fields = parameterCatalog[provider]?.[model] || []
+  for (const [key, value] of Object.entries(normalizeModelParameters(provider, model, configured))) {
+    const overridable = fields.find((field) => field.key === key)?.overridable
+    if (requested[key] !== undefined && JSON.stringify(requested[key]) !== JSON.stringify(value) && !overridable) throw new Error(`参数 ${key} 必须与 project.json 已确认配置一致`)
+    if (requested[key] === undefined || !overridable) requested[key] = value
+  }
+  return requested
+}
+
 export function providerSetupCatalog() {
   return Object.entries(adapters).map(([key, value]) => ({
     key, label: value.label || key, configured: Boolean(credential(value.credentialEnv)), credentialEnv: value.credentialEnv,
@@ -97,4 +107,8 @@ export function selfCheck() {
   if (krea.resolution !== '2K' || krea.aspect_ratio !== '4:3') throw new Error('模型参数默认值自检失败')
   try { normalizeModelParameters('runninghub', 'krea2-normal-v1', { resolution: '4K' }); throw new Error('模型参数边界自检失败') }
   catch (error) { if (!String(error.message).includes('选项无效')) throw error }
+  const video = applyConfiguredModelParameters('comfly', 'minimax-h3', { duration: 8, resolution: '1K', ratio: '9:16' }, { duration: 12 })
+  if (video.duration !== 12 || video.resolution !== '1K') throw new Error('逐镜头参数覆盖自检失败')
+  try { applyConfiguredModelParameters('comfly', 'minimax-h3', { resolution: '1K' }, { resolution: '2K' }); throw new Error('项目级参数锁定自检失败') }
+  catch (error) { if (!String(error.message).includes('已确认配置一致')) throw error }
 }

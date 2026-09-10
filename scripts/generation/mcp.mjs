@@ -2,7 +2,7 @@
 import { createInterface } from 'node:readline'
 import { readFile, realpath } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
-import { adapter, normalizeModelParameters, providerCatalog, providerNames, selfCheck as checkProviders } from './providers.mjs'
+import { adapter, applyConfiguredModelParameters, providerCatalog, providerNames, selfCheck as checkProviders } from './providers.mjs'
 import { selfCheck as checkStarRouter } from './starrouter.mjs'
 import { selfCheck as checkRunningHub } from './runninghub.mjs'
 import { selfCheck as checkComfly } from './comfly.mjs'
@@ -130,11 +130,7 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
   if (!configured?.provider || configured.provider !== providerName) throw new Error(`${configuredType} Provider 必须与 project.json 已确认配置一致`)
   if (!requestedModel) throw new Error(`${configuredType} 模型或工作流必须显式解析并写入请求`)
   if (configured.model_or_workflow && configured.model_or_workflow !== requestedModel) throw new Error(`${configuredType} 模型或工作流必须与 project.json 已确认配置一致`)
-  const parameters = configured.parameters === undefined ? {} : normalizeModelParameters(providerName, requestedModel, configured.parameters)
-  for (const [key, value] of Object.entries(parameters)) {
-    if (args[key] !== undefined && JSON.stringify(args[key]) !== JSON.stringify(value)) throw new Error(`${configuredType} 参数 ${key} 必须与 project.json 已确认配置一致`)
-    args[key] = value
-  }
+  applyConfiguredModelParameters(providerName, requestedModel, configured.parameters || {}, args)
   if (type === 'image') {
     if ([...(args.reference_image_paths || []), ...(args.reference_video_paths || []), ...(args.reference_audio_paths || [])].length) throw new Error('图片生成本地参考只使用 reference_paths')
     const paths = args.reference_paths || []

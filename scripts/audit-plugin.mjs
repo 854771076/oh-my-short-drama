@@ -93,10 +93,16 @@ for (const locale of ['zh', 'en']) {
     if (!seedance.includes(token)) failures.push(`Seedance 2.0 提示词缺少合同：${locale} -> ${token}`)
   }
   const h3 = await readFile(resolve(videoPromptRoot, `h3_video.${locale}.txt`), 'utf8')
-  for (const token of ['T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA', 'subject_definitions', 'retention_analysis', 'detailed_description', 'overall_soundscape', 'non_diegetic_music', '<d>[Language]']) {
+  for (const token of ['T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA', 'subject_definitions', 'retention_analysis', 'detailed_description', 'overall_soundscape', 'non_diegetic_music', '<d>[Language]', 'source medium']) {
     if (!h3.includes(token)) failures.push(`H3 提示词缺少合同：${locale} -> ${token}`)
   }
   if (h3.includes('@图片1')) failures.push(`H3 提示词混入 Seedance 引用语法：${locale}`)
+}
+
+for (const locale of ['zh', 'en']) {
+  const board = await readFile(resolve(root, `skills/generate-storyboard-images/assets/prompts/panel_storyboard_image.${locale}.txt`), 'utf8')
+  const token = locale === 'zh' ? '成片目标媒介' : 'target delivery medium'
+  if (!board.includes(token)) failures.push(`分镜板主画面未绑定项目成片媒介：${locale}`)
 }
 
 const promptIndexLines = (await readFile(resolve(root, 'references/prompt-skill-index.md'), 'utf8')).split(/\r?\n/)

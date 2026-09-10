@@ -58,11 +58,11 @@ Use establishment, trigger, POV, reaction, emphasis, relationship, and resolutio
 - Under each frame show only “shot number | shot scale | camera position | camera move”. Use `cellIndex` as the number and keep every label consistent with the drawing.
 - Never show timecodes, start/end times, or total duration in the storyboard image. Duration is controlled separately by the downstream video-generation step.
 
-[STORYBOARD PAPER AND DRAWINGS]
+[STORYBOARD LAYOUT AND DELIVERY-STYLE IMAGERY]
 - Use clean white or warm-white production-board paper, regular black rectangular borders, and even gutters. Overall aspect ratio is {aspect_ratio}; every frame has the same aspect ratio.
 - Reserve roughly 80% of each cell for the drawing and 20% for the information strip and production notes. Keep borders, gutters, and strips consistent.
-- Main drawings must be black-and-white pencil/charcoal sketches only: readable silhouettes, loose production lines, and grayscale hatching with an authentic on-set draft quality.
-- Forbid colored subjects, photography, 3D/CG renders, polished illustration, comic dialogue bubbles, comic speed lines, poster layouts, and character-design sheets.
+- Render every main frame directly in the project's target delivery medium and art treatment {style}. A live-action style requires full-color photorealistic imagery with natural materials and cinematic lighting.
+- Unless the approved delivery style explicitly calls for hand drawing, never place monochrome pencil, charcoal, grayscale hatching, paper texture, or draft treatment inside the main frames. Forbid comic dialogue bubbles, comic speed lines, poster layouts, and character-design sheets.
 
 [COLORED PRODUCTION NOTES]
 - Color is allowed only for thin arrows, circles, and short production notes, each accurately pointing to its person or target:
@@ -77,8 +77,8 @@ Use establishment, trigger, POV, reaction, emphasis, relationship, and resolutio
 [REFERENCES AND PROFESSIONAL KNOWLEDGE]
 - Character identity, face, hair, costume, body type, location structure, and key props must strictly match attached references. Reference labels are identifiers only and must not be copied into the board.
 - If the JSON contains `cinemaKnowledge`, obey `guidance` and `outputConstraints`, translate `promptFragments` into concrete cinematography, and strictly avoid `negativeConstraints`. Never change story facts or character identity.
-- Use {style} only for period, costume design, and mood. The final result remains black-and-white drawings with sparse colored production annotations.
-- `visual_bible` independently constrains palette, tone, lighting continuity, and motion intent; it must not change the story location, character identity, or storyboard medium.
+- Use {style} to define the target delivery medium, material rendering, and art treatment inside every main frame. Borders, information strips, and sparse production notes remain planning-only structure.
+- `visual_bible` independently constrains the main frames' palette, tone, lighting continuity, and motion intent; it must not change the story location or character identity.
 - If `composition_reference` exists, obey its primary-camera FOV, position, target, blocking, and facing. Alternate views are continuity references only.
 
 [FINAL SELF-CHECK]

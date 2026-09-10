@@ -5,7 +5,7 @@ description: 将确认的结构化分镜生成为单格、宫格或手绘故事�
 
 # 生成分镜图片
 
-只读取本地已选中的分镜版本、制作计划和人物、场景、道具完整设定板。严格按逐镜 `image_strategy.board_type` 和 `panel_grid_size` 选模板并生成：`single`（单图）使用 `single_panel_image`，固定 1 格；`storyboard`（故事版）使用 `panel_grid_image`，按计划格数生成同一连续镜头的时间关键帧宫格；`shot-board`（分镜板）使用 `panel_storyboard_image`，按计划格数生成叙事节拍驱动、用于现场沟通的多格分镜工作稿。格数已由制作计划阶段的 Codex 根据叙事节拍判断，本 Skill 不擅自改成默认 4 格，也不得把 `shot-board` 路由成单图。
+只读取本地已选中的分镜版本、制作计划和人物、场景、道具完整设定板。严格按逐镜 `image_strategy.board_type` 和 `panel_grid_size` 选模板并生成：`single`（单图）使用 `single_panel_image`，固定 1 格；`storyboard`（故事版）使用 `panel_grid_image`，按计划格数生成同一连续镜头的时间关键帧宫格；`shot-board`（分镜板）使用 `panel_storyboard_image`，按计划格数生成叙事节拍驱动、用于现场沟通的多格分镜工作稿；其分框和标注是工作稿结构，主画面必须使用项目成片画风，不得默认成铅笔或纸张媒介。格数已由制作计划阶段的 Codex 根据叙事节拍判断，本 Skill 不擅自改成默认 4 格，也不得把 `shot-board` 路由成单图。
 
 严格填充 [提示词索引](../../references/prompt-skill-index.md) 的变量；多格图根据计划中的 `panel_grid_size` 选择可读布局并同时提供 `grid_layout`，不得减少、留空、重复格子或把相邻镜头剧情画进当前镜头。宫格切单格后只允许用 `panel_grid_enhance` 保真高清化，不得重构图。
 

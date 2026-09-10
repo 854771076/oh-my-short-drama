@@ -7,7 +7,7 @@ description: 配置并验证本地短剧插件的生成 Provider。用于选择 
 
 先调用 `list_generation_providers` 查看模态能力，再让用户为图片、视频、语音和音乐分别选择 Provider；不得假设所有模态使用同一家。文本资产默认由 Codex 直接完成，不需要外部文本 Provider。
 
-确认选择后，把四种模态的 `provider`、`model_or_workflow`、模型 `parameters` 和视频 `prompt_profile` 写入一个不含凭据的更新 JSON，再执行 `node scripts/project-store.mjs update-project <项目目录> <更新 JSON>`；Dashboard 应按模型目录展示枚举、数字范围和布尔参数。生成 MCP 会补齐未显式传入的项目参数，并拒绝与已确认参数不一致的调用。旧项目没有 `parameters` 或 `music` 时仍可读取，在 Dashboard 保存一次生成配置即可补齐。凭据使用环境变量或 Dashboard 本机私有凭据文件，环境变量优先；不得写入项目。
+确认选择后，把四种模态的 `provider`、`model_or_workflow`、模型 `parameters` 和视频 `prompt_profile` 写入一个不含凭据的更新 JSON，再执行 `node scripts/project-store.mjs update-project <项目目录> <更新 JSON>`；Dashboard 应按模型目录展示枚举、数字范围和布尔参数。生成 MCP 会补齐未显式传入的项目参数，并拒绝与已确认参数不一致的调用；标记为可覆盖的默认参数除外，视频时长必须以当前选版的逐镜头制作计划和提示词为准。旧项目没有 `parameters` 或 `music` 时仍可读取，在 Dashboard 保存一次生成配置即可补齐。凭据使用环境变量或 Dashboard 本机私有凭据文件，环境变量优先；不得写入项目。
 
 不要直接编辑 `project.json`。项目存储会拒绝未注册 Provider、该 Provider 不支持的模型/模态和模型枚举之外的参数；模型切换时 `parameters` 整体替换而非与旧字段合并。Comfly `minimax-h3` 不接收 `generate_audio` 参数，声音策略写入制作计划的 `audio_strategy`，不能伪装成 Provider 参数。
 
