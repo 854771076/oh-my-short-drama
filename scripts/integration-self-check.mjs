@@ -191,6 +191,10 @@ async function main() {
     const bible = { premise: '', genre: '', tone: '', themes: [], world_rules: [], ending: {}, characters: [{ name: '测试角色', dramatic_function: '主角', desire: '完成目标', need: '面对真相', fear: '失去同伴', hidden_fact: '隐瞒了过去', arc_start: '逃避', arc_turn: '承担', arc_end: '和解' }], relationships: [], three_act: {}, conflict_ladder: [], promises_and_payoffs: [], foreshadowing: [], continuity_rules: [], adaptation_constraints: [], open_questions: [] }
     const outline = { episodes: [{ key: 'ep-001', order: 1 }], coverage_check: { complete: true, gaps: [], overlaps: [] }, continuity_check: { valid: true, issues: [] } }
     for (const [kind, value] of Object.entries({ 'source-analysis': source, brief, bible, outline })) run('project-store.mjs', 'put-document', root, kind, await json(root, `${kind}.json`, value))
+    const legacyBible = { ...bible, characters: [{ ...bible.characters[0], secret: bible.characters[0].hidden_fact }] }
+    delete legacyBible.characters[0].hidden_fact
+    const legacyBibleResult = spawnSync(process.execPath, [resolve(plugin, 'scripts/project-store.mjs'), 'put-document', root, 'bible', await json(root, 'legacy-bible.json', legacyBible)], { encoding: 'utf8' })
+    if (legacyBibleResult.status === 0 || !legacyBibleResult.stderr.includes('hidden_fact')) throw new Error('故事圣经旧 secret 字段未被合同层明确拒绝')
     const missingPromptRun = spawnSync(process.execPath, [resolve(plugin, 'scripts/skill-runs.mjs'), 'record', root, 'analysis', 'analyze-drama-source', '.short-drama/source-analysis.json'], { encoding: 'utf8' })
     if (missingPromptRun.status === 0 || !missingPromptRun.stderr.includes('缺少 codex-contract 提示词运行记录')) throw new Error('缺少提示词运行记录的 Skill 被错误登记')
     await recordSkills(root, 'analysis', '.short-drama/source-analysis.json')

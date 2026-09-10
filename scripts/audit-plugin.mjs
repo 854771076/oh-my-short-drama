@@ -85,6 +85,8 @@ for (const locale of ['zh', 'en']) {
 }
 
 const videoPromptRoot = resolve(root, 'skills/write-drama-video-prompts/assets/prompts')
+const videoPromptSkill = await readFile(resolve(root, 'skills/write-drama-video-prompts/SKILL.md'), 'utf8')
+for (const token of ['errors', 'episode_key,source_versions,shots,unresolved,approved', 'production_plan_version', 'storyboard_version', '禁止省略']) if (!videoPromptSkill.replace(/[`{}\s]/g, '').includes(token.replace(/[`{}\s]/g, ''))) failures.push(`视频提示词 Skill 缺少落盘合同：${token}`)
 for (const locale of ['zh', 'en']) {
   const seedance = await readFile(resolve(videoPromptRoot, `seedance2_video.${locale}.txt`), 'utf8')
   for (const token of ['seedance2', 'first-last-frame', 'full-reference', '@图片1', '@视频1', '@音频1', '4–15', '12']) {
@@ -126,7 +128,7 @@ const assetLedger = await readFile(resolve(root, 'scripts/asset-ledger.mjs'), 'u
 const starrouter = await readFile(resolve(root, 'scripts/generation/starrouter.mjs'), 'utf8')
 const runninghub = await readFile(resolve(root, 'scripts/generation/runninghub.mjs'), 'utf8')
 const comfly = await readFile(resolve(root, 'scripts/generation/comfly.mjs'), 'utf8')
-for (const token of ['schema_version', 'validate-project-config', 'put-source', 'select-source', 'v001']) if (!projectStore.includes(token)) failures.push(`项目规范实现缺少：${token}`)
+for (const token of ['schema_version', 'validate-project-config', 'put-source', 'select-source', 'hidden_fact', 'v001']) if (!projectStore.includes(token)) failures.push(`项目规范实现缺少：${token}`)
 for (const token of ['environment.json', 'RESUME.md', 'prompt-runs', "'art-style'", 'staleVersionIds', 'migrate-project-layout']) if (!projectStore.includes(token)) failures.push(`项目恢复/预检实现缺少：${token}`)
 for (const token of ['assets.json', 'tasks.json', 'shot-reviews.json', 'normalizeModelParameters', '必须与 format.aspect_ratio 一致']) if (!projectStore.includes(token)) failures.push(`项目初始化或配置门禁缺少：${token}`)
 for (const token of ['prompt-runs', 'templateSha256', 'resolvedContractOrPrompt', 'codexOutputSha256', 'variables', '--project-root', '--codex-output', 'providerPrompts', 'existingInside']) if (!promptRenderer.includes(token)) failures.push(`提示词留痕实现缺少：${token}`)

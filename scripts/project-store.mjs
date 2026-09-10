@@ -314,6 +314,14 @@ function validateDocument(kind, document, episodeKey) {
   if (kind === 'source-analysis' && !['original', 'faithful_adaptation', 'authorized_adaptation'].includes(document.adaptation_mode)) throw new Error('source-analysis adaptation_mode 无效')
   if (kind === 'source-analysis' && document.coverage?.complete !== true) throw new Error('source-analysis coverage.complete 必须为 true')
   if (kind === 'brief' && (typeof document.approved !== 'boolean' || !Array.isArray(document.open_questions))) throw new Error('brief approved/open_questions 无效')
+  if (kind === 'bible') {
+    if (!Array.isArray(document.characters)) throw new Error('bible characters[] 必填')
+    const fields = ['name', 'dramatic_function', 'desire', 'need', 'fear', 'hidden_fact', 'arc_start', 'arc_turn', 'arc_end']
+    document.characters.forEach((character, index) => {
+      exactKeys(character, fields, `bible characters[${index}]`)
+      if (fields.some((field) => typeof character[field] !== 'string')) throw new Error(`bible characters[${index}] 字段必须是字符串`)
+    })
+  }
   if (kind === 'art-style') {
     if (!['confirmed-default', 'custom'].includes(document.mode) || typeof document.decision_reason !== 'string' || !document.decision_reason.trim() || typeof document.approved !== 'boolean') throw new Error('art-style mode/decision_reason/approved 无效')
     validateArtStyle(document.style, 'art-style.style')
