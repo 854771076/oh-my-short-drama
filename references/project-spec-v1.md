@@ -105,7 +105,7 @@
     }
   },
   "storyboard": {
-    "type": "grid",
+    "type": "shot-board",
     "default_panel_grid_size": 4
   },
   "providers": {
@@ -119,7 +119,7 @@
 }
 ```
 
-未确认的可选值写 `null`，不删除字段，也不使用示例值代替用户决策。唯一例外是新项目画风默认使用 `system-realistic` 完整预设，用户可在资产生成前确认或用 `generate-drama-art-style` 生成替代配置。项目 key 创建后不可变。
+未确认的可选值写 `null`，不删除字段，也不使用示例值代替用户决策。例外是新项目画风默认使用 `system-realistic` 完整预设，分镜默认使用 `shot-board`（分镜板）和 4 格；用户可在资产生成前修改。制作计划仍须逐镜在 `single`（单图）、`storyboard`（故事版）和 `shot-board`（分镜板）之间判断，项目默认值只作回退。项目 key 创建后不可变。
 
 ## 命名
 

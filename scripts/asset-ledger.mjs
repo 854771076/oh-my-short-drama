@@ -268,8 +268,10 @@ async function main() {
     if (!version) throw new Error(`版本不存在：${versionId}`)
     if (asset.staleVersionIds?.includes(versionId)) throw new Error(`版本已因上游变更失效：${key}@${versionId}`)
     await access(localPath(root, version.localPath))
-    await invalidateFrom(root, ['character', 'scene', 'prop'].includes(asset.type) ? 'asset-generation' : 'media-production')
-    if (asset.selectedVersionId && asset.selectedVersionId !== versionId) asset.selectedHistory.push(asset.selectedVersionId)
+    if (asset.selectedVersionId && asset.selectedVersionId !== versionId) {
+      await invalidateFrom(root, ['character', 'scene', 'prop'].includes(asset.type) ? 'asset-generation' : 'media-production')
+      asset.selectedHistory.push(asset.selectedVersionId)
+    }
     asset.selectedVersionId = versionId
     asset.updatedAt = new Date().toISOString()
     await save(root, ledger)

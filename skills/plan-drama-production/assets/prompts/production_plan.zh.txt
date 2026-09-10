@@ -21,7 +21,7 @@
 
 只返回严格 JSON：{"episode_key":"...","source_versions":{},"shots":[...],"totals":{},"unresolved":[],"approved":false}。
 
-每个 shots 项必须包含：shot_number、dependencies、image_strategy、video_strategy、audio_strategy、provider、model_or_workflow、prompt_profile、input_mode、duration_seconds、resolution、aspect_ratio、candidate_count、reference_assets、estimated_paid_calls、fallback、review_checks、status。image_strategy 必须包含 mode、board_type、overflow_strategy。
+每个 shots 项必须包含：shot_number、dependencies、image_strategy、video_strategy、audio_strategy、provider、model_or_workflow、prompt_profile、input_mode、duration_seconds、resolution、aspect_ratio、candidate_count、reference_assets、estimated_paid_calls、fallback、review_checks、status。image_strategy 必须包含 mode、board_type、panel_grid_size、overflow_strategy。
 
 规则：
 1. 只能引用账本中存在的本地稳定 key 和 selected version；缺失或错版写入 unresolved。
@@ -32,7 +32,7 @@
 6. status 初始只能是 blocked 或 ready；依赖不齐不得写 ready。
 7. prompt_profile 只能是 seedance2、h3 或 generic；input_mode 必须是所选模型真实支持的输入模式。Seedance 2.0 参考素材要固定类型、用途和提交顺序；H3 必须区分 T2VA、I2VA、FL2VA、L2VA 与 Ref2VA。无法判定时写入 unresolved。
 8. Provider 明确支持 MiniMax H3 原生音频时，audio_strategy.mode 写 native，并记录逐秒 speech_timeline、跨镜统一 music_anchor 和相邻镜 transition_pair；这类镜头不得另排 TTS。能力未明确、用户要求后配或模型不支持时写 post-dub/independent，并排入独立音频流程。相邻 H3 镜头的 transition_out 与 transition_in 必须成对一致。
-9. image_strategy.mode 只能是 selected、generate 或 none；只有 generate 才进入分镜图生成 Skill，selected 必须引用已有选版，none 表示视频模型不需要分镜图输入。board_type 只能是 shot-board 或 storyboard，默认 shot-board；overflow_strategy 只能是 compose-assets 或 reject，默认 compose-assets。分镜板/故事版优先占一个图片槽位，其他图片超过剩余槽位时，compose-assets 将其按引用顺序确定性拼成一张 other-refpack-epNNN-NNN 合板且不得丢失来源，reject 则阻塞并写入 unresolved。
+9. image_strategy.mode 固定为 generate，每一镜都必须先生成分镜图。board_type 只能是 single、storyboard 或 shot-board：静态构图、单一决定性瞬间或首帧锚点选 single，panel_grid_size 固定为 1；同一连续镜头需要多个时间关键帧、动作阶段或运镜轨迹选 storyboard；多人调度、对白反应、轴线、复杂动作或现场沟通多个叙事节拍选 shot-board。storyboard 与 shot-board 的 panel_grid_size 由你按不可合并的叙事节拍判断为 2–16，不按时长机械抽帧，也不机械套用项目默认 4 格。项目默认 shot-board/4 格只在有效判断输入不足时回退。overflow_strategy 只能是 compose-assets 或 reject，默认 compose-assets。分镜图优先占一个图片槽位，其他图片超过剩余槽位时，compose-assets 将其按引用顺序确定性拼成一张 other-refpack-epNNN-NNN 合板且不得丢失来源，reject 则阻塞并写入 unresolved。
 10. review_checks 按逐镜真实风险填写：对白检查说话人与每张可见嘴部状态；多人镜检查人数、顺序、朝向和肢体归属；道具交互检查接触前/中/后状态及邻接物；步行/打斗检查落脚、重心、方向、速度和跨镜姿态；画内屏幕检查是否需要后期精确图形。不得复制同一组空泛检查覆盖所有镜头。
 
 禁止 API Key、Token、远程业务 ID、Markdown 和解释。

@@ -10,8 +10,8 @@
 4. **导演本落盘**：`write-drama-director-book` 形成场次级导演执行意图。
 5. **资产分析与画风**：`plan-drama-assets`、`generate-character-profiles` 确认资产范围，`generate-drama-art-style` 确认或生成项目统一画风。
 6. **资产生成落盘**：人物完整原画设定板、场景多视角设定板、道具设定板通过 `drama-generation-service` 调用用户选择的 Provider；结果全部进入本地资产账本。
-7. **制作规划**：构建/修订结构化分镜，`plan-drama-production` 锁定逐镜模型、`prompt_profile`、输入模式、参考顺序和预算；`write-drama-video-prompts` 再按 Seedance 2.0、MiniMax H3 或已确认的通用协议编译并保存提示词版本。
-8. **素材视频与配音**：生成分镜图、视频和音频，逐镜验收；任务和文件全部本地对账。
+7. **制作规划**：构建/修订结构化分镜，`plan-drama-production` 逐镜判断单图/故事版/分镜板及实际格数，并锁定模型、`prompt_profile`、输入模式、参考顺序和预算；`write-drama-video-prompts` 再按 Seedance 2.0、MiniMax H3 或已确认的通用协议编译并保存提示词版本。
+8. **分镜图与素材制作**：先生成、落盘并选定整集分镜图，再从空间、时间、物理、光线等八个维度逐镜审计；全部通过后才允许生成视频。音频按声音策略执行，任务和文件全部本地对账。
 9. **剪辑**：`remotion-best-practices` 约束 Remotion 工程与帧确定实现，`edit-drama-timeline` 按本地剪辑方案完成粗剪、字幕、转场、声音和渲染。
 10. **成片**：`edit-deliver-drama` 逐集完整审片并输出 `delivery/<episode-key>/`。
 
@@ -50,13 +50,13 @@
 | `drama-generation-service` | 路由 StarRouter、RunningHub、Comfly 等图片/视频/音频 Provider | 所有付费媒体生成入口 | Provider、模型/工作流、参数、参考文件用途、费用；切换或重试 |
 | `publish-drama-references` | 查询或用 Litterbox 临时托管把本地选版图转为公网 HTTPS URL | Comfly 等 Provider 不接受本地文件时 | 先查有效收据；素材权利、公开暴露、用途许可、逐项资产版本和 1h/12h/24h/72h 时效；强制重传需再次确认 |
 | `configure-generation-providers` | 配置和探活 Provider，不生成 | 首次使用或凭据/目录变化时 | 各模态 Provider 选择；密钥由用户自行配置 |
-| `generate-storyboard-images` | 生成单格、宫格或手绘故事板图 | 制作计划批准后 | Provider、类型、格数、尺寸、候选数、参考图、费用、选版 |
+| `generate-storyboard-images` | 按制作计划逐镜生成单图、故事版或分镜板 | 制作计划批准后、所有视频生成前；整集必做 | Provider、AI 已判断的类型/格数、尺寸、候选数、参考图、费用、选版 |
 | `generate-drama-videos` | 生成并下载逐镜视频 | 分镜图与视频提示词确认后 | Provider、模型/工作流、时长、分辨率、参考素材、声音、费用、重试 |
 | `design-drama-audio` | 为 post-dub/independent 镜头做声音分析、音色、TTS、配音和口型；H3 原生音频不重复调用 | 制作计划或逐镜视频阶段 | 音频 Provider、声音权利、MiniMax voice_id/工作流、文本、语速、格式、费用、选版 |
 | `transform-drama-media` | 改图、二维转真人、宫格拆分、裁剪和抽帧 | 媒体生产中按需 | 生成式变换的 Provider/费用；裁剪和覆盖范围 |
 | `monitor-drama-tasks` | 本地登记、去重、查询异步任务并校验完成文件 | 媒体生产贯穿执行 | 取消任务、扩大重试或重新付费 |
 | `recover-drama-pipeline` | 恢复中断任务、缺失下载和 stale 下游 | 失败或续作时 | 重提、换 Provider/模型、重新付费、回退阶段 |
-| `review-drama-shots` | 实际观看并听完每个镜头，记录视觉/声音/转场/字幕缺陷 | 每镜落盘后、剪辑前 | 接受 P2 缺陷、重生成或选用替代版本 |
+| `review-drama-shots` | 审计分镜图的空间、时间、物理、光线等八维逻辑，并验收视频的视觉/声音/转场/字幕 | 分镜图选版后、视频生成前必做；视频落盘后再次执行 | 接受 P2 缺陷、重生成或选用替代版本 |
 | `remotion-best-practices` | 约束 Remotion 工程、React 时间线、字幕、音频、预览与渲染 | editing 阶段首个实现层 | 工程初始化、外部包安装和输出规格 |
 | `edit-drama-timeline` | 用本地 Remotion 工程完成剪辑、字幕、转场、声音和渲染 | 全部选镜验收通过后 | 入选版本、剪辑结构、字幕样式、转场、声音目标、输出规格 |
 | `edit-deliver-drama` | 完整审片、技术检查和本地交付打包 | 最后一步 | 批准版、文件名、交付目录和发布规格 |

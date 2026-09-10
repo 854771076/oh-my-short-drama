@@ -9,7 +9,7 @@ description: 编排从创意到成片的短剧生产流程。用于新建、继�
 
 每个阶段开始前，先运行 `node scripts/skill-runs.mjs required <项目目录> <阶段>`，逐个完整读取返回 Skill 的 `SKILL.md` 并按其合同产出；不能只参考总入口或自行模仿产物。每个 Skill 完成后运行 `node scripts/skill-runs.mjs record <项目目录> <阶段> <skill> <项目内证据路径...>`。`workflow.mjs check|advance` 会同时检查产物和 Skill 执行凭证；缺少任一项都不得推进。
 
-禁止直接创建 `selected.json` 或手工拼装分镜、制作计划、视频提示词来绕过 `project-store.mjs`。生成 MCP 也会校验当前阶段及全部上游门禁：人物/场景/道具图只允许在 `asset-generation`，分镜图、视频、语音和音乐只允许在 `media-production`；因此“用户已确认付费”不等于允许越级生成。
+禁止直接创建 `selected.json` 或手工拼装分镜、制作计划、视频提示词来绕过 `project-store.mjs`。生成 MCP 也会校验当前阶段及全部上游门禁：人物/场景/道具图只允许在 `asset-generation`，分镜图、视频、语音和音乐只允许在 `media-production`；进入媒体阶段后必须先完成整集分镜图生成、落盘和选版，再由 `review-drama-shots` 完成空间、时间、物理、光线等八维审计，MCP 才允许提交第一条视频。因此“用户已确认付费”不等于允许越级生成。
 
 每阶段必须在本地留下可回读产物和验收结论，再执行 `advance`，且只能进入紧邻下一阶段。资产分析阶段先确认画风；资产 Skill 按已选计划动态要求，有人物、场景或道具才加载对应完整设定板 Skill。上游修改导致返工时使用 `rewind`。模型任务提交后写入本地任务账本；图片、音频和视频必须下载或复制到本地资产库后才能完成。付费范围、素材含义或交付目标不明确时只做只读检查。
 

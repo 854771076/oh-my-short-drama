@@ -5,6 +5,10 @@ import { dirname, resolve, sep } from 'node:path'
 import { withFileLock } from './file-lock.mjs'
 
 const CHECKS = new Set(['passed', 'failed', 'not-applicable'])
+export const STORYBOARD_REVIEW_CRITERIA = [
+  '空间关系与轴线', '时间与动作连续性', '物理与交互逻辑', '光线与色彩连续性',
+  '人物身份与造型一致性', '场景与道具一致性', '构图与镜头语言', '叙事覆盖与阅读顺序',
+]
 const pathFor = (root) => resolve(root, '.short-drama', 'shot-reviews.json')
 
 function validate(record) {
@@ -52,7 +56,14 @@ async function main() {
     if (!version?.localPath || (local !== root && !local.startsWith(`${root}${sep}`))) throw new Error('验收资产路径无效')
     const [rootReal, localReal] = await Promise.all([realpath(root), realpath(local)])
     if (localReal !== rootReal && !localReal.startsWith(`${rootReal}${sep}`)) throw new Error('验收资产真实路径必须位于项目内')
-    if (version.provenance?.origin === 'generated') {
+    if (version.provenance?.origin === 'generated' && asset.type === 'storyboard') {
+      const source = version.provenance?.prompt_document
+      if (source?.kind !== 'storyboard' || !source.episode_key || !source.version_id || !Number.isInteger(source.shot_number) || record.assetKey !== `board-${source.episode_key.replace('-', '')}-${String(source.shot_number).padStart(3, '0')}`) throw new Error('验收分镜图缺少有效分镜来源')
+      const selected = JSON.parse(await readFile(resolve(root, 'episodes', source.episode_key, 'storyboard', 'selected.json'), 'utf8'))
+      const storyboard = JSON.parse(await readFile(resolve(root, 'episodes', source.episode_key, 'storyboard', `${source.version_id}.json`), 'utf8'))
+      if (selected.versionId !== source.version_id || !storyboard.panels?.some((item) => item.shot_number === source.shot_number)) throw new Error('验收分镜图不是当前 selected 分镜版本')
+      if (record.audio !== 'not-applicable' || record.transition !== 'not-applicable' || record.captions !== 'not-applicable' || JSON.stringify(record.criteria.map((item) => item.criterion)) !== JSON.stringify(STORYBOARD_REVIEW_CRITERIA)) throw new Error('分镜图 criteria[] 必须按八维审计合同原顺序逐项覆盖')
+    } else if (version.provenance?.origin === 'generated') {
       const source = version.provenance?.prompt_document
       if (!source?.episode_key || !source?.version_id || !Number.isInteger(source?.shot_number)) throw new Error('验收视频缺少视频提示词来源')
       const prompts = JSON.parse(await readFile(resolve(root, 'episodes', source.episode_key, 'video-prompts', `${source.version_id}.json`), 'utf8'))
@@ -70,4 +81,4 @@ async function main() {
   })
 }
 
-main().catch((error) => { console.error(error.message); process.exitCode = 1 })
+if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { console.error(error.message); process.exitCode = 1 })

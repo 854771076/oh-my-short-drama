@@ -12,7 +12,7 @@ import { mediaHostCatalog, mediaHostNames } from '../media-hosting/providers.mjs
 import { listReferenceUploads, publishReferenceImage } from '../media-hosting/publish.mjs'
 import { selfCheck as checkLitterbox } from '../media-hosting/litterbox.mjs'
 import { validateVideoReferenceBindings } from '../reference-bindings.mjs'
-import { inspectStage } from '../workflow-gates.mjs'
+import { inspectStage, missingStoryboardAssets, missingStoryboardReviews } from '../workflow-gates.mjs'
 import { stages } from '../workflow-stages.mjs'
 import { validateProject, validateVideoPrompts } from '../project-store.mjs'
 
@@ -43,12 +43,32 @@ const workflow = {
   reference_video_paths: { type: 'array', maxItems: 2, items: { type: 'string' } },
   reference_audio_paths: { type: 'array', maxItems: 2, items: { type: 'string' } },
 }
+const imageWorkflow = {
+  workflow_id: workflow.workflow_id,
+  node_info_list: workflow.node_info_list,
+  reference_paths: workflow.reference_paths,
+}
+const referenceManifestItem = {
+  type: 'object',
+  properties: {
+    type: { type: 'string', enum: ['image', 'video', 'audio'] },
+    order: { type: 'integer', minimum: 1 },
+    asset_key: { type: 'string', pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' },
+    version_id: { type: 'string', pattern: '^v\\d{3}$' },
+    role: { type: 'string', minLength: 1 },
+    purpose: { type: 'string' },
+    duration_seconds: { type: 'number', exclusiveMinimum: 0 },
+    real_person_face: { type: 'boolean' },
+  },
+  required: ['type', 'order', 'asset_key', 'version_id', 'role'],
+  additionalProperties: false,
+}
 const projectTracking = {
   project_root: { type: 'string', description: '短剧项目绝对路径；生成请求和任务会自动保存在项目内。' },
   target: { type: 'string', description: '本次生成对应的本地资产 key。' },
   prompt_document: { type: ['object', 'null'], description: '制作文档版本引用：视频镜号、audio-plan 行、storyboard 镜号或 asset-plan 资产；仅 other 辅助资产可为 null。' },
 }
-const tools = [
+export const tools = [
   ['list_generation_providers', '列出已注册生成 Provider 与模态能力。', {}, []],
   ['list_media_hosts', '列出把本地参考素材临时转换为公网 URL 的托管服务与时效。', {}, []],
   ['list_reference_uploads', '列出项目内临时发布收据及当前有效状态。', {
@@ -59,7 +79,7 @@ const tools = [
   }, ['service', 'project_root', 'asset_key', 'version_id', 'expires_in', 'usage_scope', 'confirmed', 'rights_confirmed', 'public_exposure_confirmed', 'usage_terms_confirmed']],
   ['list_models', '读取指定 Provider 的模型或工作流目录。', { provider }, ['provider']],
   ['generate_image', '使用用户选择的 Provider 生成图片；付费和上传本地参考文件前必须确认。', {
-    provider, model: { type: 'string' }, prompt: { type: 'string' }, size: { type: 'string' }, resolution: imageResolution, aspect_ratio: imageAspectRatio, seed: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1, maximum: 4 }, quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'] }, style: { type: 'string' }, background: { type: 'string', enum: ['auto', 'opaque', 'transparent'] }, moderation: { type: 'string', enum: ['auto', 'low'] }, output_format: { type: 'string', enum: ['png', 'jpeg', 'webp'] }, output_compression: { type: 'integer', minimum: 1 }, partial_images: { type: 'integer', minimum: 1 }, user: { type: 'string' }, reference_manifest: { type: 'array', maxItems: 9, items: { type: 'object' } }, confirmed: { const: true }, ...workflow, ...projectTracking,
+    provider, model: { type: 'string' }, prompt: { type: 'string' }, size: { type: 'string' }, resolution: imageResolution, aspect_ratio: imageAspectRatio, seed: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1, maximum: 4 }, quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'] }, style: { type: 'string' }, background: { type: 'string', enum: ['auto', 'opaque', 'transparent'] }, moderation: { type: 'string', enum: ['auto', 'low'] }, output_format: { type: 'string', enum: ['png', 'jpeg', 'webp'] }, output_compression: { type: 'integer', minimum: 1 }, partial_images: { type: 'integer', minimum: 1 }, user: { type: 'string' }, reference_manifest: { type: 'array', maxItems: 9, items: referenceManifestItem }, confirmed: { const: true }, ...imageWorkflow, ...projectTracking,
   }, ['provider', 'prompt', 'reference_manifest', 'confirmed', 'project_root', 'target', 'prompt_document']],
   ['generate_audio', '使用用户选择的 Provider 生成语音或提交音频工作流。StarRouter 使用 model/input/voice，RunningHub 使用 prompt/workflow。', {
     provider, model: { type: 'string' }, input: { type: 'string' }, voice: { type: 'string' }, speed: { type: 'number', minimum: 0.5, maximum: 2 }, response_format: { type: 'string', enum: ['mp3', 'pcm', 'flac'] }, metadata: audioMetadata, prompt: { type: 'string' }, confirmed: { const: true }, ...workflow, ...projectTracking,
@@ -68,7 +88,7 @@ const tools = [
     provider, model: { type: 'string' }, prompt: { type: 'string' }, title: { type: 'string' }, tags: { type: 'string' }, lyrics: { type: 'string' }, make_instrumental: { type: 'boolean' }, confirmed: { const: true }, ...projectTracking,
   }, ['provider', 'model', 'prompt', 'confirmed', 'project_root', 'target', 'prompt_document']],
   ['submit_video', '使用用户选择的 Provider 提交异步视频任务。', {
-    provider, model: { type: 'string' }, prompt_profile: { type: 'string', enum: ['seedance2', 'h3', 'generic'] }, input_mode: { type: 'string', enum: ['first-last-frame', 'full-reference', 'T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA', 'generic'] }, prompt_version: { type: 'string' }, prompt: { type: 'string' }, frame_url: { type: 'string' }, images: { type: 'array', maxItems: 9, items: { type: 'string' } }, input_reference: { type: 'string' }, reference_urls: { type: 'array', items: { type: 'string' } }, reference_image_urls: { type: 'array', maxItems: 9, items: { type: 'string' } }, reference_video_urls: { type: 'array', maxItems: 3, items: { type: 'string' } }, reference_audio_urls: { type: 'array', maxItems: 3, items: { type: 'string' } }, reference_manifest: { type: 'array', maxItems: 12, items: { type: 'object' } }, reference_only: { type: 'boolean' }, duration: { type: 'integer', minimum: 1, maximum: 15 }, size: { type: 'string', enum: ['480P', '768P', '2K'] }, resolution: { type: 'string', enum: ['480p', '720p', '1080p', '480P', '768P', '1K', '2K'] }, ratio: { type: 'string', enum: ['21:9', '16:9', '9:16', '1:1', '4:3', '3:4'] }, generate_audio: { type: 'boolean' }, watermark: { type: 'boolean' }, seed: { type: 'integer', minimum: 1 }, fps: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1 }, response_format: { type: 'string' }, user: { type: 'string' }, metadata: { type: 'object' }, extra_options: { type: 'object' }, confirmed: { const: true }, ...workflow, ...projectTracking,
+    provider, model: { type: 'string' }, prompt_profile: { type: 'string', enum: ['seedance2', 'h3', 'generic'] }, input_mode: { type: 'string', enum: ['first-last-frame', 'full-reference', 'T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA', 'generic'] }, prompt_version: { type: 'string' }, prompt: { type: 'string' }, frame_url: { type: 'string' }, images: { type: 'array', maxItems: 9, items: { type: 'string' } }, input_reference: { type: 'string' }, reference_urls: { type: 'array', items: { type: 'string' } }, reference_image_urls: { type: 'array', maxItems: 9, items: { type: 'string' } }, reference_video_urls: { type: 'array', maxItems: 3, items: { type: 'string' } }, reference_audio_urls: { type: 'array', maxItems: 3, items: { type: 'string' } }, reference_manifest: { type: 'array', maxItems: 12, items: referenceManifestItem }, reference_only: { type: 'boolean' }, duration: { type: 'integer', minimum: 1, maximum: 15 }, size: { type: 'string', enum: ['480P', '768P', '2K'] }, resolution: { type: 'string', enum: ['480p', '720p', '1080p', '480P', '768P', '1K', '2K'] }, ratio: { type: 'string', enum: ['21:9', '16:9', '9:16', '1:1', '4:3', '3:4'] }, generate_audio: { type: 'boolean' }, watermark: { type: 'boolean' }, seed: { type: 'integer', minimum: 1 }, fps: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1 }, response_format: { type: 'string' }, user: { type: 'string' }, metadata: { type: 'object' }, extra_options: { type: 'object' }, confirmed: { const: true }, ...workflow, ...projectTracking,
   }, ['provider', 'prompt_profile', 'input_mode', 'prompt_version', 'prompt', 'confirmed', 'project_root', 'target', 'prompt_document']],
   ['get_generation_task', '查询指定 Provider 的异步任务并归一化状态和输出列表。', { provider, task_id: { type: 'string' }, media_type: mediaType }, ['provider', 'task_id', 'media_type']],
 ].map(([name, description, properties, required]) => ({
@@ -143,12 +163,20 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
   validateVideoPrompts(document, promptDocument.episode_key)
   const shot = document.approved === true && !document.unresolved?.length && document.shots?.find((item) => item.shot_number === promptDocument.shot_number)
   if (!shot || shot.errors?.length) throw new Error('视频提示词镜头不存在、未批准或仍有错误')
+  const planSelection = JSON.parse(await readFile(resolve(root, 'episodes', promptDocument.episode_key, 'production-plan', 'selected.json'), 'utf8'))
+  const storyboardSelection = JSON.parse(await readFile(resolve(root, 'episodes', promptDocument.episode_key, 'storyboard', 'selected.json'), 'utf8'))
+  const plan = JSON.parse(await readFile(resolve(root, planSelection.path), 'utf8'))
+  const assets = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
+  const missingBoards = await missingStoryboardAssets(root, promptDocument.episode_key, storyboardSelection.versionId, plan.shots, assets)
+  if (missingBoards.length) throw new Error(`视频生成前必须先完成整集分镜图生成与选版：${missingBoards.join('；')}`)
+  const reviews = JSON.parse(await readFile(resolve(root, '.short-drama/shot-reviews.json'), 'utf8'))
+  const missingBoardReviews = missingStoryboardReviews(promptDocument.episode_key, plan.shots, assets, reviews)
+  if (missingBoardReviews.length) throw new Error(`视频生成前必须先通过整集分镜图多维审计：${missingBoardReviews.join('；')}`)
   for (const [field, actual] of Object.entries({ provider: providerName, model_or_workflow: requestedModel, prompt_profile: args.prompt_profile, input_mode: args.input_mode, prompt: args.prompt, duration: args.duration })) {
     if (shot[field] !== actual) throw new Error(`实际视频参数与提示词文档 ${field} 不一致`)
   }
   const manifest = Array.isArray(args.reference_manifest) ? args.reference_manifest : []
   if (manifest.length !== shot.references.length) throw new Error('实际参考素材与提示词文档数量不一致')
-  const assets = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
   for (const [index, reference] of shot.references.entries()) {
     const actual = manifest[index]
     for (const field of ['type', 'order', 'asset_key', 'version_id', 'role']) if (actual?.[field] !== reference[field]) throw new Error(`实际参考素材 ${index + 1} 与提示词文档不一致`)

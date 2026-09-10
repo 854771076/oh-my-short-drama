@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { call as callGeneration } from './generation/mcp.mjs'
+import { call as callGeneration, tools as generationTools } from './generation/mcp.mjs'
 import { selfCheck as checkComfly } from './generation/comfly.mjs'
 import { selfCheck as checkRunningHub } from './generation/runninghub.mjs'
 import { selfCheck as checkStarRouter } from './generation/starrouter.mjs'
@@ -100,6 +100,8 @@ async function checkMultiEpisodeEvidence() {
 
 async function main() {
   if (!process.argv.includes('--self-check')) throw new Error('仅支持 --self-check')
+  const imageSchema = generationTools.find((tool) => tool.name === 'generate_image')?.inputSchema?.properties
+  if (!imageSchema?.reference_paths || imageSchema.reference_image_paths || JSON.stringify(imageSchema.reference_manifest?.items?.required) !== JSON.stringify(['type', 'order', 'asset_key', 'version_id', 'role'])) throw new Error('图片生成 MCP Schema 与运行时参考素材合同不一致')
   for (const script of ['asset-ledger.mjs', 'character-profiles.mjs', 'editing-store.mjs', 'export-edit-subtitles.mjs', 'file-lock.mjs', 'freeze-edit-candidate.mjs', 'media-tools.mjs', 'preflight.mjs', 'project-store.mjs', 'render-prompt.mjs', 'review-ledger.mjs', 'task-ledger.mjs', 'workflow-gates.mjs']) run(script, '--self-check')
   for (const check of [checkComfly, checkRunningHub, checkStarRouter, checkProviders, checkLitterbox]) check()
   await checkMultiEpisodeEvidence()
@@ -269,16 +271,14 @@ async function main() {
     const storyboard = { episode_key: 'ep-001', source_versions: { director_book: 'v001' }, panels: [{ panel_number: 1, shot_number: 1, description: 'A 抬头发问', characters: [{ name: 'A' }], location: '测试场景', source_text: '别绕弯子。', duration: 5 }, { panel_number: 2, shot_number: 2, description: 'A 转身走向门口', characters: [{ name: 'A' }], location: '测试场景', source_text: 'A 转身走向门口。', duration: 5 }] }
     run('project-store.mjs', 'put-episode-document', root, 'storyboard', 'ep-001', 'v001', await json(root, 'storyboard.json', storyboard))
     run('project-store.mjs', 'select-episode-document', root, 'storyboard', 'ep-001', 'v001')
-    const productionShot = { dependencies: [], image_strategy: { mode: 'selected', board_type: 'shot-board', overflow_strategy: 'compose-assets' }, video_strategy: { mode: 'generate' }, audio_strategy: { mode: 'post-dub' }, provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: 'first-last-frame', duration_seconds: 5, resolution: '1080x1920', aspect_ratio: '9:16', candidate_count: 1, reference_assets: [{ key: 'char-a', version_id: 'v001', role: 'first_frame', order: 1 }], estimated_paid_calls: 1, fallback: {}, review_checks: ['visual'], status: 'ready' }
-    const production = { episode_key: 'ep-001', source_versions: {}, shots: [1, 2].map((shot_number) => ({ shot_number, ...productionShot })), totals: {}, unresolved: [], approved: true }
+    const productionShot = { dependencies: [], image_strategy: { mode: 'generate', board_type: 'shot-board', panel_grid_size: 4, overflow_strategy: 'compose-assets' }, video_strategy: { mode: 'generate' }, audio_strategy: { mode: 'post-dub' }, provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: 'first-last-frame', duration_seconds: 5, resolution: '1080x1920', aspect_ratio: '9:16', candidate_count: 1, reference_assets: [{ key: 'char-a', version_id: 'v001', role: 'first_frame', order: 1 }], estimated_paid_calls: 1, fallback: {}, review_checks: ['visual'], status: 'ready' }
+    const production = { episode_key: 'ep-001', source_versions: {}, shots: [1, 2].map((shot_number, index) => ({ shot_number, ...productionShot, image_strategy: { ...productionShot.image_strategy, board_type: index === 0 ? 'single' : 'storyboard', panel_grid_size: index === 0 ? 1 : 3 } })), totals: {}, unresolved: [], approved: true }
+    const invalidGridSize = { ...production, shots: production.shots.map((shot, index) => index ? shot : { ...shot, image_strategy: { ...shot.image_strategy, panel_grid_size: 2 } }) }
+    const invalidGridResult = spawnSync(process.execPath, [resolve(plugin, 'scripts/project-store.mjs'), 'put-episode-document', root, 'production-plan', 'ep-001', 'v009', await json(root, 'production-invalid-grid.json', invalidGridSize)], { encoding: 'utf8' })
+    if (invalidGridResult.status === 0 || !invalidGridResult.stderr.includes('panel_grid_size 与分镜类型不匹配')) throw new Error('分镜类型与格数不一致未被拒绝')
     run('project-store.mjs', 'put-episode-document', root, 'production-plan', 'ep-001', 'v001', await json(root, 'production.json', production))
     run('project-store.mjs', 'select-episode-document', root, 'production-plan', 'ep-001', 'v001')
-    const generatedStoryboardPlan = { ...production, shots: production.shots.map((shot) => ({ ...shot, image_strategy: { mode: 'generate', board_type: 'storyboard', overflow_strategy: 'reject' } })) }
-    run('project-store.mjs', 'put-episode-document', root, 'production-plan', 'ep-001', 'v002', await json(root, 'production-storyboard.json', generatedStoryboardPlan))
-    run('project-store.mjs', 'select-episode-document', root, 'production-plan', 'ep-001', 'v002')
-    if (!JSON.parse(run('skill-runs.mjs', 'required', root, 'media-production')).includes('generate-storyboard-images')) throw new Error('生成分镜图策略未动态要求对应 Skill')
-    run('project-store.mjs', 'select-episode-document', root, 'production-plan', 'ep-001', 'v001')
-    if (JSON.parse(run('skill-runs.mjs', 'required', root, 'media-production')).includes('generate-storyboard-images')) throw new Error('复用分镜图策略仍错误要求生成 Skill')
+    if (!JSON.parse(run('skill-runs.mjs', 'required', root, 'media-production')).includes('generate-storyboard-images')) throw new Error('媒体阶段未强制要求分镜图 Skill')
     const videoPrompts = {
       episode_key: 'ep-001', source_versions: { production_plan: 'v001', storyboard: 'v001' }, unresolved: [], approved: true,
       shots: [videoPromptText, videoPromptText2].map((prompt, index) => ({ shot_number: index + 1, production_plan_version: 'v001', storyboard_version: 'v001', provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: 'first-last-frame', prompt, duration: 5, references: referenceManifest, continuity: {}, audio_policy: { mode: 'post-dub' }, errors: [] })),
@@ -287,14 +287,36 @@ async function main() {
     run('project-store.mjs', 'select-episode-document', root, 'video-prompts', 'ep-001', 'v001')
     await recordSkills(root, 'production-plan', 'episodes/ep-001/production-plan/v001.json')
     run('workflow.mjs', 'advance', root, 'media-production')
+    const audioPlan = { episode_key: 'ep-001', source_versions: { script: 'v002', storyboard: 'v001', production_plan: 'v001' }, lines: [{ line_index: 1, speaker: 'A', line_type: 'dialogue', content: '别绕弯子。', emotion: '克制', emotion_strength: 0.2, pronunciation_notes: [], matched_shot: { shot_number: 1 } }], voice_bindings: [{ speaker: 'A', provider: 'starrouter', model: 'speech-2.8-hd', voice_id: 'male-qn-qingse' }], music_tracks: [{ key: 'op', purpose: 'op', title: '片头曲', prompt: '紧张悬疑电子乐', tags: 'cinematic,electronic', lyrics: '', make_instrumental: true, provider: 'starrouter', model: 'suno_music', matched_shots: [1] }], unresolved: [], approved: true }
+    run('project-store.mjs', 'put-episode-document', root, 'audio-plan', 'ep-001', 'v001', await json(root, 'audio-plan.json', audioPlan))
+    run('project-store.mjs', 'select-episode-document', root, 'audio-plan', 'ep-001', 'v001')
     const boundVideo = { provider: 'starrouter', model: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: 'first-last-frame', prompt_version: 'v001', prompt: videoPrompts.shots[0].prompt, duration: 5, frame_url: uploadReceipt.url, reference_manifest: videoPrompts.shots[0].references, confirmed: true, project_root: root, target: 'shot-ep001-001', prompt_document: { episode_key: 'ep-001', version_id: 'v001', shot_number: 1 } }
+    try { await callGeneration('submit_video', boundVideo); throw new Error('缺少分镜图时仍可提交视频') } catch (error) { if (!String(error.message).includes('整集分镜图生成与选版')) throw error }
+    for (const shotNumber of [1, 2]) {
+      const key = `board-ep001-${String(shotNumber).padStart(3, '0')}`
+      const promptDocument = { kind: 'storyboard', episode_key: 'ep-001', version_id: 'v001', shot_number: shotNumber }
+      const promptName = shotNumber === 1 ? 'single_panel_image' : 'panel_grid_image'
+      const template = resolve(plugin, 'skills/generate-storyboard-images/assets/prompts', `${promptName}.zh.txt`)
+      const templateText = await readFile(template, 'utf8')
+      const vars = Object.fromEntries([...templateText.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((match) => [match[1], match[1] === 'panel_grid_size' ? 3 : match[1] === 'grid_layout' ? '三格横排' : '测试']))
+      const promptPath = resolve(root, `${key}-prompt.txt`)
+      run('render-prompt.mjs', '--template', template, '--vars', await json(root, `${key}-vars.json`, vars), '--output', promptPath, '--project-root', root)
+      const request = await snapshot(`board-task-${shotNumber}`, key, 'image', 'starrouter', 'generate_image', { model: 'gpt-image-2', prompt: await readFile(promptPath, 'utf8'), reference_manifest: [] }, promptDocument)
+      run('task-ledger.mjs', 'put', root, await json(root, `${key}-task.json`, { taskId: `board-task-${shotNumber}`, target: key, type: 'image', provider: 'starrouter', requestPath: request.requestPath, status: 'running' }))
+      run('asset-ledger.mjs', 'put', root, await json(root, `${key}.json`, { key, type: 'storyboard', name: `第${shotNumber}镜分镜图` }))
+      await writeFile(resolve(root, `${key}.png`), `storyboard-fixture-${shotNumber}`)
+      const provenance = await json(root, `${key}-provenance.json`, { origin: 'generated', created_by: 'provider', provider: 'starrouter', model_or_workflow: 'gpt-image-2', task_id: `board-task-${shotNumber}`, prompt_document: promptDocument, source_assets: [], parameters: {} })
+      run('asset-ledger.mjs', 'import', root, key, resolve(root, `${key}.png`), 'v001', '-', provenance)
+      run('asset-ledger.mjs', 'select', root, key, 'v001')
+      run('task-ledger.mjs', 'update', root, `board-task-${shotNumber}`, 'completed', 'v001')
+    }
+    try { await callGeneration('submit_video', boundVideo); throw new Error('缺少分镜图审计时仍可提交视频') } catch (error) { if (!String(error.message).includes('整集分镜图多维审计')) throw error }
+    const storyboardCriteria = ['空间关系与轴线', '时间与动作连续性', '物理与交互逻辑', '光线与色彩连续性', '人物身份与造型一致性', '场景与道具一致性', '构图与镜头语言', '叙事覆盖与阅读顺序']
+    for (const shotNumber of [1, 2]) run('review-ledger.mjs', 'put', root, await json(root, `board-review-${shotNumber}.json`, { assetKey: `board-ep001-${String(shotNumber).padStart(3, '0')}`, versionId: 'v001', visual: 'passed', audio: 'not-applicable', transition: 'not-applicable', captions: 'not-applicable', issues: [], criteria: storyboardCriteria.map((criterion) => ({ criterion, status: 'passed', observation: `${criterion}已有可见证据` })) }))
     try { await callGeneration('submit_video', { ...boundVideo, prompt: '被篡改的提示词' }); throw new Error('视频提示词绑定自检未触发') } catch (error) { if (!String(error.message).includes('prompt 不一致')) throw error }
     try { await callGeneration('submit_video', { ...boundVideo, fps: 25 }); throw new Error('Seedance 参数自检未触发') } catch (error) { if (!String(error.message).includes('fps 仅支持 24')) throw error }
     const boundFailure = Object.values(JSON.parse(run('task-ledger.mjs', 'list', root)).tasks).find((task) => task.target === 'shot-ep001-001' && task.status === 'failed')
     if (!boundFailure) throw new Error('通过文档绑定校验后的失败视频请求未留档')
-    const audioPlan = { episode_key: 'ep-001', source_versions: { script: 'v002', storyboard: 'v001', production_plan: 'v001' }, lines: [{ line_index: 1, speaker: 'A', line_type: 'dialogue', content: '别绕弯子。', emotion: '克制', emotion_strength: 0.2, pronunciation_notes: [], matched_shot: { shot_number: 1 } }], voice_bindings: [{ speaker: 'A', provider: 'starrouter', model: 'speech-2.8-hd', voice_id: 'male-qn-qingse' }], music_tracks: [{ key: 'op', purpose: 'op', title: '片头曲', prompt: '紧张悬疑电子乐', tags: 'cinematic,electronic', lyrics: '', make_instrumental: true, provider: 'starrouter', model: 'suno_music', matched_shots: [1] }], unresolved: [], approved: true }
-    run('project-store.mjs', 'put-episode-document', root, 'audio-plan', 'ep-001', 'v001', await json(root, 'audio-plan.json', audioPlan))
-    run('project-store.mjs', 'select-episode-document', root, 'audio-plan', 'ep-001', 'v001')
     try {
       await callGeneration('generate_audio', { provider: 'starrouter', model: 'speech-2.8-hd', input: '被篡改的台词', voice: 'male-qn-qingse', speed: 1, response_format: 'flac', confirmed: true, project_root: root, target: 'audio-ep001-a', prompt_document: audioPromptReference })
       throw new Error('与 audio-plan 不一致的台词未被拒绝')

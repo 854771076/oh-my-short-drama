@@ -1,6 +1,6 @@
 {
   "name": "codex-short-drama",
-  "version": "0.4.0+codex.20260910035140",
+  "version": "0.4.0+codex.20260910060743",
   "description": "\u672c\u5730\u4f18\u5148\u7684 Codex \u6807\u51c6\u77ed\u5267\u5236\u4f5c\u63d2\u4ef6\uff1aCodex \u8d1f\u8d23\u6587\u672c\u521b\u4f5c\uff0c\u53ef\u6269\u5c55 Provider \u8d1f\u8d23\u56fe\u7247\u3001\u89c6\u9891\u548c\u97f3\u9891\u751f\u6210\u3002",
   "author": {
     "name": "xiaomao"

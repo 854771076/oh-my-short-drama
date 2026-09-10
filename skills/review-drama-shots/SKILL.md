@@ -5,7 +5,11 @@ description: 验收短剧分镜图和视频镜头。用于逐镜视觉、音频�
 
 # 验收短剧镜头
 
-实际观看完整画面并听完整音轨，不以任务成功或抽帧代替。每镜记录 assetKey、versionId、visual、audio、transition、captions、P0/P1/P2 issues，以及按制作计划 `review_checks` 原顺序填写的 `criteria: [{criterion,status,observation}]`；observation 必须描述实际看见或听见的证据，缺失关键剧情点必须 failed。用 `node scripts/review-ledger.mjs put <项目目录> <验收.json>` 校验目标确为当前 selected 本地版本并保存到 `.short-drama/shot-reviews.json`。
+分镜图生成并选版后，先用图像查看能力逐张查看原图，并结合前后镜、结构化分镜、人物/场景/道具选版和项目画风做整集连续审计；不能只看缩略图、文件存在或生成状态。每张分镜图的 `criteria` 必须严格按以下八项原顺序记录 `{criterion,status,observation}`：`空间关系与轴线`、`时间与动作连续性`、`物理与交互逻辑`、`光线与色彩连续性`、`人物身份与造型一致性`、`场景与道具一致性`、`构图与镜头语言`、`叙事覆盖与阅读顺序`。单图的时间维度检查与前后镜衔接；故事版/分镜板还要检查各格内部顺序。任何一项 failed 都必须修订或重生成后复审，整集全部 passed 前不得制作视频。
+
+空间检查人物左右、景深层次、出入口、视线、180 度轴线和跨格/跨镜位置；时间检查动作起点—过程—结果、口型/反应先后、道具状态和昼夜；物理检查重力、落脚、接触点、受力、持物、遮挡、镜像及人体结构；光线检查主光来源、方向、影子、曝光、色温和同场景连续性。其余四项分别核对人物身份/服装/年龄、场景结构与道具版本、景别焦段/机位/运镜意图，以及剧情信息是否无遗漏、无重复、按正确阅读顺序呈现。观察必须写出实际可见证据，不能复述提示词或只写“合理”。
+
+分镜图验收记录使用 `visual=passed|failed`，`audio/transition/captions=not-applicable`，并记录 P0/P1/P2 issues。视频镜头则实际观看完整画面并听完整音轨，按制作计划 `review_checks` 原顺序填写 criteria；缺失关键剧情点必须 failed。用 `node scripts/review-ledger.mjs put <项目目录> <验收.json>` 校验目标确为当前 selected 本地版本并保存到 `.short-drama/shot-reviews.json`。
 
 visual 必须 passed；无声音或字幕时使用 not-applicable，不得伪造通过。P0/P1 只修复受影响镜头并重新验收；不得用字幕掩盖错误人声，用长叠化掩盖动作/轴线错误，或用外部 TTS 覆盖要求原生音频的镜头。四项通过且无 P0/P1 后才加入剪辑候选池。
 

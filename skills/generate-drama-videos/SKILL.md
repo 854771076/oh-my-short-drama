@@ -5,7 +5,7 @@ description: 通过用户选择的生成 Provider 提交并查询短剧视频镜
 
 # 生成短剧视频
 
-每镜提交前确认 Provider、模型或工作流 ID、已选 `video-prompts` 版本、prompt_profile、input_mode、本地参考素材版本与提交顺序、提示词、时长、分辨率、画幅、声音策略和费用。Seedance 2.0 的 `@图片N/@视频N/@音频N` 必须与提交数组同序；H3 输入模式和六段合同必须与工作流一致。调用 `submit_video` 时传 `project_root`、目标视频资产 key 和 `{episode_key,version_id,shot_number}` 提示词文档引用；MCP 会在提交前保存完整请求快照并自动绑定 `task_id`。同一目标与输入指纹存在在途任务时禁止重复提交。
+开始视频制作前，整集每一镜都必须已有与当前 selected 分镜版本对应的本地 `board-epNNN-NNN` 选版，并通过 `review-drama-shots` 的空间、时间、物理、光线等八维审计；缺少或失败任意一项时停止。每镜提交前确认 Provider、模型或工作流 ID、已选 `video-prompts` 版本、prompt_profile、input_mode、本地参考素材版本与提交顺序、提示词、时长、分辨率、画幅、声音策略和费用。Seedance 2.0 的 `@图片N/@视频N/@音频N` 必须与提交数组同序；H3 输入模式和六段合同必须与工作流一致。调用 `submit_video` 时传 `project_root`、目标视频资产 key 和 `{episode_key,version_id,shot_number}` 提示词文档引用；MCP 会硬校验整集分镜图选版与审计记录，再保存完整请求快照并自动绑定 `task_id`。同一目标与输入指纹存在在途任务时禁止重复提交。
 
 H3 `audio_policy.mode=native` 时，声音随视频一次生成，不再提交外部 TTS；必须核对逐秒对白、音乐锚点和相邻镜声音转场。只有制作计划明确为 post-dub/independent 时才调用独立音频 Skill。
 

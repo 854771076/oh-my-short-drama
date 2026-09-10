@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { stages } from './workflow-stages.mjs'
 import { validateManifest, validateReview, validateTimeline } from './editing-store.mjs'
 import { readSkillRuns, requiredSkills } from './skill-runs.mjs'
+import { STORYBOARD_REVIEW_CRITERIA } from './review-ledger.mjs'
 
 const pluginRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const skillMap = JSON.parse(await readFile(resolve(pluginRoot, 'references/skill-map.json'), 'utf8'))
@@ -55,6 +56,29 @@ function sameShotContract(plan, prompt) {
     && plan.input_mode === prompt.input_mode
     && plan.duration_seconds === prompt.duration
     && sameReferences(plan.reference_assets, prompt.references)
+}
+
+export async function missingStoryboardAssets(root, episode, storyboardVersion, shots, assets) {
+  const missing = []
+  for (const shot of shots || []) {
+    const key = `board-${episode.replace('-', '')}-${String(shot.shot_number).padStart(3, '0')}`
+    const asset = assets.assets?.[key]
+    const version = asset?.versions?.find((item) => item.id === asset.selectedVersionId)
+    const source = version?.provenance?.prompt_document
+    if (asset?.type !== 'storyboard' || !version?.localPath || asset.staleVersionIds?.includes(version.id) || !await exists(resolve(root, version.localPath)) || source?.kind !== 'storyboard' || source.episode_key !== episode || source.version_id !== storyboardVersion || source.shot_number !== shot.shot_number) missing.push(`${episode} 第 ${shot.shot_number} 镜 selected 分镜图`)
+  }
+  return missing
+}
+
+export function missingStoryboardReviews(episode, shots, assets, reviews) {
+  const missing = []
+  for (const shot of shots || []) {
+    const key = `board-${episode.replace('-', '')}-${String(shot.shot_number).padStart(3, '0')}`
+    const asset = assets.assets?.[key]
+    const review = reviews.reviews?.[`${key}@${asset?.selectedVersionId}`]
+    if (!review?.approved || review.visual !== 'passed' || JSON.stringify(review.criteria?.map((item) => item.criterion)) !== JSON.stringify(STORYBOARD_REVIEW_CRITERIA) || review.criteria.some((item) => item.status !== 'passed' || typeof item.observation !== 'string' || !item.observation.trim())) missing.push(`${episode} 第 ${shot.shot_number} 镜分镜图八维审计`)
+  }
+  return missing
 }
 function promptMode(skill, stage) {
   const prompts = Object.entries(skillMap.prompts).filter(([, owner]) => owner === skill).map(([name]) => name)
@@ -187,15 +211,12 @@ export async function inspectStage(root, stage) {
     const reviews = await exists(resolve(root, '.short-drama', 'shot-reviews.json')) ? await json(resolve(root, '.short-drama', 'shot-reviews.json')) : { reviews: {} }
     for (const episode of episodes) {
       const plan = await selectedDocumentRecord(root, episode, 'production-plan')
+      const storyboard = await selectedDocumentRecord(root, episode, 'storyboard')
       const prompts = await selectedDocumentRecord(root, episode, 'video-prompts')
-      if (!plan || !prompts) { missing.push(`${episode} 缺少当前制作计划或视频提示词`); continue }
+      if (!plan || !storyboard || !prompts) { missing.push(`${episode} 缺少当前制作计划、分镜或视频提示词`); continue }
+      missing.push(...await missingStoryboardAssets(root, episode, storyboard.versionId, plan.document.shots, assets))
+      missing.push(...missingStoryboardReviews(episode, plan.document.shots, assets, reviews))
       for (const shot of plan.document.shots || []) {
-        if (shot.image_strategy?.mode === 'generate') {
-          const storyboardKey = `board-${episode.replace('-', '')}-${String(shot.shot_number).padStart(3, '0')}`
-          const storyboardAsset = assets.assets?.[storyboardKey]
-          const storyboardVersion = storyboardAsset?.versions?.find((item) => item.id === storyboardAsset.selectedVersionId)
-          if (storyboardAsset?.type !== 'storyboard' || !storyboardVersion || storyboardAsset.staleVersionIds?.includes(storyboardVersion.id)) missing.push(`${episode} 第 ${shot.shot_number} 镜 selected 分镜图`)
-        }
         const match = Object.values(assets.assets || {}).find((asset) => {
           if (asset.type !== 'video' || !asset.selectedVersionId) return false
           const version = asset.versions?.find((item) => item.id === asset.selectedVersionId)

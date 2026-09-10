@@ -116,19 +116,16 @@ export async function requiredSkills(root, stage) {
   }
   if (stage === 'media-production') {
     let needsIndependentAudio = false
-    let needsStoryboardImages = false
     for (const episode of await selectedEpisodes(root)) {
       const markerPath = resolve(root, 'episodes', episode, 'production-plan', 'selected.json')
       if (!await exists(markerPath)) continue
       const marker = JSON.parse(await readFile(markerPath, 'utf8'))
       const plan = JSON.parse(await readFile(resolve(root, marker.path), 'utf8'))
       for (const shot of plan.shots || []) {
-        if (shot.image_strategy?.mode === 'generate') needsStoryboardImages = true
         const mode = typeof shot.audio_strategy === 'string' ? shot.audio_strategy : shot.audio_strategy?.mode
         if (!/^MiniMax-H3(?:-Max)?$/.test(shot.model_or_workflow || '') || mode !== 'native') needsIndependentAudio = true
       }
     }
-    if (needsStoryboardImages) required.add('generate-storyboard-images')
     if (needsIndependentAudio) required.add('design-drama-audio')
   }
   return [...required]

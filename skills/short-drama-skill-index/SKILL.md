@@ -14,7 +14,7 @@ description: 本地标准短剧插件的总索引。用于查询画风、人物/
 - 人物档案与完整角色原画设定板 → `generate-character-profiles`、`generate-character-images`
 - 场景、道具 → `generate-scene-assets`、`generate-prop-assets`
 - 首次拆镜、分镜修订 → `build-drama-storyboard`、`revise-drama-storyboards`
-- 分镜图、图片确定性变换 → `generate-storyboard-images`、`transform-drama-media`
+- 分镜图、图片确定性变换 → `generate-storyboard-images`、`transform-drama-media`；制作计划后先完成整集分镜图及 `review-drama-shots` 八维审计，才能进入视频
 - 制作规划、Seedance 2.0/H3/通用视频提示词 → `plan-drama-production`、`write-drama-video-prompts`
 - 视频镜头 → `generate-drama-videos`
 - 配音、TTS、口型 → `design-drama-audio`

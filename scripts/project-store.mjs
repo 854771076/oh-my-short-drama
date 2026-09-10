@@ -18,7 +18,7 @@ const ASSET_TYPES = { characters: 'character', scenes: 'scene', props: 'prop' }
 const PROMPT_PROFILES = new Set(['seedance2', 'h3', 'generic'])
 const H3_MODES = new Set(['T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA'])
 const ASPECT_RATIOS = new Set(['9:16', '16:9', '1:1', '4:3', '3:4', '21:9'])
-const STORYBOARD_TYPES = new Set(['single', 'grid', 'hand-drawn'])
+const STORYBOARD_TYPES = new Set(['single', 'storyboard', 'shot-board'])
 const ADAPTATION_MODES = new Set(['original', 'faithful_adaptation', 'authorized_adaptation'])
 
 async function exists(path) { try { await access(path); return true } catch { return false } }
@@ -77,7 +77,7 @@ function projectDefaults(key, title) {
     format: { aspect_ratio: null, resolution: null, fps: null, episode_count: null, episode_duration_seconds: null },
     languages: { output: null, spoken: null, subtitle: null },
     creative: { adaptation_mode: null, genre: null, tone: null, rating: null, art_style: defaultArtStyle() },
-    storyboard: { type: 'single', default_panel_grid_size: null },
+    storyboard: { type: 'shot-board', default_panel_grid_size: 4 },
     providers: { image: providerDefaults(), video: providerDefaults(), audio: providerDefaults(), music: providerDefaults() },
     createdAt: null,
     updatedAt: null,
@@ -391,8 +391,10 @@ function validateDocument(kind, document, episodeKey) {
       numbers.add(shot.shot_number)
       for (const field of ['dependencies', 'reference_assets', 'review_checks']) if (!Array.isArray(shot[field])) throw new Error(`production-plan shots[${index}].${field} 必须是数组`)
       for (const field of ['image_strategy', 'video_strategy', 'audio_strategy']) if (!shot[field] || typeof shot[field] !== 'object' || Array.isArray(shot[field])) throw new Error(`production-plan shots[${index}].${field} 必须是对象`)
-      if (!['selected', 'generate', 'none'].includes(shot.image_strategy.mode)) throw new Error(`production-plan shots[${index}].image_strategy.mode 无效`)
-      if (!['shot-board', 'storyboard'].includes(shot.image_strategy.board_type ?? 'shot-board')) throw new Error(`production-plan shots[${index}].image_strategy.board_type 无效`)
+      for (const field of ['mode', 'board_type', 'panel_grid_size', 'overflow_strategy']) if (!(field in shot.image_strategy)) throw new Error(`production-plan shots[${index}].image_strategy 缺少 ${field}`)
+      if (shot.image_strategy.mode !== 'generate') throw new Error(`production-plan shots[${index}].image_strategy.mode 必须为 generate`)
+      if (!STORYBOARD_TYPES.has(shot.image_strategy.board_type ?? 'shot-board')) throw new Error(`production-plan shots[${index}].image_strategy.board_type 无效`)
+      if (!Number.isInteger(shot.image_strategy.panel_grid_size) || shot.image_strategy.panel_grid_size < 1 || shot.image_strategy.panel_grid_size > 16 || (shot.image_strategy.board_type === 'single') !== (shot.image_strategy.panel_grid_size === 1)) throw new Error(`production-plan shots[${index}].image_strategy.panel_grid_size 与分镜类型不匹配`)
       if (!['compose-assets', 'reject'].includes(shot.image_strategy.overflow_strategy ?? 'compose-assets')) throw new Error(`production-plan shots[${index}].image_strategy.overflow_strategy 无效`)
       for (const field of ['provider', 'model_or_workflow', 'resolution', 'aspect_ratio']) if (typeof shot[field] !== 'string' || !shot[field]) throw new Error(`production-plan shots[${index}].${field} 必填`)
       if (!Number.isInteger(shot.duration_seconds) || shot.duration_seconds <= 0 || !Number.isInteger(shot.candidate_count) || shot.candidate_count <= 0 || !Number.isInteger(shot.estimated_paid_calls) || shot.estimated_paid_calls < 0) throw new Error(`production-plan shots[${index}] 数量或时长无效`)
