@@ -14,7 +14,8 @@ description: 配置并验证本地短剧插件的生成 Provider。用于选择 
 - StarRouter：环境变量 `STARROUTER_API_KEY`，可选基址与图片、视频、语音模型目录变量；协议见 [StarRouter 合同](../../references/starrouter-provider.md)。内置模型枚举如下：
   - image：`gpt-image-2`。
   - video：`MiniMax-H3`、`MiniMax-H3-Max`、`dreamina-seedance-2-0-fast-260128`、`dreamina-seedance-2-0-260128`、`doubao-seedance-2-0-260128`、`doubao-seedance-2-0-fast-260128`、`doubao-seedance-1-5-pro-251215`、`doubao-seedance-1-0-pro-250528`、`doubao-seedance-1-0-pro-fast-251015`。
-  - audio：`speech-2.8-hd`、`speech-2.8-turbo`、`suno_music`（OP、ED、BGM、音乐短视频）。
+  - audio：`speech-2.8-hd`、`speech-2.8-turbo`、`qwen3-tts-vc-realtime-2025-11-27`、`qwen3-tts-vc-realtime`、`pawsense-audio`、`tts-1`；`suno_music` 用于 OP、ED、BGM、音乐短视频。
+  - asr：`qwen3-asr-flash`、`whisper-1`，用于项目音频转写/翻译和原生对白审计；可用 `STARROUTER_ASR_MODELS` 扩展目录、`STARROUTER_ASR_MODEL` 指定默认审计模型。
 - RunningHub：环境变量 `RUNNINGHUB_API_KEY`，可选基址和通用图片/视频/音频工作流 ID；内置图片 `krea2-normal-v1`，可用 `RUNNINGHUB_KREA2_WORKFLOW_ID` 覆盖；内置 H3 可用 `RUNNINGHUB_H3_WORKFLOW_ID` 覆盖平台工作流 ID。协议见 [RunningHub 合同](../../references/runninghub-provider.md)。
 - Comfly：`COMFLY_TOKEN`、可选 `COMFLY_BASE_URL` 和 `COMFLY_APP_ID`；当前模型固定为 `minimax-h3`。协议见 [Comfly 合同](../../references/comfly-provider.md)。
 

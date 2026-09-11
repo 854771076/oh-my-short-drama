@@ -5,6 +5,9 @@ import { credential } from './credentials.mjs'
 
 export const adapters = { starrouter, runninghub, comfly }
 export const providerNames = Object.keys(adapters)
+const H3_MODELS = new Set(['starrouter:MiniMax-H3', 'starrouter:MiniMax-H3-Max', 'runninghub:minimax-h3-reference-to-video', 'comfly:minimax-h3'])
+
+export function isH3Model(provider, model) { return H3_MODELS.has(`${provider}:${model}`) }
 
 export function adapter(name) {
   const selected = adapters[name]
@@ -47,6 +50,11 @@ const parameterCatalog = {
     ],
   },
 }
+
+for (const model of ['qwen3-tts-vc-realtime-2025-11-27', 'qwen3-tts-vc-realtime', 'pawsense-audio', 'tts-1']) parameterCatalog.starrouter[model] = [
+  { key: 'speed', label: '语速', type: 'number', min: 0.5, max: 2, step: 0.1, default: 1 },
+  { key: 'response_format', label: '格式', type: 'select', options: ['mp3', 'flac', 'pcm'], default: 'mp3' },
+]
 
 for (const model of ['MiniMax-H3', 'MiniMax-H3-Max']) parameterCatalog.starrouter[model] = [
   { key: 'duration', label: '默认时长（秒）', type: 'number', min: model.endsWith('-Max') ? 5 : 4, max: 15, default: 5, overridable: true },
@@ -92,7 +100,7 @@ export function providerSetupCatalog() {
   return Object.entries(adapters).map(([key, value]) => ({
     key, label: value.label || key, configured: Boolean(credential(value.credentialEnv)), credentialEnv: value.credentialEnv,
     capabilities: value.capabilities,
-    models: Object.fromEntries(['image', 'video', 'audio', 'music'].map((type) => [type, (value.catalog?.[type] || []).map((id) => ({ id, promptProfile: type === 'video' ? /^MiniMax-H3|^minimax-h3/.test(id) ? 'h3' : /seedance-2-0/.test(id) ? 'seedance2' : 'generic' : null, parameters: parameterCatalog[key]?.[id] || [] }))])),
+    models: Object.fromEntries(['image', 'video', 'audio', 'music', 'asr'].map((type) => [type, (value.catalog?.[type] || []).map((id) => ({ id, promptProfile: type === 'video' ? isH3Model(key, id) ? 'h3' : /seedance-2-0/.test(id) ? 'seedance2' : 'generic' : null, parameters: parameterCatalog[key]?.[id] || [] }))])),
   }))
 }
 
@@ -109,6 +117,7 @@ export function selfCheck() {
   catch (error) { if (!String(error.message).includes('选项无效')) throw error }
   const video = applyConfiguredModelParameters('comfly', 'minimax-h3', { duration: 8, resolution: '1K', ratio: '9:16' }, { duration: 12 })
   if (video.duration !== 12 || video.resolution !== '1K') throw new Error('逐镜头参数覆盖自检失败')
+  if (!isH3Model('comfly', 'minimax-h3') || !isH3Model('starrouter', 'MiniMax-H3') || isH3Model('starrouter', 'minimax-h3')) throw new Error('H3 模型规范化自检失败')
   try { applyConfiguredModelParameters('comfly', 'minimax-h3', { resolution: '1K' }, { resolution: '2K' }); throw new Error('项目级参数锁定自检失败') }
   catch (error) { if (!String(error.message).includes('已确认配置一致')) throw error }
 }

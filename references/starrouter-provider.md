@@ -4,10 +4,11 @@
 
 - 图片：`/v1/images/generations`；有本地参考图时使用 multipart `/v1/images/edits`。支持 `1K/2K/4K + aspect_ratio` 尺寸推导和常用输出参数。
 - 视频：Seedance 使用 `/volcengine/doubao/contents/generations/tasks`；MiniMax H3/H3-Max 使用 OpenAI 兼容 `/v1/videos`，并通过 `/v1/videos/{task_id}` 查询。适配器按模型选择协议。
-- 语音：同步 `POST /v1/audio/speech`，把 OpenAI 兼容请求转换为 MiniMax T2A V2；默认模型为 `speech-2.8-hd`、`speech-2.8-turbo`。
+- 语音：同步 `POST /v1/audio/speech`，支持 `speech-2.8-hd`、`speech-2.8-turbo`、Qwen3 TTS、PawSense 与 `tts-1`；通用模型的 `instructions` 和 `metadata` 原样转发，当前 MCP 不缓冲 SSE 流式结果。
+- 语音识别：同步 multipart `POST /v1/audio/transcriptions` 或 `/v1/audio/translations`；默认模型为 `qwen3-asr-flash`、`whisper-1`，其他表单字段原样转发。
 - 音乐：`POST /suno/submit/MUSIC` 提交 `suno_music`，`GET /suno/fetch/{task_id}` 轮询；生成结果作为 audio 资产保存。
 - 认证：仅从环境变量 `STARROUTER_API_KEY` 读取 Bearer Token。
-- 保底目录：图片 `gpt-image-2`，视频为适配器登记的 Seedance 系列及 `MiniMax-H3`、`MiniMax-H3-Max`，语音为上述两个 MiniMax 模型，音乐为 `suno_music`。可分别用 `STARROUTER_IMAGE_MODELS`、`STARROUTER_VIDEO_MODELS`、`STARROUTER_AUDIO_MODELS`、`STARROUTER_MUSIC_MODELS` 和 `STARROUTER_MULTIMODAL_VIDEO_MODELS` 提供逗号分隔目录；自定义模型仍需补能力合同。
+- 保底目录：图片 `gpt-image-2`，视频为适配器登记的 Seedance 系列及 `MiniMax-H3`、`MiniMax-H3-Max`，语音和 ASR 为上述模型，音乐为 `suno_music`。可分别用 `STARROUTER_IMAGE_MODELS`、`STARROUTER_VIDEO_MODELS`、`STARROUTER_AUDIO_MODELS`、`STARROUTER_ASR_MODELS`、`STARROUTER_MUSIC_MODELS` 和 `STARROUTER_MULTIMODAL_VIDEO_MODELS` 提供逗号分隔目录；自定义模型仍需补能力合同。
 
 ## Suno 音乐合同
 
@@ -21,11 +22,11 @@
 
 `metadata` 仅接受 `model`、`content`、`resolution`、`duration`、`ratio`、`callback_url`；适配器要求 `metadata.model` 与顶层模型一致，回调地址和所有素材必须是公网 HTTPS。公开任务状态 `queued/in_progress/completed/failed` 被统一归一化为 pending/completed/failed，完成地址从响应（包括 `metadata.url`）提取。
 
-## MiniMax 同步语音合同
+## 同步语音合同
 
-`generate_audio` 对 StarRouter 使用 `model`、`input`、`voice`，可选 `speed`、`response_format` 和 `metadata`。`voice` 必须是用户已确认且有权使用的 MiniMax voice_id；`speed` 为 0.5–2；格式支持 `mp3`、`pcm`、`flac`。
+`generate_audio` 对 StarRouter 使用 `model`、`input`、`voice`，可选 `instructions`、`speed`、`response_format` 和 `metadata`。`voice` 必须是用户已确认且有权使用的模型声音 ID；`speed` 为 0.5–2；格式支持 `mp3`、`pcm`、`flac`。
 
-`metadata` 只接受 StarRouter 文档声明的 `voice_setting`、`audio_setting`、`pronunciation_dict`、`timbre_weights`、`language_boost`、`voice_modify`、`subtitle_enable`、`aigc_watermark`、`output_format`、`stream`、`stream_options`。`output_format` 仅允许 `hex` 或 `url`；当前同步适配器拒绝 `stream=true`。`instructions` 与 `stream_format` 不进入工具合同，因为上游不会转发。
+`speech-2.8-*` 继续严格校验 MiniMax 的 `voice_setting`、`audio_setting`、`pronunciation_dict`、`timbre_weights`、`language_boost`、`voice_modify`、`subtitle_enable`、`aigc_watermark`、`output_format`、`stream`、`stream_options`。其余 OpenAI 兼容模型原样转发 `instructions` 与 metadata。当前 MCP 返回完整文件，明确拒绝 `stream_format`，避免把 SSE 事件流误登记成音频。
 
 `emotion` 与 `language_boost` 按非空字符串透传：Skill 只列已验证常用值，不把上游可能扩展的值固化为封闭枚举；范围错误由 StarRouter/MiniMax 返回。
 

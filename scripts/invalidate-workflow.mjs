@@ -28,3 +28,21 @@ export async function invalidateFrom(rootArg, stage) {
     return state
   })
 }
+
+export async function invalidateShot(rootArg, episodeKey, shotNumber, stage) {
+  const root = resolve(rootArg)
+  if (!/^ep-\d{3}$/.test(episodeKey) || !Number.isInteger(shotNumber) || shotNumber < 1 || !stages.includes(stage)) throw new Error('镜头失效参数无效')
+  const statePath = resolve(root, '.short-drama/state.json')
+  return withFileLock(statePath, async () => {
+    const state = JSON.parse(await readFile(statePath, 'utf8'))
+    const now = new Date().toISOString()
+    state.shotInvalidatedAt ||= {}
+    state.shotInvalidatedAt[episodeKey] ||= {}
+    state.shotInvalidatedAt[episodeKey][shotNumber] = { stage, at: now }
+    state.updatedAt = now
+    const temporary = `${statePath}.${randomUUID()}.tmp`
+    await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, { flag: 'wx' })
+    await rename(temporary, statePath)
+    return state
+  })
+}

@@ -9,7 +9,7 @@ description: 设计并在本地管理短剧声音资产。用于角色声音分�
 
 独立音频依次执行：由 Codex 使用 `assets/prompts/voice_analysis.{zh,en}.txt` 分离说话人和台词。Provider 返回受控标签时使用 `character_voice_recommend`；Provider 接受自然语言音色描述时使用 `character_voice_description`。设计或克隆得到真实音色 ID 后，把台词、来源版本、音色绑定、未决项和批准状态保存为 `episodes/<ep>/audio-plan/vNNN.json` 并显式选版，再按逐字文本生成语音。克隆前确认参考音频权利与具体文件，目标模型必须接受该音色 ID。逐条试听语言、说话者、文本、读音、语速、音高、时长、静音与破音，选版后才允许口型同步。
 
-音频通过 `drama-generation-service` 交给用户确认的 Provider。逐句调用传 `{kind:"audio-plan",episode_key,version_id,line_index}`；入口会核对当前选版、批准状态、逐字台词以及角色—Provider—模型—voice 绑定。StarRouter 可使用 MiniMax `speech-2.8-hd` 或 `speech-2.8-turbo` 同步生成，必须提供已确认的台词、MiniMax `voice_id`、语速和输出格式；RunningHub 可使用用户音频工作流。每条结果必须解码、复制或下载到本地 `assets/audio/` 后登记选版并保存同一行引用和输入指纹，失败只重做受影响语句。
+音频通过 `drama-generation-service` 交给用户确认的 Provider。逐句调用传 `{kind:"audio-plan",episode_key,version_id,line_index}`；入口会核对当前选版、批准状态、逐字台词以及角色—Provider—模型—voice 绑定。StarRouter 可使用 `speech-2.8-hd`、`speech-2.8-turbo`、Qwen3 TTS、PawSense 或 `tts-1` 同步生成，必须提供已确认的台词、模型对应 voice、语速和输出格式；RunningHub 可使用用户音频工作流。每条结果必须解码、复制或下载到本地 `assets/audio/` 后登记选版并保存同一行引用和输入指纹，失败只重做受影响语句。
 
 OP、ED、BGM 或音乐短视频配乐写入可选 `music_tracks`，每项包含 `key`、`purpose`、`title`、`prompt`、`tags`、`lyrics`、`make_instrumental`、`provider`、`model`、`matched_shots`。StarRouter `suno_music` 调用 `generate_music` 并传 `{kind:"audio-plan",episode_key,version_id,track_key}`；结果仍保存为 `assets/audio/` 音频资产。
 
@@ -19,7 +19,7 @@ OP、ED、BGM 或音乐短视频配乐写入可选 `music_tracks`，每项包含
 
 ## StarRouter MiniMax 参数枚举
 
-- 模型：`speech-2.8-hd`、`speech-2.8-turbo`；`voice` 是用户已确认的 MiniMax voice_id，不是可静态枚举。
+- 模型：`speech-2.8-hd`、`speech-2.8-turbo`、`qwen3-tts-vc-realtime-2025-11-27`、`qwen3-tts-vc-realtime`、`pawsense-audio`、`tts-1`；`voice` 使用所选模型支持且经用户确认的声音 ID。
 - 基础：`speed=0.5..2`；`response_format ∈ {mp3,pcm,flac}`；同步模式固定 `metadata.stream=false`；`metadata.output_format ∈ {hex,url}`。
 - `metadata.voice_setting`：`speed=0.5..2`、`vol=(0,10]`、`pitch=-12..12`、`text_normalization ∈ {true,false}`、`latex_read ∈ {true,false}`。`emotion` 常用已验证值为 `happy,sad,angry,fearful,disgusted,surprised,calm,fluent,whisper`；适配器接受非空字符串，新增值以 StarRouter/MiniMax 当前文档为准。
 - `metadata.audio_setting`：`sample_rate ∈ {8000,16000,22050,24000,32000,44100}`；`bitrate ∈ {32000,64000,128000,256000}`；`format ∈ {mp3,pcm,flac}`；`channel ∈ {1,2}`；`force_cbr ∈ {true,false}`。

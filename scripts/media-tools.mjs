@@ -26,6 +26,12 @@ function gridLayout(count, columns) {
   }).join('|')
 }
 
+function gridCellCrop(width, height, columns, rows, index, contentPercent) {
+  const cellWidth = Math.floor(width / columns)
+  const cellHeight = Math.floor(height * contentPercent / 100 / rows)
+  return [cellWidth, cellHeight, (index - 1) % columns * cellWidth, Math.floor((index - 1) / columns) * cellHeight]
+}
+
 function distinct(input, output) {
   if (resolve(input) === resolve(output)) throw new Error('输出路径不得覆盖源文件')
 }
@@ -37,7 +43,7 @@ function qualityEvents(stderr) {
 async function main() {
   const [command, ...args] = process.argv.slice(2)
   if (command === '--self-check') {
-    if (positive('2', '列数') !== 2 || gridLayout(4, 2) !== '0_0|w0_0|0_h0|w0_h0' || qualityEvents('[blackdetect] black_start:0 black_end:1').length !== 1) throw new Error('自检失败')
+    if (positive('2', '列数') !== 2 || gridLayout(4, 2) !== '0_0|w0_0|0_h0|w0_h0' || JSON.stringify(gridCellCrop(1200, 1000, 2, 2, 4, 80)) !== '[600,400,600,400]' || qualityEvents('[blackdetect] black_start:0 black_end:1').length !== 1) throw new Error('自检失败')
     return console.log('ok')
   }
   if (command === 'probe') {
@@ -98,6 +104,22 @@ async function main() {
     }
     return
   }
+  if (command === 'extract-grid-cell') {
+    const [input, output, columnsRaw, rowsRaw, indexRaw = '1', contentPercentRaw = '85'] = args
+    if (!input || !output) throw new Error('用法：extract-grid-cell <图片> <输出图片> <列数> <行数> [格号] [画面高度百分比]')
+    distinct(input, output)
+    const columns = positive(columnsRaw, '列数')
+    const rows = positive(rowsRaw, '行数')
+    const index = positive(indexRaw, '格号')
+    const contentPercent = positive(contentPercentRaw, '画面高度百分比')
+    if (index > columns * rows || contentPercent < 50 || contentPercent > 100) throw new Error('格号超出范围，画面高度百分比必须为 50–100')
+    const metadata = JSON.parse(run('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'json', resolve(input)], true))
+    const { width, height } = metadata.streams?.[0] || {}
+    const crop = gridCellCrop(width, height, columns, rows, index, contentPercent)
+    await mkdir(dirname(resolve(output)), { recursive: true })
+    run('ffmpeg', ['-nostdin', '-loglevel', 'error', '-n', '-i', resolve(input), '-vf', `crop=${crop.join(':')}`, '-frames:v', '1', '-update', '1', resolve(output)])
+    return
+  }
   if (command === 'compose-grid') {
     const [output, columnsRaw, ...inputs] = args
     if (!output || inputs.length < 2) throw new Error('用法：compose-grid <输出图片> <列数> <图片...>')
@@ -108,7 +130,7 @@ async function main() {
     run('ffmpeg', ['-nostdin', '-loglevel', 'error', '-n', ...inputArgs, '-filter_complex', `xstack=inputs=${inputs.length}:layout=${gridLayout(inputs.length, columns)}:fill=black`, '-frames:v', '1', '-update', '1', resolve(output)])
     return
   }
-  throw new Error('用法：media-tools.mjs probe|qc|extract-frame|crop|split-grid|compose-grid ...')
+  throw new Error('用法：media-tools.mjs probe|qc|extract-frame|crop|split-grid|extract-grid-cell|compose-grid ...')
 }
 
 main().catch((error) => { console.error(error.message); process.exitCode = 1 })

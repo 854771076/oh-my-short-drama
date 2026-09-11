@@ -7,6 +7,8 @@ import { stages } from './workflow-stages.mjs'
 import { validateManifest, validateReview, validateTimeline } from './editing-store.mjs'
 import { readSkillRuns, requiredSkills } from './skill-runs.mjs'
 import { STORYBOARD_REVIEW_CRITERIA } from './review-ledger.mjs'
+import { isH3Model } from './generation/providers.mjs'
+import { sameShotVersion } from './shot-fingerprint.mjs'
 
 const pluginRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const skillMap = JSON.parse(await readFile(resolve(pluginRoot, 'references/skill-map.json'), 'utf8'))
@@ -65,7 +67,9 @@ export async function missingStoryboardAssets(root, episode, storyboardVersion, 
     const asset = assets.assets?.[key]
     const version = asset?.versions?.find((item) => item.id === asset.selectedVersionId)
     const source = version?.provenance?.prompt_document
-    if (asset?.type !== 'storyboard' || !version?.localPath || asset.staleVersionIds?.includes(version.id) || !await exists(resolve(root, version.localPath)) || source?.kind !== 'storyboard' || source.episode_key !== episode || source.version_id !== storyboardVersion || source.shot_number !== shot.shot_number) missing.push(`${episode} 第 ${shot.shot_number} 镜 selected 分镜图`)
+    const currentSource = source?.kind === 'storyboard' && source.episode_key === episode && source.shot_number === shot.shot_number
+      && await sameShotVersion(root, episode, 'storyboard', source.version_id, storyboardVersion, shot.shot_number).catch(() => false)
+    if (asset?.type !== 'storyboard' || !version?.localPath || asset.staleVersionIds?.includes(version.id) || !await exists(resolve(root, version.localPath)) || !currentSource) missing.push(`${episode} 第 ${shot.shot_number} 镜 selected 分镜图`)
   }
   return missing
 }
@@ -197,7 +201,13 @@ export async function inspectStage(root, stage) {
       if (!prompts?.document?.approved || prompts?.document?.unresolved?.length) missing.push(`${episode} approved 且无未决项的视频提示词`)
       if (plan && storyboard && !sameNumbers(plan.document.shots, storyboard.document.panels)) missing.push(`${episode} 制作计划与分镜镜号不一致`)
       if (plan && prompts && !sameNumbers(plan.document.shots, prompts.document.shots)) missing.push(`${episode} 制作计划与视频提示词镜号不一致`)
-      if (plan && storyboard && prompts && (prompts.document.source_versions?.production_plan !== plan.versionId || prompts.document.source_versions?.storyboard !== storyboard.versionId)) missing.push(`${episode} 视频提示词来源版本不是当前选版`)
+      if (plan && storyboard && prompts) for (const shot of prompts.document.shots || []) {
+        const [planMatches, storyboardMatches] = await Promise.all([
+          sameShotVersion(root, episode, 'production-plan', shot.production_plan_version, plan.versionId, shot.shot_number).catch(() => false),
+          sameShotVersion(root, episode, 'storyboard', shot.storyboard_version, storyboard.versionId, shot.shot_number).catch(() => false),
+        ])
+        if (!planMatches || !storyboardMatches) missing.push(`${episode} 第 ${shot.shot_number} 镜视频提示词来源不是当前镜头内容`)
+      }
       if (plan && prompts) for (const shot of plan.document.shots || []) {
         const prompt = prompts.document.shots?.find((item) => item.shot_number === shot.shot_number)
         if (prompt && !sameShotContract(shot, prompt)) missing.push(`${episode} 第 ${shot.shot_number} 镜制作计划与视频提示词参数或引用不一致`)
@@ -217,23 +227,31 @@ export async function inspectStage(root, stage) {
       missing.push(...await missingStoryboardAssets(root, episode, storyboard.versionId, plan.document.shots, assets))
       missing.push(...missingStoryboardReviews(episode, plan.document.shots, assets, reviews))
       for (const shot of plan.document.shots || []) {
-        const match = Object.values(assets.assets || {}).find((asset) => {
-          if (asset.type !== 'video' || !asset.selectedVersionId) return false
+        let match
+        for (const asset of Object.values(assets.assets || {})) {
+          if (asset.type !== 'video' || !asset.selectedVersionId) continue
           const version = asset.versions?.find((item) => item.id === asset.selectedVersionId)
-          if (asset.staleVersionIds?.includes(version?.id)) return false
+          if (asset.staleVersionIds?.includes(version?.id)) continue
           const source = version?.provenance?.prompt_document
-          return source?.episode_key === episode && source?.version_id === prompts.versionId && source?.shot_number === shot.shot_number
-        })
+          if (source?.episode_key === episode && source?.shot_number === shot.shot_number && await sameShotVersion(root, episode, 'video-prompts', source.version_id, prompts.versionId, shot.shot_number).catch(() => false)) { match = asset; break }
+        }
         if (!match) missing.push(`${episode} 第 ${shot.shot_number} 镜 selected 视频`)
         else {
           const review = reviews.reviews?.[`${match.key}@${match.selectedVersionId}`]
           const criteria = review?.criteria || []
           if (!review?.approved || JSON.stringify(criteria.map((item) => item.criterion)) !== JSON.stringify(shot.review_checks) || criteria.some((item) => item.status !== 'passed' || typeof item.observation !== 'string' || !item.observation.trim())) missing.push(`${match.key} selected 版本缺少逐项可核对验收`)
+          const audioMode = typeof shot.audio_strategy === 'string' ? shot.audio_strategy : shot.audio_strategy?.mode
+          if (isH3Model(shot.provider, shot.model_or_workflow) && audioMode === 'native') {
+            const auditPath = resolve(root, '.short-drama/audio-audits', `${match.key}@${match.selectedVersionId}.json`)
+            const audit = await exists(auditPath) ? await json(auditPath) : null
+            const selectedVersion = match.versions?.find((item) => item.id === match.selectedVersionId)
+            if (!audit?.approved || audit.sha256 !== selectedVersion?.sha256) missing.push(`${match.key} selected 版本缺少通过且哈希匹配的原生对白 ASR 审计`)
+          }
         }
       }
       const needsAudio = (plan.document.shots || []).some((shot) => {
         const mode = typeof shot.audio_strategy === 'string' ? shot.audio_strategy : shot.audio_strategy?.mode
-        return !/^MiniMax-H3(?:-Max)?$/.test(shot.model_or_workflow || '') || mode !== 'native'
+        return !isH3Model(shot.provider, shot.model_or_workflow) || mode !== 'native'
       })
       const audioPrefix = `audio-${episode.replace('-', '')}-`
       if (needsAudio) {

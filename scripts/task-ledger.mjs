@@ -8,12 +8,37 @@ import { withFileLock } from './file-lock.mjs'
 const ACTIVE = new Set(['submitting', 'queued', 'running'])
 const STATUSES = new Set([...ACTIVE, 'completed', 'failed', 'canceled'])
 const TYPES = new Set(['image', 'video', 'audio'])
-const MUTATING = new Set(['put', 'update'])
+const MUTATING = new Set(['put'])
+const NON_PROVENANCE_ARGUMENTS = new Set([
+  'provider', 'model', 'workflow_id', 'node_info_list', 'confirmed', 'prompt', 'prompt_profile', 'input_mode', 'prompt_version',
+  'frame_url', 'images', 'input_reference', 'reference_urls', 'reference_paths', 'reference_image_urls', 'reference_video_urls',
+  'reference_audio_urls', 'reference_image_paths', 'reference_video_paths', 'reference_audio_paths', 'reference_manifest', 'reference_only',
+  'input', 'lyrics', 'title', 'tags',
+])
 
 export function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical)
   if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
   return value
+}
+
+export function canonicalPromptDocument(value, tool) {
+  if (value === null || value === undefined) return null
+  const kind = value.kind || (tool === 'submit_video' ? 'video-prompts' : undefined)
+  return canonical({ ...value, ...(kind ? { kind } : {}) })
+}
+
+export function canonicalProvenanceParameters(request) {
+  return canonical(Object.fromEntries(Object.entries(request.arguments || {}).filter(([key, value]) => value !== undefined && !NON_PROVENANCE_ARGUMENTS.has(key))))
+}
+
+export function generationProvenance(task, request) {
+  return {
+    origin: 'generated', created_by: 'provider', provider: task.provider, model_or_workflow: request.modelOrWorkflow,
+    task_id: task.taskId, prompt_document: canonicalPromptDocument(request.promptDocument, request.tool),
+    source_assets: (request.arguments?.reference_manifest || []).map((item) => ({ key: item.asset_key, version_id: item.version_id })),
+    parameters: canonicalProvenanceParameters(request),
+  }
 }
 
 export function fingerprint(value) {
@@ -35,8 +60,9 @@ export function validateTaskOutput(task, request, asset, version, requireComplet
   if (!['generated', 'transformed'].includes(provenance?.origin) || provenance.created_by !== 'provider') throw new Error('任务完成版本必须是 Provider 生成或变换资产')
   if (task.target !== asset.key || task.type !== expectedType || task.provider !== provenance.provider || provenance.task_id !== task.taskId) throw new Error('任务与资产 provenance 身份不一致')
   if (request.target !== task.target || request.type !== task.type || request.provider !== task.provider || request.modelOrWorkflow !== provenance.model_or_workflow) throw new Error('请求、任务与资产模型不一致')
-  if (JSON.stringify(request.promptDocument || null) !== JSON.stringify(provenance.prompt_document || null)) throw new Error('请求与资产提示词文档不一致')
-  for (const [key, value] of Object.entries(provenance.parameters || {})) if (JSON.stringify(canonical(request.arguments?.[key])) !== JSON.stringify(canonical(value))) throw new Error(`资产 provenance 参数与请求不一致：${key}`)
+  if (JSON.stringify(canonicalPromptDocument(request.promptDocument, request.tool)) !== JSON.stringify(canonicalPromptDocument(provenance.prompt_document, request.tool))) throw new Error('请求与资产提示词文档不一致')
+  const expectedParameters = canonicalProvenanceParameters(request)
+  if (JSON.stringify(expectedParameters) !== JSON.stringify(canonical(provenance.parameters || {}))) throw new Error(`资产 provenance 参数与请求不一致：实际 ${JSON.stringify(provenance.parameters || {})}，期望 ${JSON.stringify(expectedParameters)}`)
   if (request.tool === 'submit_video' || request.tool === 'generate_image') {
     const expectedSources = (request.arguments.reference_manifest || []).map((item) => ({ key: item.asset_key, version_id: item.version_id }))
     if (JSON.stringify(expectedSources) !== JSON.stringify(provenance.source_assets)) throw new Error('媒体资产上游版本与请求参考清单不一致')
@@ -63,7 +89,7 @@ export async function createRequestSnapshot(rootArg, input) {
   const raw = JSON.stringify(input.arguments)
   if (Buffer.byteLength(raw) > 1024 * 1024) throw new Error('请求快照超过 1MB，请使用文件路径或资产版本引用代替内联媒体')
   const requestId = `req-${randomUUID()}`
-  const snapshot = { version: 1, requestId, tool: input.tool, target: input.target, type: input.type, provider: input.provider, modelOrWorkflow: input.modelOrWorkflow || null, promptDocument: input.promptDocument || null, arguments: canonical(input.arguments), inputFingerprint: fingerprint(input.arguments), createdAt: new Date().toISOString() }
+  const snapshot = { version: 1, requestId, tool: input.tool, target: input.target, type: input.type, provider: input.provider, modelOrWorkflow: input.modelOrWorkflow || null, promptDocument: canonicalPromptDocument(input.promptDocument, input.tool), arguments: canonical(input.arguments), inputFingerprint: fingerprint(input.arguments), createdAt: new Date().toISOString() }
   const target = resolve(paths(root).requests, `${requestId}.json`)
   await mkdir(dirname(target), { recursive: true })
   await writeFile(target, `${JSON.stringify(snapshot, null, 2)}\n`, { flag: 'wx' })
@@ -135,6 +161,37 @@ export async function settleReservedTask(rootArg, reservationId, { taskId = rese
   })
 }
 
+export async function getTask(rootArg, taskId) {
+  const task = (await readLedger(resolve(rootArg))).tasks[taskId]
+  if (!task) throw new Error(`任务不存在：${taskId}`)
+  return task
+}
+
+export async function updateTaskStatus(rootArg, taskId, status, outputVersionId) {
+  if (!STATUSES.has(status)) throw new Error(`未知任务状态：${status}`)
+  const root = resolve(rootArg)
+  return withFileLock(paths(root).ledger, async () => {
+    const ledger = await readLedger(root)
+    const current = ledger.tasks[taskId]
+    if (!current) throw new Error(`任务不存在：${taskId}`)
+    if (!ACTIVE.has(current.status) && current.status !== status) throw new Error(`终态任务不能改写：${taskId}`)
+    if (status === 'completed') {
+      if (outputVersionId) {
+        const assets = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
+        const asset = assets.assets?.[current.target]
+        const version = asset?.versions?.find((item) => item.id === outputVersionId)
+        if (!version) throw new Error(`本地资产版本不存在：${current.target}/${outputVersionId}`)
+        await access(projectPath(root, version.localPath))
+        const request = JSON.parse(await readFile(projectPath(root, current.requestPath), 'utf8'))
+        validateTaskOutput(current, request, asset, version)
+      } else await access(projectPath(root, current.outputPath))
+    }
+    ledger.tasks[taskId] = { ...current, status, ...(outputVersionId ? { outputVersionId } : {}), updatedAt: new Date().toISOString() }
+    await saveLedger(root, ledger)
+    return ledger.tasks[taskId]
+  })
+}
+
 async function main() {
   const [command, rootArg, ...args] = process.argv.slice(2)
   if (command === '--self-check') {
@@ -143,7 +200,7 @@ async function main() {
     const task = { taskId: 'task-1', target: 'audio-ep001-a', type: 'audio', provider: 'starrouter' }
     const request = { tool: 'generate_audio', target: task.target, type: task.type, provider: task.provider, modelOrWorkflow: 'speech-2.8-hd', promptDocument: null, arguments: { speed: 1 } }
     const asset = { key: task.target, type: 'audio' }
-    const version = { id: 'v001', provenance: { origin: 'generated', created_by: 'provider', provider: task.provider, model_or_workflow: 'speech-2.8-hd', task_id: task.taskId, prompt_document: null, source_assets: [], parameters: { speed: 1 } } }
+    const version = { id: 'v001', provenance: generationProvenance(task, request) }
     validateTaskOutput(task, request, asset, version)
     const imageTask = { taskId: 'task-image', target: 'char-a', type: 'image', provider: 'starrouter' }
     const imageRequest = { tool: 'generate_image', target: 'char-a', type: 'image', provider: 'starrouter', modelOrWorkflow: 'gpt-image-2', promptDocument: { kind: 'asset-plan', episode_key: 'ep-001', version_id: 'v001', asset_key: 'char-a' }, arguments: { reference_manifest: [{ type: 'image', order: 1, asset_key: 'char-source', version_id: 'v001', role: 'identity' }] } }
@@ -185,25 +242,7 @@ async function main() {
   if (command === 'update') {
     const [taskId, status, outputVersionId] = args
     if (!taskId || !STATUSES.has(status)) throw new Error('用法：update <项目目录> <taskId> <submitting|queued|running|completed|failed|canceled> [outputVersionId]')
-    const current = ledger.tasks[taskId]
-    if (!current) throw new Error(`任务不存在：${taskId}`)
-    if (!ACTIVE.has(current.status) && current.status !== status) throw new Error(`终态任务不能改写：${taskId}`)
-    if (status === 'completed') {
-      if (outputVersionId) {
-        const assets = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
-        const asset = assets.assets?.[current.target]
-        const version = asset?.versions?.find((item) => item.id === outputVersionId)
-        if (!version) throw new Error(`本地资产版本不存在：${current.target}/${outputVersionId}`)
-        await access(projectPath(root, version.localPath))
-        const request = JSON.parse(await readFile(projectPath(root, current.requestPath), 'utf8'))
-        validateTaskOutput(current, request, asset, version)
-      } else {
-        await access(projectPath(root, current.outputPath))
-      }
-    }
-    ledger.tasks[taskId] = { ...current, status, ...(outputVersionId ? { outputVersionId } : {}), updatedAt: new Date().toISOString() }
-    await saveLedger(root, ledger)
-    return console.log(JSON.stringify(ledger.tasks[taskId], null, 2))
+    return console.log(JSON.stringify(await updateTaskStatus(root, taskId, status, outputVersionId), null, 2))
   }
   throw new Error('用法：task-ledger.mjs snapshot|fingerprint|put|update|list ...')
   }

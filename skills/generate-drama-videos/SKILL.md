@@ -9,7 +9,9 @@ description: 通过用户选择的生成 Provider 提交并查询短剧视频镜
 
 H3 `audio_policy.mode=native` 时，声音随视频一次生成，不再提交外部 TTS；必须核对逐秒对白、音乐锚点和相邻镜声音转场。只有制作计划明确为 post-dub/independent 时才调用独立音频 Skill。
 
-整集所有无依赖镜头必须全量并发调用 `submit_video`，并对全部在途任务并发调用 `get_generation_task`（携带 `media_type: video`）；不设本地同类或总并发上限，由上游网关排队。对统一返回的每个 `outputs[]` 结果立即用 `asset-ledger.mjs fetch|decode` 下载到 `assets/videos/`，同时写入 Provider、模型、任务、`video-prompts@v001`、镜号、参考资产和参数 provenance，登记哈希并选版，再交给 `review-drama-shots`。单镜失败不阻塞无依赖镜头；权限、余额、审核、schema 或模型能力错误不自动重试、换模型或换 Provider。
+Ref2VA 遇到 `panel_grid_size > 1` 时禁止直接提交整张多格分镜。默认取第 1 格作为动作起点，用 `node scripts/media-tools.mjs extract-grid-cell <分镜图> <项目/assets/other/.../vNNN.png> <列数> <行数> 1 85` 裁掉底部批注区；若导演意图指定其他格则使用对应格号。随后用现有 `asset-ledger.mjs put/import/select` 登记为 `other-*` transformed 资产，`source_assets` 指回分镜选版，视频提示词只引用该单格版本。角色/场景等其他参考槽位超过 Provider 上限时，先用 `compose-grid` 合成一张参考板再登记，不得把分镜格和身份素材混成同一主体。
+
+整集所有无依赖镜头必须全量并发调用 `submit_video`，并对全部在途任务并发调用 `get_generation_task`（携带 `project_root` 与 `media_type: video`）；不设本地同类或总并发上限，由上游网关排队。查询到 completed 后 MCP 会自动下载并登记候选版本、回写 `outputVersionId`，但不会绕过验收自动选版。单镜失败不阻塞无依赖镜头；权限、余额、审核、schema 或模型能力错误不自动重试、换模型或换 Provider。
 
 RunningHub 内置 `minimax-h3-reference-to-video` 接受本地图片 0–9、视频 0–2、音频 0–2，适配器自动上传并注入专用 workflow；无需 `node_info_list`。Comfly `minimax-h3` 固定使用 Ref2VA，接受 1–3 张公开 HTTPS 参考图片或 1 段公开视频，二者互斥且不支持参考音频。两者都必须使用 H3 提示词合同。
 

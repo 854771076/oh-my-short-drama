@@ -102,7 +102,8 @@ async function main() {
   if (!process.argv.includes('--self-check')) throw new Error('仅支持 --self-check')
   const imageSchema = generationTools.find((tool) => tool.name === 'generate_image')?.inputSchema?.properties
   if (!imageSchema?.reference_paths || imageSchema.reference_image_paths || JSON.stringify(imageSchema.reference_manifest?.items?.required) !== JSON.stringify(['type', 'order', 'asset_key', 'version_id', 'role'])) throw new Error('图片生成 MCP Schema 与运行时参考素材合同不一致')
-  for (const script of ['asset-ledger.mjs', 'character-profiles.mjs', 'editing-store.mjs', 'export-edit-subtitles.mjs', 'file-lock.mjs', 'freeze-edit-candidate.mjs', 'media-tools.mjs', 'preflight.mjs', 'project-store.mjs', 'render-prompt.mjs', 'review-ledger.mjs', 'task-ledger.mjs', 'workflow-gates.mjs']) run(script, '--self-check')
+  for (const name of ['transcribe_audio', 'translate_audio']) if (!generationTools.find((tool) => tool.name === name)?.inputSchema?.properties?.file_path) throw new Error(`${name} MCP Schema 缺失`)
+  for (const script of ['asset-ledger.mjs', 'character-profiles.mjs', 'editing-store.mjs', 'export-edit-subtitles.mjs', 'file-lock.mjs', 'freeze-edit-candidate.mjs', 'media-tools.mjs', 'native-audio-audit.mjs', 'preflight.mjs', 'project-store.mjs', 'render-prompt.mjs', 'review-ledger.mjs', 'shot-fingerprint.mjs', 'task-ledger.mjs', 'task-sync.mjs', 'workflow-gates.mjs']) run(script, '--self-check')
   for (const check of [checkComfly, checkRunningHub, checkStarRouter, checkProviders, checkLitterbox]) check()
   await checkMultiEpisodeEvidence()
   const root = await mkdtemp(resolve(tmpdir(), 'short-drama-integration-'))
@@ -121,6 +122,8 @@ async function main() {
     if (Object.keys(JSON.parse(run('project-store.mjs', 'project', root)).providers.video.parameters).join() !== 'duration') throw new Error('模型参数更新未整体替换旧字段')
     const mediaHosts = await callGeneration('list_media_hosts')
     if (!mediaHosts.litterbox?.free || mediaHosts.litterbox?.permanent || mediaHosts.litterbox?.expiries?.join(',') !== '1h,12h,24h,72h') throw new Error('Litterbox MCP 能力目录无效')
+    try { await callGeneration('transcribe_audio', { provider: 'starrouter', model: 'whisper-1', file_path: '/etc/hosts', project_root: root, confirmed: true }); throw new Error('项目外 ASR 文件未被拒绝') }
+    catch (error) { if (!String(error.message).includes('assets/ 内文件')) throw error }
     const environment = JSON.parse(await readFile(resolve(root, '.short-drama/environment.json'), 'utf8'))
     if (!environment.ok || !(await readFile(resolve(root, '.short-drama/RESUME.md'), 'utf8')).includes('skill-runs.mjs required')) throw new Error('环境预检或跨会话恢复入口初始化失败')
     const promptTemplate = resolve(plugin, 'skills/generate-character-images/assets/prompts/character_asset_sheet.zh.txt')
@@ -338,7 +341,6 @@ async function main() {
       await writeFile(resolve(root, `${key}.mp4`), `fixture-${shotNumber}`)
       const videoProvenance = await json(root, `${key}-provenance.json`, { origin: 'generated', created_by: 'provider', provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', task_id: taskId, prompt_document: promptDocument, source_assets: [{ key: 'char-a', version_id: 'v001' }], parameters: { duration: 5 } })
       run('asset-ledger.mjs', 'import', root, key, resolve(root, `${key}.mp4`), 'v001', '-', videoProvenance)
-      run('asset-ledger.mjs', 'select', root, key, 'v001')
       run('task-ledger.mjs', 'update', root, taskId, 'completed', 'v001')
     }
     run('asset-ledger.mjs', 'put', root, await json(root, 'audio.json', { key: 'audio-ep001-a', type: 'audio', name: 'A 配音' }))
@@ -351,6 +353,8 @@ async function main() {
     for (const shotNumber of [1, 2]) {
       const shotReview = { assetKey: `shot-ep001-${String(shotNumber).padStart(3, '0')}`, versionId: 'v001', visual: 'passed', audio: 'not-applicable', transition: 'passed', captions: 'not-applicable', issues: [], criteria: [{ criterion: 'visual', status: 'passed', observation: '主体与动作符合计划' }] }
       run('review-ledger.mjs', 'put', root, await json(root, `shot-review-${shotNumber}.json`, shotReview))
+      const selectedAfterReview = JSON.parse(run('asset-ledger.mjs', 'list', root, shotReview.assetKey)).selectedVersionId
+      if (selectedAfterReview !== shotReview.versionId) throw new Error('候选验收通过后未自动选版')
     }
     const mediaEvidence = run('snapshot-stage-evidence.mjs', root, 'media-production').trim()
     await recordSkills(root, 'media-production', mediaEvidence)
@@ -410,6 +414,11 @@ async function main() {
     const changedInput = spawnSync(process.execPath, [resolve(plugin, 'scripts/workflow.mjs'), 'complete', root], { encoding: 'utf8' })
     if (changedInput.status === 0 || !changedInput.stderr.includes('交付输入 timeline 已变化')) throw new Error('交付输入篡改未被拒绝')
     await writeFile(resolve(root, 'editing/ep-001/timeline.json'), storedTimeline)
+    const promptsV2 = { ...videoPrompts, shots: videoPrompts.shots.map((shot) => shot.shot_number === 2 ? { ...shot, prompt: `${shot.prompt}\n镜尾停住。`, production_plan_version: 'v001', storyboard_version: 'v001' } : { ...shot, production_plan_version: 'v001', storyboard_version: 'v001' }) }
+    run('project-store.mjs', 'put-episode-document', root, 'video-prompts', 'ep-001', 'v002', await json(root, 'video-prompts-v002.json', promptsV2))
+    run('project-store.mjs', 'select-episode-document', root, 'video-prompts', 'ep-001', 'v002')
+    const shotAssetsAfterPromptChange = JSON.parse(run('asset-ledger.mjs', 'list', root)).assets
+    if (shotAssetsAfterPromptChange['shot-ep001-001'].selectedVersionId !== 'v001' || shotAssetsAfterPromptChange['shot-ep001-002'].selectedVersionId !== null || JSON.parse(run('workflow.mjs', 'status', root)).stage !== 'delivery') throw new Error('按镜头失效错误影响了未修改镜头或全局阶段')
     const changedStyle = { ...currentStyle, id: 'custom-test', name: '测试新画风', prompt: `${currentStyle.prompt} New style.` }
     run('project-store.mjs', 'update-project', root, await json(root, 'style-update.json', { creative: { art_style: changedStyle } }))
     if (JSON.parse(run('workflow.mjs', 'status', root)).stage !== 'asset-analysis') throw new Error('画风变更后未回退资产分析阶段')

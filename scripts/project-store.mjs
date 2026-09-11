@@ -8,7 +8,9 @@ import { fileURLToPath } from 'node:url'
 import { stages } from './workflow-stages.mjs'
 import { withFileLock } from './file-lock.mjs'
 import { runPreflight } from './preflight.mjs'
-import { invalidateFrom } from './invalidate-workflow.mjs'
+import { invalidateFrom, invalidateShot } from './invalidate-workflow.mjs'
+import { invalidateShotAssets } from './asset-ledger.mjs'
+import { changedShotNumbers } from './shot-fingerprint.mjs'
 import { DEFAULT_WORKSPACE_ROOT, openStudio } from './studio.mjs'
 import { normalizeModelParameters, providerSetupCatalog } from './generation/providers.mjs'
 
@@ -750,8 +752,15 @@ async function main() {
     validateEpisodeKey(episodeKey); versionKey(versionId, `${kind} version`)
     const document = await readJson(resolve(episodeRoot(episodeKey), kind, `${versionId}.json`))
     await validateEpisodeDocument(kind, episodeKey, document)
-    const invalidationStage = { 'script-review': 'script', 'director-book': 'director-book', 'asset-plan': 'asset-analysis', storyboard: 'production-plan', 'production-plan': 'production-plan', 'video-prompts': 'production-plan', 'audio-plan': 'media-production' }[kind]
-    await invalidateFrom(root, invalidationStage)
+    const invalidationStage = { 'script-review': 'script', 'director-book': 'director-book', 'asset-plan': 'asset-analysis', storyboard: 'production-plan', 'production-plan': 'production-plan', 'video-prompts': 'media-production', 'audio-plan': 'media-production' }[kind]
+    const marker = resolve(episodeRoot(episodeKey), kind, 'selected.json')
+    if (['storyboard', 'production-plan', 'video-prompts'].includes(kind) && await exists(marker)) {
+      const previousSelection = await readJson(marker)
+      const previous = await readJson(resolve(root, previousSelection.path))
+      const changed = changedShotNumbers(kind, previous, document)
+      for (const shotNumber of changed) await invalidateShot(root, episodeKey, shotNumber, invalidationStage)
+      if (changed.length) await invalidateShotAssets(root, episodeKey, changed, kind)
+    } else await invalidateFrom(root, invalidationStage)
     const selected = { versionId, path: `episodes/${episodeKey}/${kind}/${versionId}.json`, selectedAt: new Date().toISOString() }
     await writeJson(resolve(episodeRoot(episodeKey), kind, 'selected.json'), selected)
     return console.log(JSON.stringify(selected, null, 2))

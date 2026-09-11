@@ -17,7 +17,7 @@ description: 统一路由短剧图片、视频和音频生成 Provider。用于�
 
 生成 MCP 在上述文档校验前先检查本地状态机，并复查全部已完成上游阶段的产物、选版、Skill 凭证和哈希。`generate_image` 的人物/场景/道具目标仅允许 `asset-generation`，分镜图仅允许 `media-production`；`submit_video`、`generate_audio`、`generate_music` 仅允许 `media-production`。门禁失败时不得创建请求快照、任务记录或访问 Provider。视频提示词必须先通过与 `project-store.mjs` 相同的完整合同校验，不把缺字段暴露为运行时 TypeError。
 
-- StarRouter：图片可直接生成或用本地 `reference_paths` 编辑；Seedance 和 MiniMax H3/H3-Max 视频提交后用 `get_generation_task` 查询；MiniMax 语音通过同步 `/v1/audio/speech` 生成；`suno_music` 异步生成 OP、ED、BGM 或音乐短视频配乐。
+- StarRouter：图片可直接生成或用本地 `reference_paths` 编辑；Seedance 和 MiniMax H3/H3-Max 视频提交后用 `get_generation_task` 查询；语音通过同步 `/v1/audio/speech` 生成；`transcribe_audio`/`translate_audio` 通过 multipart `/v1/audio/transcriptions`/`translations` 处理项目内音频；`suno_music` 异步生成 OP、ED、BGM 或音乐短视频配乐。
 - RunningHub：通用图片/视频/音频使用工作流 ID 和 `node_info_list`；内置 `krea2-normal-v1` 图片与 `minimax-h3-reference-to-video` 视频不需要节点配置。
 - Comfly：当前只接入 `minimax-h3` 的 Ref2VA 视频；固定 `input_mode=Ref2VA`，支持 1–3 张公开 HTTPS 参考图片或 1 段公开视频，二者互斥，不支持参考音频。工作流按素材数与尺寸确定，不能让用户直接填写内部编号。
 - 临时公开 URL：目标 Provider 不支持本地上传时路由 `publish-drama-references`。Litterbox 免费匿名但公开、短期且受使用条款约束，必须单独确认，不能自动上传或充当最终资产库。
@@ -33,7 +33,8 @@ Provider 错误不触发静默切换；更换 Provider、模型、工作流或�
 
 - 图片：`model=gpt-image-2`；`resolution ∈ {1K,2K,4K}`；`aspect_ratio ∈ {1:1,16:9,9:16,4:3,3:4}`；`quality ∈ {auto,low,medium,high}`；`background ∈ {auto,opaque,transparent}`；`moderation ∈ {auto,low}`；`output_format ∈ {png,jpeg,webp}`；`n=1..4`。
 - 视频：Seedance 模型枚举见 `configure-generation-providers`；`prompt_profile ∈ {seedance2,h3,generic}`。Seedance 2.0 使用 `input_mode ∈ {first-last-frame,full-reference}`、`duration=4..15`、`resolution ∈ {480p,720p,1080p}`、`ratio ∈ {16:9,9:16,1:1,4:3,3:4}`。MiniMax `model ∈ {MiniMax-H3,MiniMax-H3-Max}`、`input_mode ∈ {T2VA,I2VA,FL2VA,L2VA,Ref2VA}`、`size ∈ {480P,768P,2K}`、`ratio ∈ {21:9,16:9,4:3,1:1,3:4,9:16}`；H3 仅支持 `768P/2K` 和 4–15 秒，H3-Max 仅支持 `480P/768P` 和 5–15 秒且不支持 Ref2VA。首尾帧与参考素材不能混用。
-- 语音：`model ∈ {speech-2.8-hd,speech-2.8-turbo}`；`speed=0.5..2`；`response_format ∈ {mp3,pcm,flac}`；`metadata.output_format ∈ {hex,url}`；当前 `metadata.stream=false`。完整嵌套枚举见 `design-drama-audio`。
+- 语音：`model ∈ {speech-2.8-hd,speech-2.8-turbo,qwen3-tts-vc-realtime-2025-11-27,qwen3-tts-vc-realtime,pawsense-audio,tts-1}`；`speed=0.5..2`；`response_format ∈ {mp3,pcm,flac}`。MiniMax 模型继续校验其嵌套 metadata；通用 OpenAI 兼容模型透传 `instructions` 和 metadata。当前 MCP 只返回完整音频文件，不开放 `stream_format=sse`。
+- 转写/翻译：StarRouter `model ∈ {qwen3-asr-flash,whisper-1}`，项目内音频通过 multipart 上传；`response_format ∈ {json,text,srt,verbose_json,vtt}`，可选 `language`、`prompt`、`temperature=0..1`。
 - 音乐：`model=suno_music`；`purpose ∈ {op,ed,bgm,music-video}`；可传标题、风格标签和歌词，`make_instrumental=true` 时歌词必须为空。
 
 枚举是适配器允许提交的边界；具体模型是否支持某个组合仍以 `list_models` 返回和实测为准。任何自定义模型必须先补能力合同与一次真实调用记录，不能仅加入环境变量列表。

@@ -15,6 +15,7 @@ import { validateVideoReferenceBindings } from '../reference-bindings.mjs'
 import { inspectStage, missingStoryboardAssets, missingStoryboardReviews } from '../workflow-gates.mjs'
 import { stages } from '../workflow-stages.mjs'
 import { validateProject, validateVideoPrompts } from '../project-store.mjs'
+import { syncTaskResult } from '../task-sync.mjs'
 
 checkStarRouter()
 checkRunningHub()
@@ -33,7 +34,7 @@ const audioMetadata = {
     language_boost: { type: 'string', minLength: 1 },
     voice_modify: { type: 'object' }, subtitle_enable: { type: 'boolean' }, aigc_watermark: { type: 'boolean' }, output_format: { type: 'string', enum: ['hex', 'url'] }, stream: { const: false }, stream_options: { type: 'object' },
   },
-  additionalProperties: false,
+  additionalProperties: true,
 }
 const workflow = {
   workflow_id: { type: 'string' },
@@ -68,6 +69,9 @@ const projectTracking = {
   target: { type: 'string', description: '本次生成对应的本地资产 key。' },
   prompt_document: { type: ['object', 'null'], description: '制作文档版本引用：视频镜号、audio-plan 行、storyboard 镜号或 asset-plan 资产；仅 other 辅助资产可为 null。' },
 }
+const asrInput = {
+  provider: { const: 'starrouter' }, model: { type: 'string' }, file_path: { type: 'string' }, response_format: { type: 'string', enum: ['json', 'text', 'srt', 'verbose_json', 'vtt'] }, language: { type: 'string' }, prompt: { type: 'string' }, temperature: { type: 'number', minimum: 0, maximum: 1 }, project_root: { type: 'string' }, confirmed: { const: true },
+}
 export const tools = [
   ['list_generation_providers', '列出已注册生成 Provider 与模态能力。', {}, []],
   ['list_media_hosts', '列出把本地参考素材临时转换为公网 URL 的托管服务与时效。', {}, []],
@@ -82,15 +86,17 @@ export const tools = [
     provider, model: { type: 'string' }, prompt: { type: 'string' }, size: { type: 'string' }, resolution: imageResolution, aspect_ratio: imageAspectRatio, seed: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1, maximum: 4 }, quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'] }, style: { type: 'string' }, background: { type: 'string', enum: ['auto', 'opaque', 'transparent'] }, moderation: { type: 'string', enum: ['auto', 'low'] }, output_format: { type: 'string', enum: ['png', 'jpeg', 'webp'] }, output_compression: { type: 'integer', minimum: 1 }, partial_images: { type: 'integer', minimum: 1 }, user: { type: 'string' }, reference_manifest: { type: 'array', maxItems: 9, items: referenceManifestItem }, confirmed: { const: true }, ...imageWorkflow, ...projectTracking,
   }, ['provider', 'prompt', 'reference_manifest', 'confirmed', 'project_root', 'target', 'prompt_document']],
   ['generate_audio', '使用用户选择的 Provider 生成语音或提交音频工作流。StarRouter 使用 model/input/voice，RunningHub 使用 prompt/workflow。', {
-    provider, model: { type: 'string' }, input: { type: 'string' }, voice: { type: 'string' }, speed: { type: 'number', minimum: 0.5, maximum: 2 }, response_format: { type: 'string', enum: ['mp3', 'pcm', 'flac'] }, metadata: audioMetadata, prompt: { type: 'string' }, confirmed: { const: true }, ...workflow, ...projectTracking,
+    provider, model: { type: 'string' }, input: { type: 'string' }, voice: { type: 'string' }, instructions: { type: 'string' }, speed: { type: 'number', minimum: 0.5, maximum: 2 }, response_format: { type: 'string', enum: ['mp3', 'pcm', 'flac'] }, metadata: audioMetadata, prompt: { type: 'string' }, confirmed: { const: true }, ...workflow, ...projectTracking,
   }, ['provider', 'confirmed', 'project_root', 'target', 'prompt_document']],
+  ['transcribe_audio', '使用 StarRouter 对项目内音频执行语音转写。', asrInput, ['provider', 'model', 'file_path', 'project_root', 'confirmed']],
+  ['translate_audio', '使用 StarRouter 对项目内音频执行语音翻译。', asrInput, ['provider', 'model', 'file_path', 'project_root', 'confirmed']],
   ['generate_music', '使用 StarRouter 异步生成 OP、ED、BGM 或音乐短视频配乐。', {
     provider, model: { type: 'string' }, prompt: { type: 'string' }, title: { type: 'string' }, tags: { type: 'string' }, lyrics: { type: 'string' }, make_instrumental: { type: 'boolean' }, confirmed: { const: true }, ...projectTracking,
   }, ['provider', 'model', 'prompt', 'confirmed', 'project_root', 'target', 'prompt_document']],
   ['submit_video', '使用用户选择的 Provider 提交异步视频任务。', {
     provider, model: { type: 'string' }, prompt_profile: { type: 'string', enum: ['seedance2', 'h3', 'generic'] }, input_mode: { type: 'string', enum: ['first-last-frame', 'full-reference', 'T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA', 'generic'] }, prompt_version: { type: 'string' }, prompt: { type: 'string' }, frame_url: { type: 'string' }, images: { type: 'array', maxItems: 9, items: { type: 'string' } }, input_reference: { type: 'string' }, reference_urls: { type: 'array', items: { type: 'string' } }, reference_image_urls: { type: 'array', maxItems: 9, items: { type: 'string' } }, reference_video_urls: { type: 'array', maxItems: 3, items: { type: 'string' } }, reference_audio_urls: { type: 'array', maxItems: 3, items: { type: 'string' } }, reference_manifest: { type: 'array', maxItems: 12, items: referenceManifestItem }, reference_only: { type: 'boolean' }, duration: { type: 'integer', minimum: 1, maximum: 15 }, size: { type: 'string', enum: ['480P', '768P', '2K'] }, resolution: { type: 'string', enum: ['480p', '720p', '1080p', '480P', '768P', '1K', '2K'] }, ratio: { type: 'string', enum: ['21:9', '16:9', '9:16', '1:1', '4:3', '3:4'] }, generate_audio: { type: 'boolean' }, watermark: { type: 'boolean' }, seed: { type: 'integer', minimum: 1 }, fps: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1 }, response_format: { type: 'string' }, user: { type: 'string' }, metadata: { type: 'object' }, extra_options: { type: 'object' }, confirmed: { const: true }, ...workflow, ...projectTracking,
   }, ['provider', 'prompt_profile', 'input_mode', 'prompt_version', 'prompt', 'confirmed', 'project_root', 'target', 'prompt_document']],
-  ['get_generation_task', '查询指定 Provider 的异步任务并归一化状态和输出列表。', { provider, task_id: { type: 'string' }, media_type: mediaType }, ['provider', 'task_id', 'media_type']],
+  ['get_generation_task', '查询指定 Provider 的异步任务；完成时自动下载为本地候选版本并回写任务账本。', { provider, task_id: { type: 'string' }, media_type: mediaType, project_root: { type: 'string' } }, ['provider', 'task_id', 'media_type', 'project_root']],
 ].map(([name, description, properties, required]) => ({
   name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false },
 }))
@@ -172,6 +178,8 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
     if (shot[field] !== actual) throw new Error(`实际视频参数与提示词文档 ${field} 不一致`)
   }
   const manifest = Array.isArray(args.reference_manifest) ? args.reference_manifest : []
+  const planShot = plan.shots?.find((item) => item.shot_number === promptDocument.shot_number)
+  if (args.input_mode === 'Ref2VA' && planShot?.image_strategy?.panel_grid_size > 1 && manifest.some((item) => item.asset_key?.startsWith('board-'))) throw new Error('Ref2VA 不得直接使用多格分镜板；请先用 media-tools extract-grid-cell 生成无批注单格参考并登记为 derived 资产')
   if (manifest.length !== shot.references.length) throw new Error('实际参考素材与提示词文档数量不一致')
   for (const [index, reference] of shot.references.entries()) {
     const actual = manifest[index]
@@ -194,9 +202,21 @@ export async function call(name, args = {}) {
     return publishReferenceImage(projectRoot, input)
   }
   const selected = adapter(args.provider)
-  const actions = { list_models: 'models', generate_image: 'image', generate_audio: 'audio', generate_music: 'music', submit_video: 'submitVideo', get_generation_task: 'task' }
+  const actions = { list_models: 'models', generate_image: 'image', generate_audio: 'audio', generate_music: 'music', transcribe_audio: 'transcribe', translate_audio: 'translate', submit_video: 'submitVideo', get_generation_task: 'task' }
   const action = actions[name]
   if (!action) throw new Error(`未知工具：${name}`)
+  if (name === 'get_generation_task') {
+    const { project_root: projectRoot, ...providerArgs } = args
+    return syncTaskResult(projectRoot, args.task_id, await selected[action](providerArgs))
+  }
+  if (['transcribe_audio', 'translate_audio'].includes(name)) {
+    if (args.provider !== 'starrouter') throw new Error(`${name} 当前仅支持 StarRouter`)
+    const [root, file] = await Promise.all([realpath(resolve(args.project_root)), realpath(resolve(args.file_path))])
+    const assetRoot = await realpath(resolve(root, 'assets'))
+    if (file !== assetRoot && !file.startsWith(`${assetRoot}${sep}`)) throw new Error('ASR 只能读取当前项目 assets/ 内文件')
+    const { project_root, file_path, ...providerArgs } = args
+    return selected[action]({ ...providerArgs, file_path: file })
+  }
   if (!['generate_image', 'generate_audio', 'generate_music', 'submit_video'].includes(name)) return selected[action](args)
   if (typeof selected[action] !== 'function') throw new Error(`${args.provider} 不支持 ${name}`)
   const { project_root: projectRoot, target, prompt_document: promptDocument, ...rawProviderArgs } = args
@@ -223,7 +243,8 @@ export async function call(name, args = {}) {
   }
   const taskId = result.task_id || snapshot.requestId
   await settleReservedTask(projectRoot, snapshot.requestId, { taskId, status: result.status === 'submitted' ? 'queued' : 'running' })
-  return { ...result, task_id: taskId, request_id: snapshot.requestId, request_path: snapshot.requestPath, request_sha256: snapshot.requestSha256 }
+  const tracked = { ...result, task_id: taskId, request_id: snapshot.requestId, request_path: snapshot.requestPath, request_sha256: snapshot.requestSha256 }
+  return result.status === 'completed' ? syncTaskResult(projectRoot, taskId, tracked) : tracked
 }
 
 function serve() {

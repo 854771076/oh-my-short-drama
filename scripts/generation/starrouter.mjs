@@ -11,7 +11,8 @@ function configuredModels(name, defaults) {
 }
 
 const IMAGE_MODELS = configuredModels('STARROUTER_IMAGE_MODELS', ['gpt-image-2'])
-const AUDIO_MODELS = configuredModels('STARROUTER_AUDIO_MODELS', ['speech-2.8-hd', 'speech-2.8-turbo'])
+const AUDIO_MODELS = configuredModels('STARROUTER_AUDIO_MODELS', ['speech-2.8-hd', 'speech-2.8-turbo', 'qwen3-tts-vc-realtime-2025-11-27', 'qwen3-tts-vc-realtime', 'pawsense-audio', 'tts-1'])
+const ASR_MODELS = configuredModels('STARROUTER_ASR_MODELS', ['qwen3-asr-flash', 'whisper-1'])
 const MUSIC_MODELS = configuredModels('STARROUTER_MUSIC_MODELS', ['suno_music'])
 const VIDEO_MODELS = configuredModels('STARROUTER_VIDEO_MODELS', [
   'MiniMax-H3',
@@ -39,6 +40,9 @@ const H3_MODELS = new Set(VIDEO_MODELS.filter((model) => /^MiniMax-H3(?:-Max)?$/
 const IMAGE_MIME_TYPES = { '.gif': 'image/gif', '.jpeg': 'image/jpeg', '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' }
 const AUDIO_FORMATS = new Set(['mp3', 'pcm', 'flac'])
 const AUDIO_MIME_TYPES = { mp3: 'audio/mpeg', pcm: 'audio/L16', flac: 'audio/flac' }
+const ASR_FORMATS = new Set(['json', 'text', 'srt', 'verbose_json', 'vtt'])
+const ASR_EXTENSIONS = new Set(['.flac', '.m4a', '.mp3', '.mp4', '.mpeg', '.mpga', '.ogg', '.wav', '.webm'])
+const MAX_ASR_BYTES = Number(process.env.SHORT_DRAMA_MAX_ASR_BYTES || 64 * 1024 * 1024)
 const AUDIO_METADATA_FIELDS = new Set(['voice_setting', 'audio_setting', 'pronunciation_dict', 'timbre_weights', 'language_boost', 'voice_modify', 'subtitle_enable', 'aigc_watermark', 'output_format', 'stream', 'stream_options'])
 const AUDIO_SAMPLE_RATES = new Set([8000, 16000, 22050, 24000, 32000, 44100])
 const AUDIO_BITRATES = new Set([32000, 64000, 128000, 256000])
@@ -85,6 +89,14 @@ async function binaryRequest(path, init = {}) {
   })
   if (!response.ok) await json(response)
   return response
+}
+
+async function asrRequest(path, form, responseFormat) {
+  const response = await fetch(`${ROOT_BASE}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${key()}` }, body: form, signal: AbortSignal.timeout(300_000) })
+  if (['json', 'verbose_json'].includes(responseFormat)) return json(response)
+  const text = await response.text()
+  if (!response.ok) throw new Error(`STARROUTER_REQUEST_FAILED(${response.status}): ${text.slice(0, 500)}`)
+  return { text }
 }
 
 function assertHttps(value, field) {
@@ -303,26 +315,28 @@ function audioPayload(input) {
   if (!AUDIO_FORMATS.has(responseFormat)) throw new Error('response_format 仅支持 mp3、pcm、flac')
   const metadata = input.metadata ?? {}
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw new Error('metadata 必须是对象')
-  const unknown = Object.keys(metadata).filter((field) => !AUDIO_METADATA_FIELDS.has(field))
-  if (unknown.length) throw new Error(`metadata 包含未支持字段：${unknown.join(', ')}`)
-  if (metadata.output_format !== undefined && !['hex', 'url'].includes(metadata.output_format)) throw new Error('metadata.output_format 仅支持 hex 或 url')
-  if (metadata.stream === true) throw new Error('StarRouter 同步语音不支持 stream=true')
-  for (const field of ['voice_setting', 'audio_setting', 'pronunciation_dict', 'voice_modify', 'stream_options']) {
-    if (metadata[field] !== undefined && (!metadata[field] || typeof metadata[field] !== 'object' || Array.isArray(metadata[field]))) throw new Error(`metadata.${field} 必须是对象`)
+  if (input.instructions !== undefined && typeof input.instructions !== 'string') throw new Error('instructions 必须是字符串')
+  if (input.stream_format !== undefined) throw new Error('当前 MCP 仅支持同步语音文件，暂不支持 stream_format')
+  if (input.model.startsWith('speech-2.8')) {
+    const unknown = Object.keys(metadata).filter((field) => !AUDIO_METADATA_FIELDS.has(field))
+    if (unknown.length) throw new Error(`metadata 包含未支持字段：${unknown.join(', ')}`)
+    if (metadata.output_format !== undefined && !['hex', 'url'].includes(metadata.output_format)) throw new Error('metadata.output_format 仅支持 hex 或 url')
+    if (metadata.stream === true) throw new Error('StarRouter 同步语音不支持 stream=true')
+    for (const field of ['voice_setting', 'audio_setting', 'pronunciation_dict', 'voice_modify', 'stream_options']) if (metadata[field] !== undefined && (!metadata[field] || typeof metadata[field] !== 'object' || Array.isArray(metadata[field]))) throw new Error(`metadata.${field} 必须是对象`)
+    if (metadata.timbre_weights !== undefined && !Array.isArray(metadata.timbre_weights)) throw new Error('metadata.timbre_weights 必须是数组')
+    const voiceSetting = metadata.voice_setting || {}
+    range(voiceSetting.speed, 0.5, 2, 'metadata.voice_setting.speed')
+    if (voiceSetting.vol !== undefined && (typeof voiceSetting.vol !== 'number' || voiceSetting.vol <= 0 || voiceSetting.vol > 10)) throw new Error('metadata.voice_setting.vol 必须为 (0,10]')
+    range(voiceSetting.pitch, -12, 12, 'metadata.voice_setting.pitch')
+    if (voiceSetting.emotion !== undefined && (typeof voiceSetting.emotion !== 'string' || !voiceSetting.emotion.trim())) throw new Error('metadata.voice_setting.emotion 必须是非空字符串')
+    const audioSetting = metadata.audio_setting || {}
+    enumValue(audioSetting.sample_rate, AUDIO_SAMPLE_RATES, 'metadata.audio_setting.sample_rate')
+    enumValue(audioSetting.bitrate, AUDIO_BITRATES, 'metadata.audio_setting.bitrate')
+    enumValue(audioSetting.format, AUDIO_FORMATS, 'metadata.audio_setting.format')
+    enumValue(audioSetting.channel, new Set([1, 2]), 'metadata.audio_setting.channel')
+    if (metadata.language_boost !== undefined && (typeof metadata.language_boost !== 'string' || !metadata.language_boost.trim())) throw new Error('metadata.language_boost 必须是语言名称或 auto')
   }
-  if (metadata.timbre_weights !== undefined && !Array.isArray(metadata.timbre_weights)) throw new Error('metadata.timbre_weights 必须是数组')
-  const voiceSetting = metadata.voice_setting || {}
-  range(voiceSetting.speed, 0.5, 2, 'metadata.voice_setting.speed')
-  if (voiceSetting.vol !== undefined && (typeof voiceSetting.vol !== 'number' || voiceSetting.vol <= 0 || voiceSetting.vol > 10)) throw new Error('metadata.voice_setting.vol 必须为 (0,10]')
-  range(voiceSetting.pitch, -12, 12, 'metadata.voice_setting.pitch')
-  if (voiceSetting.emotion !== undefined && (typeof voiceSetting.emotion !== 'string' || !voiceSetting.emotion.trim())) throw new Error('metadata.voice_setting.emotion 必须是非空字符串')
-  const audioSetting = metadata.audio_setting || {}
-  enumValue(audioSetting.sample_rate, AUDIO_SAMPLE_RATES, 'metadata.audio_setting.sample_rate')
-  enumValue(audioSetting.bitrate, AUDIO_BITRATES, 'metadata.audio_setting.bitrate')
-  enumValue(audioSetting.format, AUDIO_FORMATS, 'metadata.audio_setting.format')
-  enumValue(audioSetting.channel, new Set([1, 2]), 'metadata.audio_setting.channel')
-  if (metadata.language_boost !== undefined && (typeof metadata.language_boost !== 'string' || !metadata.language_boost.trim())) throw new Error('metadata.language_boost 必须是语言名称或 auto')
-  return { model: input.model, input: text, voice: input.voice, response_format: responseFormat, ...(input.speed === undefined ? {} : { speed: input.speed }), ...(Object.keys(metadata).length ? { metadata } : {}) }
+  return { model: input.model, input: text, voice: input.voice, response_format: responseFormat, ...(input.speed === undefined ? {} : { speed: input.speed }), ...(input.instructions === undefined ? {} : { instructions: input.instructions }), ...(Object.keys(metadata).length ? { metadata } : {}) }
 }
 
 function audioResult(bytes, contentType, format) {
@@ -330,6 +344,27 @@ function audioResult(bytes, contentType, format) {
   const reported = contentType?.split(';')[0]?.trim()
   const mime = reported?.startsWith('audio/') ? reported : AUDIO_MIME_TYPES[format]
   return { provider: 'starrouter', task_id: `starrouter-sync-${randomUUID()}`, status: 'completed', outputs: [{ b64_json: `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`, media_type: 'audio', content_type: mime, format }] }
+}
+
+function asrOptions(input) {
+  if (!ASR_MODELS.includes(input.model)) throw new Error(`未注册的语音识别模型：${input.model}`)
+  const responseFormat = input.response_format || 'json'
+  enumValue(responseFormat, ASR_FORMATS, 'response_format')
+  if (input.language !== undefined && (typeof input.language !== 'string' || !input.language.trim())) throw new Error('language 必须是非空字符串')
+  if (input.prompt !== undefined && typeof input.prompt !== 'string') throw new Error('prompt 必须是字符串')
+  range(input.temperature, 0, 1, 'temperature')
+  return { model: input.model, response_format: responseFormat, language: input.language, prompt: input.prompt, temperature: input.temperature }
+}
+
+async function asrForm(input) {
+  const options = asrOptions(input)
+  const extension = extname(input.file_path || '').toLowerCase()
+  const file = await stat(input.file_path || '').catch(() => null)
+  if (!file?.isFile() || file.size <= 0 || file.size > MAX_ASR_BYTES || !ASR_EXTENSIONS.has(extension)) throw new Error('ASR 文件不存在、格式不支持或超过大小限制')
+  const form = new FormData()
+  for (const [name, value] of Object.entries(options)) if (value !== undefined) form.append(name, String(value))
+  form.append('file', new Blob([await readFile(input.file_path)], { type: 'application/octet-stream' }), basename(input.file_path))
+  return { form, responseFormat: options.response_format }
 }
 
 function musicPayload(input) {
@@ -366,8 +401,8 @@ function findMusicUrls(value, found = []) {
 
 export const starrouter = {
   label: 'StarRouter', credentialEnv: 'STARROUTER_API_KEY',
-  catalog: { image: IMAGE_MODELS, video: VIDEO_MODELS, audio: AUDIO_MODELS, music: MUSIC_MODELS },
-  capabilities: { text: false, image: true, video: true, audio: true, music: true },
+  catalog: { image: IMAGE_MODELS, video: VIDEO_MODELS, audio: AUDIO_MODELS, music: MUSIC_MODELS, asr: ASR_MODELS },
+  capabilities: { text: false, image: true, video: true, audio: true, music: true, transcription: true, translation: true },
   async models() {
     const data = await request('/v1/models', { timeout: 20_000 })
     return { catalog: starrouter.catalog, remote: data.data || [] }
@@ -408,6 +443,18 @@ export const starrouter = {
       body: JSON.stringify(payload),
     })
     return audioResult(new Uint8Array(await response.arrayBuffer()), response.headers.get('content-type'), payload.response_format)
+  },
+
+  async transcribe(input) {
+    confirm(input)
+    const { form, responseFormat } = await asrForm(input)
+    return { provider: 'starrouter', model: input.model, ...(await asrRequest('/v1/audio/transcriptions', form, responseFormat)) }
+  },
+
+  async translate(input) {
+    confirm(input)
+    const { form, responseFormat } = await asrForm(input)
+    return { provider: 'starrouter', model: input.model, ...(await asrRequest('/v1/audio/translations', form, responseFormat)) }
   },
 
   async music(input) {
@@ -509,6 +556,9 @@ export function selfCheck() {
   if (audio.input !== '你好' || audioResult(Buffer.from('audio'), 'audio/mpeg', 'mp3').outputs[0].media_type !== 'audio') throw new Error('语音请求或结果归一化失败')
   audioPayload({ model: 'speech-2.8-hd', input: '你好', voice: 'voice-id', metadata: { voice_setting: { emotion: 'future-emotion' }, language_boost: 'Future-Language' } })
   try { audioPayload({ model: 'speech-2.8-hd', input: '你好', voice: 'male-qn-qingse', metadata: { stream: true } }); throw new Error('语音流式校验失败') } catch (error) { if (!String(error.message).includes('stream=true')) throw error }
+  if (asrOptions({ model: 'whisper-1', response_format: 'verbose_json', temperature: 0 }).response_format !== 'verbose_json') throw new Error('语音识别参数自检失败')
+  const openAiAudio = audioPayload({ model: 'tts-1', input: '你好', voice: 'alloy', instructions: '清晰地说话', metadata: { trace_id: 'trace-test' } })
+  if (openAiAudio.instructions !== '清晰地说话' || openAiAudio.metadata.trace_id !== 'trace-test') throw new Error('OpenAI 兼容语音参数自检失败')
   validateSeedance2Contract({ model: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: 'first-last-frame', duration: 5, prompt: '@图片1', reference_manifest: [{ type: 'image', order: 1, asset_key: 'board-1', version_id: 'v001', role: 'first_frame', real_person_face: false }] }, { image: 1, video: 0, audio: 0 })
   const seedanceFrames = [{ type: 'image', order: 1, asset_key: 'board-1', version_id: 'v001', role: 'first_frame' }, { type: 'image', order: 2, asset_key: 'board-2', version_id: 'v001', role: 'last_frame' }]
   if (seedanceContent({ prompt: 'A' }, '', ['https://example.com/1.png', 'https://example.com/2.png'], [], [], seedanceFrames).at(-1).role !== 'last_frame') throw new Error('Seedance 首尾帧角色映射失败')

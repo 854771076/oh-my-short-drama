@@ -8,7 +8,7 @@ import { pipeline } from 'node:stream/promises'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import { withFileLock } from './file-lock.mjs'
-import { invalidateFrom } from './invalidate-workflow.mjs'
+import { invalidateFrom, invalidateShot } from './invalidate-workflow.mjs'
 import { validDocumentReferenceShape } from './document-reference.mjs'
 
 const TYPES = new Set(['character', 'scene', 'prop', 'storyboard', 'video', 'audio', 'other'])
@@ -18,7 +18,7 @@ const PROVENANCE_ORIGINS = new Set(['imported', 'generated', 'transformed'])
 const PROVENANCE_CREATORS = new Set(['user', 'codex', 'provider'])
 const CONTENT_EXTENSIONS = { 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/flac': '.flac', 'audio/x-flac': '.flac', 'audio/L16': '.pcm', 'audio/pcm': '.pcm', 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'video/mp4': '.mp4', 'video/webm': '.webm' }
 const TYPE_EXTENSIONS = { image: new Set(['.gif', '.jpeg', '.jpg', '.png', '.webp']), video: new Set(['.mp4', '.webm']), audio: new Set(['.flac', '.mp3', '.pcm', '.wav']) }
-const MUTATING = new Set(['put', 'add-version', 'select', 'revert'])
+const MUTATING = new Set(['put', 'add-version', 'revert'])
 const MAX_MEDIA_BYTES = Number(process.env.SHORT_DRAMA_MAX_MEDIA_BYTES || 512 * 1024 * 1024)
 if (!Number.isSafeInteger(MAX_MEDIA_BYTES) || MAX_MEDIA_BYTES <= 0) throw new Error('SHORT_DRAMA_MAX_MEDIA_BYTES 必须是正整数')
 
@@ -136,6 +136,68 @@ function get(ledger, key) {
   return asset
 }
 
+function shotIdentity(key) {
+  const match = /^(?:board|shot)-(ep\d{3})-(\d{3})$/.exec(key)
+  return match ? { episodeKey: match[1].replace('ep', 'ep-'), shotNumber: Number(match[2]) } : null
+}
+
+export async function selectAssetVersion(rootArg, key, versionId) {
+  const root = resolve(rootArg)
+  return withFileLock(ledgerPath(root), async () => {
+    const ledger = await readLedger(root)
+    const asset = get(ledger, key)
+    versionKey(versionId)
+    const version = asset.versions.find((item) => item.id === versionId)
+    if (!version) throw new Error(`版本不存在：${versionId}`)
+    if (asset.staleVersionIds?.includes(versionId)) throw new Error(`版本已因上游变更失效：${key}@${versionId}`)
+    await access(localPath(root, version.localPath))
+    if (asset.selectedVersionId && asset.selectedVersionId !== versionId) {
+      const shot = shotIdentity(key)
+      if (shot) {
+        await invalidateShot(root, shot.episodeKey, shot.shotNumber, asset.type === 'storyboard' ? 'media-production' : 'editing')
+        if (asset.type === 'storyboard') {
+          const downstream = ledger.assets[`shot-${key.slice('board-'.length)}`]
+          if (downstream?.selectedVersionId) {
+            downstream.staleVersionIds ||= []
+            if (!downstream.staleVersionIds.includes(downstream.selectedVersionId)) downstream.staleVersionIds.push(downstream.selectedVersionId)
+            downstream.selectedHistory ||= []
+            downstream.selectedHistory.push(downstream.selectedVersionId)
+            downstream.selectedVersionId = null
+            downstream.updatedAt = new Date().toISOString()
+          }
+        }
+      } else await invalidateFrom(root, ['character', 'scene', 'prop'].includes(asset.type) ? 'asset-generation' : 'media-production')
+      asset.selectedHistory.push(asset.selectedVersionId)
+    }
+    asset.selectedVersionId = versionId
+    asset.updatedAt = new Date().toISOString()
+    await save(root, ledger)
+    return asset
+  })
+}
+
+export async function invalidateShotAssets(rootArg, episodeKey, shotNumbers, kind) {
+  const root = resolve(rootArg)
+  const suffixes = new Set(shotNumbers.map((number) => `${episodeKey.replace('-', '')}-${String(number).padStart(3, '0')}`))
+  return withFileLock(ledgerPath(root), async () => {
+    const ledger = await readLedger(root)
+    for (const suffix of suffixes) {
+      const prefixes = kind === 'storyboard' ? ['board-', 'shot-'] : kind === 'production-plan' ? ['board-', 'shot-'] : ['shot-']
+      for (const prefix of prefixes) {
+        const asset = ledger.assets[`${prefix}${suffix}`]
+        if (!asset?.selectedVersionId) continue
+        asset.staleVersionIds ||= []
+        if (!asset.staleVersionIds.includes(asset.selectedVersionId)) asset.staleVersionIds.push(asset.selectedVersionId)
+        asset.selectedHistory ||= []
+        asset.selectedHistory.push(asset.selectedVersionId)
+        asset.selectedVersionId = null
+        asset.updatedAt = new Date().toISOString()
+      }
+    }
+    await save(root, ledger)
+  })
+}
+
 async function main() {
   const [command, rootArg, ...args] = process.argv.slice(2)
   if (command === '--self-check') {
@@ -149,6 +211,7 @@ async function main() {
   }
   if (!rootArg) throw new Error('必须提供项目目录')
   const root = resolve(rootArg)
+  if (command === 'select') return console.log(JSON.stringify(await selectAssetVersion(root, args[0], args[1]), null, 2))
   const operate = async () => {
   const ledger = await readLedger(root)
   if (command === 'list') return console.log(JSON.stringify(args[0] ? get(ledger, args[0]) : ledger, null, 2))
@@ -260,23 +323,6 @@ async function main() {
       throw error
     }
   }
-  if (command === 'select') {
-    const [key, versionId] = args
-    const asset = get(ledger, key)
-    versionKey(versionId)
-    const version = asset.versions.find((item) => item.id === versionId)
-    if (!version) throw new Error(`版本不存在：${versionId}`)
-    if (asset.staleVersionIds?.includes(versionId)) throw new Error(`版本已因上游变更失效：${key}@${versionId}`)
-    await access(localPath(root, version.localPath))
-    if (asset.selectedVersionId && asset.selectedVersionId !== versionId) {
-      await invalidateFrom(root, ['character', 'scene', 'prop'].includes(asset.type) ? 'asset-generation' : 'media-production')
-      asset.selectedHistory.push(asset.selectedVersionId)
-    }
-    asset.selectedVersionId = versionId
-    asset.updatedAt = new Date().toISOString()
-    await save(root, ledger)
-    return console.log(JSON.stringify(asset, null, 2))
-  }
   if (command === 'revert') {
     const asset = get(ledger, args[0])
     const previous = asset.selectedHistory.pop()
@@ -296,4 +342,4 @@ async function main() {
   return MUTATING.has(command) ? withFileLock(ledgerPath(root), operate) : operate()
 }
 
-main().catch((error) => { console.error(error.message); process.exitCode = 1 })
+if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { console.error(error.message); process.exitCode = 1 })

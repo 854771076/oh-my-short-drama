@@ -44,7 +44,8 @@ Codex → codex-short-drama → drama-generation MCP → StarRouter / RunningHub
 
 - 图片：`gpt-image-2`
 - 视频：Seedance 1.0、1.5、2.0、Fast 系列，以及 MiniMax H3 / H3-Max
-- 音频：`speech-2.8-hd`、`speech-2.8-turbo`
+- 音频：`speech-2.8-hd`、`speech-2.8-turbo`、Qwen3 TTS、PawSense、`tts-1`
+- 转写/翻译：`qwen3-asr-flash`、`whisper-1`
 - 音乐：`suno_music`，用于 OP、ED、BGM 和音乐短视频配乐
 
 ```bash

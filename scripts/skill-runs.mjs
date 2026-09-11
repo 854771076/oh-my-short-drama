@@ -5,6 +5,7 @@ import { dirname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { stages } from './workflow-stages.mjs'
 import { withFileLock } from './file-lock.mjs'
+import { isH3Model } from './generation/providers.mjs'
 
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const skillMap = JSON.parse(await readFile(resolve(pluginRoot, 'references/skill-map.json'), 'utf8'))
@@ -123,7 +124,7 @@ export async function requiredSkills(root, stage) {
       const plan = JSON.parse(await readFile(resolve(root, marker.path), 'utf8'))
       for (const shot of plan.shots || []) {
         const mode = typeof shot.audio_strategy === 'string' ? shot.audio_strategy : shot.audio_strategy?.mode
-        if (!/^MiniMax-H3(?:-Max)?$/.test(shot.model_or_workflow || '') || mode !== 'native') needsIndependentAudio = true
+        if (!isH3Model(shot.provider, shot.model_or_workflow) || mode !== 'native') needsIndependentAudio = true
       }
     }
     if (needsIndependentAudio) required.add('design-drama-audio')

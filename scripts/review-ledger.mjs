@@ -3,6 +3,8 @@ import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { dirname, resolve, sep } from 'node:path'
 import { withFileLock } from './file-lock.mjs'
+import { selectAssetVersion } from './asset-ledger.mjs'
+import { sameShotVersion } from './shot-fingerprint.mjs'
 
 const CHECKS = new Set(['passed', 'failed', 'not-applicable'])
 export const STORYBOARD_REVIEW_CRITERIA = [
@@ -50,8 +52,9 @@ async function main() {
     const approved = validate(record)
     const assets = JSON.parse(await readFile(resolve(root, '.short-drama', 'assets.json'), 'utf8'))
     const asset = assets.assets?.[record.assetKey]
-    if (!asset || asset.selectedVersionId !== record.versionId) throw new Error('验收目标必须是当前 selected 资产版本')
+    if (!asset) throw new Error('验收资产不存在')
     const version = asset.versions?.find((item) => item.id === record.versionId)
+    if (!version || asset.staleVersionIds?.includes(record.versionId)) throw new Error('验收目标必须是未失效的候选资产版本')
     const local = resolve(root, version?.localPath || '')
     if (!version?.localPath || (local !== root && !local.startsWith(`${root}${sep}`))) throw new Error('验收资产路径无效')
     const [rootReal, localReal] = await Promise.all([realpath(root), realpath(local)])
@@ -61,7 +64,7 @@ async function main() {
       if (source?.kind !== 'storyboard' || !source.episode_key || !source.version_id || !Number.isInteger(source.shot_number) || record.assetKey !== `board-${source.episode_key.replace('-', '')}-${String(source.shot_number).padStart(3, '0')}`) throw new Error('验收分镜图缺少有效分镜来源')
       const selected = JSON.parse(await readFile(resolve(root, 'episodes', source.episode_key, 'storyboard', 'selected.json'), 'utf8'))
       const storyboard = JSON.parse(await readFile(resolve(root, 'episodes', source.episode_key, 'storyboard', `${source.version_id}.json`), 'utf8'))
-      if (selected.versionId !== source.version_id || !storyboard.panels?.some((item) => item.shot_number === source.shot_number)) throw new Error('验收分镜图不是当前 selected 分镜版本')
+      if (!storyboard.panels?.some((item) => item.shot_number === source.shot_number) || !await sameShotVersion(root, source.episode_key, 'storyboard', source.version_id, selected.versionId, source.shot_number).catch(() => false)) throw new Error('验收分镜图不是当前镜头内容')
       if (record.audio !== 'not-applicable' || record.transition !== 'not-applicable' || record.captions !== 'not-applicable' || JSON.stringify(record.criteria.map((item) => item.criterion)) !== JSON.stringify(STORYBOARD_REVIEW_CRITERIA)) throw new Error('分镜图 criteria[] 必须按八维审计合同原顺序逐项覆盖')
     } else if (version.provenance?.origin === 'generated') {
       const source = version.provenance?.prompt_document
@@ -75,9 +78,17 @@ async function main() {
     }
     const ledger = await read(root)
     const key = `${record.assetKey}@${record.versionId}`
+    const previous = ledger.reviews[key]
     ledger.reviews[key] = { ...record, approved, reviewedAt: new Date().toISOString() }
     await save(root, ledger)
-    console.log(JSON.stringify(ledger.reviews[key], null, 2))
+    if (approved) try { await selectAssetVersion(root, record.assetKey, record.versionId) }
+    catch (error) {
+      if (previous) ledger.reviews[key] = previous
+      else delete ledger.reviews[key]
+      await save(root, ledger)
+      throw error
+    }
+    console.log(JSON.stringify({ ...ledger.reviews[key], selected: approved }, null, 2))
   })
 }
 
