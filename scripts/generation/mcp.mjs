@@ -6,6 +6,7 @@ import { adapter, applyConfiguredModelParameters, providerCatalog, providerNames
 import { selfCheck as checkStarRouter } from './starrouter.mjs'
 import { selfCheck as checkRunningHub } from './runninghub.mjs'
 import { selfCheck as checkComfly } from './comfly.mjs'
+import { selfCheck as checkBailian } from './bailian.mjs'
 import { createRequestSnapshot, reserveTask, settleReservedTask } from '../task-ledger.mjs'
 import { validateGenerationDocumentReference } from '../document-reference.mjs'
 import { mediaHostCatalog, mediaHostNames } from '../media-hosting/providers.mjs'
@@ -20,6 +21,7 @@ import { syncTaskResult } from '../task-sync.mjs'
 checkStarRouter()
 checkRunningHub()
 checkComfly()
+checkBailian().catch((error) => { console.error(error.message); process.exitCode = 1 })
 checkLitterbox()
 checkProviders()
 
@@ -85,8 +87,8 @@ export const tools = [
   ['generate_image', '使用用户选择的 Provider 生成图片；付费和上传本地参考文件前必须确认。', {
     provider, model: { type: 'string' }, prompt: { type: 'string' }, size: { type: 'string' }, resolution: imageResolution, aspect_ratio: imageAspectRatio, seed: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1, maximum: 4 }, quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'] }, style: { type: 'string' }, background: { type: 'string', enum: ['auto', 'opaque', 'transparent'] }, moderation: { type: 'string', enum: ['auto', 'low'] }, output_format: { type: 'string', enum: ['png', 'jpeg', 'webp'] }, output_compression: { type: 'integer', minimum: 1 }, partial_images: { type: 'integer', minimum: 1 }, user: { type: 'string' }, reference_manifest: { type: 'array', maxItems: 9, items: referenceManifestItem }, confirmed: { const: true }, ...imageWorkflow, ...projectTracking,
   }, ['provider', 'prompt', 'reference_manifest', 'confirmed', 'project_root', 'target', 'prompt_document']],
-  ['generate_audio', '使用用户选择的 Provider 生成语音或提交音频工作流。StarRouter 使用 model/input/voice，RunningHub 使用 prompt/workflow。', {
-    provider, model: { type: 'string' }, input: { type: 'string' }, voice: { type: 'string' }, instructions: { type: 'string' }, speed: { type: 'number', minimum: 0.5, maximum: 2 }, response_format: { type: 'string', enum: ['mp3', 'pcm', 'flac'] }, metadata: audioMetadata, prompt: { type: 'string' }, confirmed: { const: true }, ...workflow, ...projectTracking,
+  ['generate_audio', '使用用户选择的 Provider 生成语音或提交音频工作流。StarRouter 使用 model/input/voice，RunningHub 使用 prompt/workflow，百炼使用 CosyVoice/qwen TTS 与已登记音色。', {
+    provider, model: { type: 'string' }, input: { type: 'string' }, voice: { type: 'string' }, instructions: { type: 'string' }, speed: { type: 'number', minimum: 0.5, maximum: 2 }, response_format: { type: 'string', enum: ['mp3', 'pcm', 'flac', 'wav', 'opus'] }, language_hints: { type: 'string' }, sample_rate: { type: 'integer' }, volume: { type: 'number', minimum: 0, maximum: 100 }, pitch: { type: 'number', minimum: 0.5, maximum: 2 }, instruction: { type: 'string', maxLength: 100 }, metadata: audioMetadata, prompt: { type: 'string' }, confirmed: { const: true }, ...workflow, ...projectTracking,
   }, ['provider', 'confirmed', 'project_root', 'target', 'prompt_document']],
   ['transcribe_audio', '使用 StarRouter 对项目内音频执行语音转写。', asrInput, ['provider', 'model', 'file_path', 'project_root', 'confirmed']],
   ['translate_audio', '使用 StarRouter 对项目内音频执行语音翻译。', asrInput, ['provider', 'model', 'file_path', 'project_root', 'confirmed']],

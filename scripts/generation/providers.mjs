@@ -1,9 +1,10 @@
+import { bailian, BAILIAN_COSYVOICE_LANGUAGE_HINTS, weightedLength } from './bailian.mjs'
 import { starrouter } from './starrouter.mjs'
 import { runninghub } from './runninghub.mjs'
 import { comfly } from './comfly.mjs'
 import { credential } from './credentials.mjs'
 
-export const adapters = { starrouter, runninghub, comfly }
+export const adapters = { bailian, starrouter, runninghub, comfly }
 export const providerNames = Object.keys(adapters)
 const H3_MODELS = new Set(['starrouter:MiniMax-H3', 'starrouter:MiniMax-H3-Max', 'runninghub:minimax-h3-reference-to-video', 'comfly:minimax-h3'])
 
@@ -20,6 +21,54 @@ export function providerCatalog() {
 }
 
 const parameterCatalog = {
+  bailian: {
+    'cosyvoice-v3.5-plus': [
+      { key: 'speed', label: '语速', type: 'number', min: 0.5, max: 2, step: 0.1, default: 1 },
+      { key: 'response_format', label: '格式', type: 'select', options: ['wav', 'mp3', 'pcm', 'opus'], default: 'wav' },
+      { key: 'sample_rate', label: '采样率', type: 'select', options: [8000, 16000, 22050, 24000, 44100, 48000], default: 24000 },
+      { key: 'volume', label: '音量', type: 'number', min: 0, max: 100, default: 50 },
+      { key: 'pitch', label: '音调', type: 'number', min: 0.5, max: 2, step: 0.1, default: 1 },
+      { key: 'language_hints', label: '语言', type: 'select', options: BAILIAN_COSYVOICE_LANGUAGE_HINTS, default: 'zh' },
+      { key: 'instruction', label: '风格指令', type: 'string', maxLength: 100, default: '' },
+    ],
+    'cosyvoice-v3.5-flash': [
+      { key: 'speed', label: '语速', type: 'number', min: 0.5, max: 2, step: 0.1, default: 1 },
+      { key: 'response_format', label: '格式', type: 'select', options: ['wav', 'mp3', 'pcm', 'opus'], default: 'wav' },
+      { key: 'sample_rate', label: '采样率', type: 'select', options: [8000, 16000, 22050, 24000, 44100, 48000], default: 24000 },
+      { key: 'volume', label: '音量', type: 'number', min: 0, max: 100, default: 50 },
+      { key: 'pitch', label: '音调', type: 'number', min: 0.5, max: 2, step: 0.1, default: 1 },
+      { key: 'language_hints', label: '语言', type: 'select', options: BAILIAN_COSYVOICE_LANGUAGE_HINTS, default: 'zh' },
+      { key: 'instruction', label: '风格指令', type: 'string', maxLength: 100, default: '' },
+    ],
+    'cosyvoice-v3-plus': [
+      { key: 'speed', label: '语速', type: 'number', min: 0.5, max: 2, step: 0.1, default: 1 },
+      { key: 'response_format', label: '格式', type: 'select', options: ['wav', 'mp3', 'pcm', 'opus'], default: 'wav' },
+      { key: 'sample_rate', label: '采样率', type: 'select', options: [8000, 16000, 22050, 24000, 44100, 48000], default: 24000 },
+      { key: 'volume', label: '音量', type: 'number', min: 0, max: 100, default: 50 },
+      { key: 'pitch', label: '音调', type: 'number', min: 0.5, max: 2, step: 0.1, default: 1 },
+      { key: 'language_hints', label: '语言', type: 'select', options: ['zh', 'en', 'fr', 'de', 'ja', 'ko', 'ru'], default: 'zh' },
+    ],
+    'cosyvoice-v3-flash': [
+      { key: 'speed', label: '语速', type: 'number', min: 0.5, max: 2, step: 0.1, default: 1 },
+      { key: 'response_format', label: '格式', type: 'select', options: ['wav', 'mp3', 'pcm', 'opus'], default: 'wav' },
+      { key: 'sample_rate', label: '采样率', type: 'select', options: [8000, 16000, 22050, 24000, 44100, 48000], default: 24000 },
+      { key: 'volume', label: '音量', type: 'number', min: 0, max: 100, default: 50 },
+      { key: 'pitch', label: '音调', type: 'number', min: 0.5, max: 2, step: 0.1, default: 1 },
+      { key: 'language_hints', label: '语言', type: 'select', options: BAILIAN_COSYVOICE_LANGUAGE_HINTS, default: 'zh' },
+      { key: 'instruction', label: '风格指令', type: 'string', maxLength: 100, default: '' },
+    ],
+    'cosyvoice-v2': [
+      { key: 'speed', label: '语速', type: 'number', min: 0.5, max: 2, step: 0.1, default: 1 },
+      { key: 'response_format', label: '格式', type: 'select', options: ['wav', 'mp3', 'pcm'], default: 'wav' },
+      { key: 'sample_rate', label: '采样率', type: 'select', options: [8000, 16000, 22050, 24000, 44100, 48000], default: 24000 },
+      { key: 'volume', label: '音量', type: 'number', min: 0, max: 100, default: 50 },
+      { key: 'pitch', label: '音调', type: 'number', min: 0.5, max: 2, step: 0.1, default: 1 },
+      { key: 'language_hints', label: '语言', type: 'select', options: ['zh', 'en'], default: 'zh' },
+    ],
+    'qwen3-tts-vd-2026-01-26': [
+      { key: 'language_type', label: '语言', type: 'select', options: ['Chinese', 'English'], default: 'Chinese' },
+    ],
+  },
   starrouter: {
     'gpt-image-2': [
       { key: 'resolution', label: '分辨率', type: 'select', options: ['1K', '2K', '4K'], default: '1K' },
@@ -80,6 +129,11 @@ export function normalizeModelParameters(provider, model, values = {}) {
       value = Number(value)
       if (!Number.isFinite(value) || value < field.min || value > field.max) throw new Error(`${field.label} 必须为 ${field.min}–${field.max}`)
     }
+    if (field.type === 'string') {
+      if (value === '' && field.default !== undefined) value = field.default
+      if (typeof value !== 'string') throw new Error(`${field.label} 必须是字符串`)
+      if (field.maxLength && weightedLength(value) > field.maxLength) throw new Error(`${field.label} 不能超过 ${field.maxLength} 个加权字符`)
+    }
     if (field.type === 'boolean' && typeof value !== 'boolean') throw new Error(`${field.label} 必须为布尔值`)
     if (field.type === 'select' && !field.options.includes(value)) throw new Error(`${field.label} 选项无效`)
     return [field.key, value]
@@ -120,4 +174,12 @@ export function selfCheck() {
   if (!isH3Model('comfly', 'minimax-h3') || !isH3Model('starrouter', 'MiniMax-H3') || isH3Model('starrouter', 'minimax-h3')) throw new Error('H3 模型规范化自检失败')
   try { applyConfiguredModelParameters('comfly', 'minimax-h3', { resolution: '1K' }, { resolution: '2K' }); throw new Error('项目级参数锁定自检失败') }
   catch (error) { if (!String(error.message).includes('已确认配置一致')) throw error }
+  const bailianVoice = normalizeModelParameters('bailian', 'cosyvoice-v3.5-plus')
+  if (bailianVoice.speed !== 1 || bailianVoice.response_format !== 'wav' || bailianVoice.sample_rate !== 24000 || bailianVoice.volume !== 50 || bailianVoice.language_hints !== 'zh' || bailianVoice.instruction !== '') throw new Error('百炼参数默认值自检失败')
+  const bailianV2 = normalizeModelParameters('bailian', 'cosyvoice-v2', { language_hints: 'en' })
+  if (bailianV2.language_hints !== 'en') throw new Error('百炼 v2 语言参数自检失败')
+  try { normalizeModelParameters('bailian', 'cosyvoice-v2', { language_hints: 'ja' }); throw new Error('百炼 v2 非法语言未被拒绝') } catch (error) { if (!String(error.message).includes('选项无效')) throw error }
+  try { normalizeModelParameters('bailian', 'cosyvoice-v3-plus', { instruction: '说' }); throw new Error('百炼无 instruction 字段未被拒绝') } catch (error) { if (!String(error.message).includes('不受支持')) throw error }
+  try { normalizeModelParameters('bailian', 'cosyvoice-v3.5-plus', { instruction: 'a'.repeat(101) }); throw new Error('百炼 instruction 超长未被拒绝') } catch (error) { if (!String(error.message).includes('加权字符')) throw error }
+  if (Object.keys(adapters)[0] !== 'bailian') throw new Error('百炼必须是注册顺序第一个 Provider')
 }
