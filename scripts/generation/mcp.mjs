@@ -7,6 +7,7 @@ import { selfCheck as checkStarRouter } from './starrouter.mjs'
 import { selfCheck as checkRunningHub } from './runninghub.mjs'
 import { selfCheck as checkComfly } from './comfly.mjs'
 import { selfCheck as checkBailian } from './bailian.mjs'
+import { designVoice, cloneVoice, listVoices, deleteVoice } from './voice-tools.mjs'
 import { createRequestSnapshot, reserveTask, settleReservedTask } from '../task-ledger.mjs'
 import { validateGenerationDocumentReference } from '../document-reference.mjs'
 import { mediaHostCatalog, mediaHostNames } from '../media-hosting/providers.mjs'
@@ -74,6 +75,15 @@ const projectTracking = {
 const asrInput = {
   provider: { const: 'starrouter' }, model: { type: 'string' }, file_path: { type: 'string' }, response_format: { type: 'string', enum: ['json', 'text', 'srt', 'verbose_json', 'vtt'] }, language: { type: 'string' }, prompt: { type: 'string' }, temperature: { type: 'number', minimum: 0, maximum: 1 }, project_root: { type: 'string' }, confirmed: { const: true },
 }
+const bailianProvider = { type: 'string', enum: ['bailian'] }
+const cosyVoiceTargetModel = { type: 'string', enum: ['cosyvoice-v3.5-plus', 'cosyvoice-v3.5-flash', 'cosyvoice-v3-plus', 'cosyvoice-v3-flash', 'cosyvoice-v2'] }
+const voicePrefix = { type: 'string', pattern: '^[A-Za-z0-9]{1,10}$' }
+const voiceConfirmation = {
+  confirmed: { const: true },
+  rights_confirmed: { const: true },
+  public_exposure_confirmed: { const: true },
+  usage_terms_confirmed: { const: true },
+}
 export const tools = [
   ['list_generation_providers', '列出已注册生成 Provider 与模态能力。', {}, []],
   ['list_media_hosts', '列出把本地参考素材临时转换为公网 URL 的托管服务与时效。', {}, []],
@@ -95,6 +105,26 @@ export const tools = [
   ['generate_music', '使用 StarRouter 异步生成 OP、ED、BGM 或音乐短视频配乐。', {
     provider, model: { type: 'string' }, prompt: { type: 'string' }, title: { type: 'string' }, tags: { type: 'string' }, lyrics: { type: 'string' }, make_instrumental: { type: 'boolean' }, confirmed: { const: true }, ...projectTracking,
   }, ['provider', 'model', 'prompt', 'confirmed', 'project_root', 'target', 'prompt_document']],
+  ['design_voice', '在百炼账号下用文本描述设计自定义音色（默认 cosyvoice-design；qwen 为旧版）。付费操作；成功后音色登记到项目并可在 generate_audio 中作为 voice 使用。', {
+    provider: bailianProvider, project_root: { type: 'string' }, flavor: { type: 'string', enum: ['cosyvoice-design', 'qwen'] },
+    voice_prompt: { type: 'string', minLength: 1, maxLength: 500 }, preview_text: { type: 'string', minLength: 5, maxLength: 200 }, prefix: voicePrefix,
+    target_model: cosyVoiceTargetModel, language_hints: { type: 'string' }, preferred_name: { type: 'string' }, language: { type: 'string', enum: ['zh', 'en'] },
+    confirmed: { const: true },
+  }, ['provider', 'project_root', 'flavor', 'voice_prompt', 'preview_text', 'prefix', 'confirmed']],
+  ['clone_voice', '用一段参考音频在百炼账号下克隆音色（cosyvoice-clone）。本地音频由服务端临时公网发布（litterbox 72h），必须确认权利、公开风险与使用范围；audio_url 与 reference_audio_path 二选一。', {
+    provider: bailianProvider, project_root: { type: 'string' }, prefix: voicePrefix,
+    reference_audio_path: { type: 'string' }, audio_url: { type: 'string' },
+    target_model: cosyVoiceTargetModel, language_hints: { type: 'string' },
+    max_prompt_audio_length: { type: 'integer', minimum: 3, maximum: 30 }, enable_preprocess: { type: 'boolean' },
+    usage_scope: { type: 'string', enum: ['non-commercial', 'commercial-authorized'] },
+    ...voiceConfirmation,
+  }, ['provider', 'project_root', 'prefix', 'confirmed', 'rights_confirmed', 'public_exposure_confirmed', 'usage_terms_confirmed', 'usage_scope']],
+  ['list_voices', '列出百炼账号下已有自定义音色（CosyVoice 与 qwen 两路合并），并叠加项目本地音色登记标记。只读。', {
+    provider: bailianProvider, project_root: { type: 'string' },
+  }, ['provider', 'project_root']],
+  ['delete_voice', '删除百炼账号下的自定义音色（按 voice_id 前缀自动分流接口），同时清理项目本地登记与预览文件。付费/破坏性操作。', {
+    provider: bailianProvider, project_root: { type: 'string' }, voice_id: { type: 'string', minLength: 1 }, confirmed: { const: true },
+  }, ['provider', 'project_root', 'voice_id', 'confirmed']],
   ['submit_video', '使用用户选择的 Provider 提交异步视频任务。', {
     provider, model: { type: 'string' }, prompt_profile: { type: 'string', enum: ['seedance2', 'h3', 'generic'] }, input_mode: { type: 'string', enum: ['first-last-frame', 'full-reference', 'T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA', 'generic'] }, prompt_version: { type: 'string' }, prompt: { type: 'string' }, frame_url: { type: 'string' }, images: { type: 'array', maxItems: 9, items: { type: 'string' } }, input_reference: { type: 'string' }, reference_urls: { type: 'array', items: { type: 'string' } }, reference_image_urls: { type: 'array', maxItems: 9, items: { type: 'string' } }, reference_video_urls: { type: 'array', maxItems: 3, items: { type: 'string' } }, reference_audio_urls: { type: 'array', maxItems: 3, items: { type: 'string' } }, reference_manifest: { type: 'array', maxItems: 12, items: referenceManifestItem }, reference_only: { type: 'boolean' }, duration: { type: 'integer', minimum: 1, maximum: 15 }, size: { type: 'string', enum: ['480P', '768P', '2K'] }, resolution: { type: 'string', enum: ['480p', '720p', '1080p', '480P', '768P', '1K', '2K'] }, ratio: { type: 'string', enum: ['21:9', '16:9', '9:16', '1:1', '4:3', '3:4'] }, generate_audio: { type: 'boolean' }, watermark: { type: 'boolean' }, seed: { type: 'integer', minimum: 1 }, fps: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1 }, response_format: { type: 'string' }, user: { type: 'string' }, metadata: { type: 'object' }, extra_options: { type: 'object' }, confirmed: { const: true }, ...workflow, ...projectTracking,
   }, ['provider', 'prompt_profile', 'input_mode', 'prompt_version', 'prompt', 'confirmed', 'project_root', 'target', 'prompt_document']],
@@ -203,6 +233,10 @@ export async function call(name, args = {}) {
     const { project_root: projectRoot, ...input } = args
     return publishReferenceImage(projectRoot, input)
   }
+  if (name === 'design_voice') return designVoice(args)
+  if (name === 'clone_voice') return cloneVoice(args)
+  if (name === 'list_voices') return listVoices(args)
+  if (name === 'delete_voice') return deleteVoice(args)
   const selected = adapter(args.provider)
   const actions = { list_models: 'models', generate_image: 'image', generate_audio: 'audio', generate_music: 'music', transcribe_audio: 'transcribe', translate_audio: 'translate', submit_video: 'submitVideo', get_generation_task: 'task' }
   const action = actions[name]
