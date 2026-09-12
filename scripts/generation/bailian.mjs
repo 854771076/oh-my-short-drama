@@ -249,8 +249,13 @@ async function postJson(path, body, { timeout = 300000 } = {}) {
   })
   const raw = await response.text()
   let data = {}
-  try { data = raw ? JSON.parse(raw) : {} } catch { throw new Error('BAILIAN_RESPONSE_INVALID_JSON') }
+  let parsed = true
+  if (raw) {
+    try { data = JSON.parse(raw) } catch { parsed = false }
+  }
+  // 先判 HTTP 状态：非 2xx 即使是 HTML/纯文本网关页，也要按稳定 code + 原文回退归一化
   if (!response.ok) throw normalizeHttpError(response.status, data, raw)
+  if (!parsed) throw new Error('BAILIAN_RESPONSE_INVALID_JSON')
   return data
 }
 async function fetchAudioBuffer(audio) {
@@ -258,7 +263,7 @@ async function fetchAudioBuffer(audio) {
   const url = trim(audio?.url)
   if (b64) return { buffer: Buffer.from(b64, 'base64'), url: url || undefined }
   if (!url) throw new Error('BAILIAN_TTS_AUDIO_MISSING')
-  const response = await fetch(url)
+  const response = await fetch(url, { signal: AbortSignal.timeout(60000) })
   if (!response.ok) throw new Error(`BAILIAN_TTS_AUDIO_DOWNLOAD_FAILED(${response.status})`)
   return { buffer: Buffer.from(await response.arrayBuffer()), url }
 }
@@ -316,7 +321,7 @@ export const bailian = {
   },
 }
 
-export function selfCheck() {
+export async function selfCheck() {
   // 模型矩阵
   if (BAILIAN_AUDIO_MODELS.join(',') !== 'cosyvoice-v3.5-plus,cosyvoice-v3.5-flash,cosyvoice-v3-plus,cosyvoice-v3-flash,cosyvoice-v2,qwen3-tts-vd-2026-01-26') throw new Error('百炼模型目录或推荐顺序错误')
   if (languageHintsFor('cosyvoice-v2').join() !== 'zh,en') throw new Error('v2 语言矩阵错误')
@@ -383,6 +388,28 @@ export function selfCheck() {
   const truncated = normalizeHttpError(500, { message: 'x'.repeat(600) }, '')
   if (!truncated.message.startsWith('BAILIAN_REQUEST_FAILED(500): ') || truncated.message.length !== 'BAILIAN_REQUEST_FAILED(500): '.length + 500) throw new Error('HTTP 错误截断错误')
   if (normalizeHttpError(502, {}, 'raw body').message !== 'BAILIAN_REQUEST_FAILED(502): raw body') throw new Error('HTTP 错误 raw 回退错误')
+
+  // postJson：HTTP 状态先于 JSON 校验，非 JSON 错误体回退原文（fetch 打桩，不触网）
+  const previousFetch = globalThis.fetch
+  const previousApiKey = process.env.BAILIAN_API_KEY
+  process.env.BAILIAN_API_KEY = 'self-check-key'
+  try {
+    globalThis.fetch = async () => ({ ok: false, status: 502, text: async () => 'Bad Gateway page' })
+    try { await postJson('/x', {}); throw new Error('502 纯文本错误体未被归一化') }
+    catch (error) { if (error.message !== 'BAILIAN_REQUEST_FAILED(502): Bad Gateway page') throw error }
+
+    globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => 'not-json{' })
+    try { await postJson('/x', {}); throw new Error('2xx 非 JSON 响应体未被拒绝') }
+    catch (error) { if (error.message !== 'BAILIAN_RESPONSE_INVALID_JSON') throw error }
+
+    globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => '{"request_id":"x"}' })
+    const okData = await postJson('/x', {})
+    if (okData.request_id !== 'x') throw new Error('postJson 正常响应解析错误')
+  } finally {
+    globalThis.fetch = previousFetch
+    if (previousApiKey === undefined) delete process.env.BAILIAN_API_KEY
+    else process.env.BAILIAN_API_KEY = previousApiKey
+  }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) { selfCheck(); console.log('ok') }
+if (import.meta.url === `file://${process.argv[1]}`) { selfCheck().then(() => console.log('ok')).catch((error) => { console.error(error.message); process.exitCode = 1 }) }
