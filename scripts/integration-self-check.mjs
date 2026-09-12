@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
@@ -10,7 +10,8 @@ import { selfCheck as checkRunningHub } from './generation/runninghub.mjs'
 import { selfCheck as checkStarRouter } from './generation/starrouter.mjs'
 import { selfCheck as checkProviders } from './generation/providers.mjs'
 import { selfCheck as checkLitterbox } from './media-hosting/litterbox.mjs'
-import { listReferenceUploads, publishReferenceImage, validateTemporaryReferenceUrl } from './media-hosting/publish.mjs'
+import { selfCheck as checkBailian } from './generation/bailian.mjs'
+import { listReferenceUploads, publishReferenceImage, selfCheck as checkPublish, validateTemporaryReferenceUrl } from './media-hosting/publish.mjs'
 import { validateVideoReferenceBindings } from './reference-bindings.mjs'
 
 const plugin = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -98,14 +99,98 @@ async function checkMultiEpisodeEvidence() {
   } finally { await rm(root, { recursive: true, force: true }) }
 }
 
+async function checkBailianVoiceLifecycle() {
+  const bailianRoot = await mkdtemp(resolve(tmpdir(), 'short-drama-bailian-'))
+  const originalFetch = globalThis.fetch
+  const originalKey = process.env.BAILIAN_API_KEY
+  try {
+    const bailianInit = await json(bailianRoot, 'initial-project.json', { key: 'bailian-drama', title: '百炼配音短剧', providers: { image: { provider: 'starrouter', model_or_workflow: 'gpt-image-2', prompt_profile: null }, video: { provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', parameters: { watermark: true } }, audio: { provider: 'bailian', model_or_workflow: 'cosyvoice-v3.5-plus', prompt_profile: null, parameters: { speed: 1, response_format: 'wav', sample_rate: 24000, volume: 50, pitch: 1, language_hints: 'zh', instruction: '' } }, music: { provider: 'starrouter', model_or_workflow: 'suno_music', prompt_profile: null, parameters: { make_instrumental: true } } } })
+    run('project-store.mjs', 'init', bailianRoot, bailianInit)
+    // path 模式克隆门禁要求 assets/ 真实存在（realpath assetsRoot）
+    await mkdir(resolve(bailianRoot, 'assets'), { recursive: true })
+    const bailianProject = JSON.parse(run('project-store.mjs', 'project', bailianRoot))
+    if (bailianProject.providers.audio.provider !== 'bailian' || bailianProject.providers.audio.model_or_workflow !== 'cosyvoice-v3.5-plus') throw new Error('百炼配音配置未被项目存储接受')
+    const expectRejected = async (name, payload, expected) => {
+      const file = await json(bailianRoot, name, payload)
+      const result = spawnSync(process.execPath, [resolve(plugin, 'scripts/project-store.mjs'), 'update-project', bailianRoot, file], { encoding: 'utf8' })
+      if (result.status === 0 || !result.stderr.includes(expected)) throw new Error(`百炼非法配置未被拒绝（应含：${expected}）：${result.stderr}`)
+    }
+    await expectRejected('invalid-hint.json', { providers: { audio: { model_or_workflow: 'cosyvoice-v2', prompt_profile: null, parameters: { language_hints: 'ja' } } } }, '选项无效')
+    await expectRejected('v3-plus-instruction.json', { providers: { audio: { model_or_workflow: 'cosyvoice-v3-plus', prompt_profile: null, parameters: { language_hints: 'zh', instruction: '冷静地说' } } } }, '模型参数不受支持')
+    await expectRejected('unknown-model.json', { providers: { audio: { provider: 'bailian', model_or_workflow: 'not-a-model', prompt_profile: null } } }, '不受 bailian 支持')
+
+    // 前置门禁：全部必须在到达百炼网络前被拒绝（此时尚未设置 BAILIAN_API_KEY）
+    const rights = { usage_scope: 'non-commercial', confirmed: true, rights_confirmed: true, public_exposure_confirmed: true, usage_terms_confirmed: true }
+    try { await callGeneration('clone_voice', { provider: 'bailian', project_root: bailianRoot, prefix: 'cl', audio_url: 'http://127.0.0.1/a.wav', ...rights }); throw new Error('私网克隆 URL 未被拒绝') }
+    catch (error) { if (!String(error.message).includes('公网 HTTPS')) throw error }
+    try { await callGeneration('clone_voice', { provider: 'bailian', project_root: bailianRoot, prefix: 'cl', reference_audio_path: '/etc/hosts', ...rights }); throw new Error('项目外参考音频未被拒绝') }
+    catch (error) { if (!String(error.message).includes('assets/ 内文件')) throw error }
+    try { await callGeneration('clone_voice', { provider: 'bailian', project_root: bailianRoot, prefix: 'cl', audio_url: 'https://example.com/a.wav', usage_scope: 'non-commercial' }); throw new Error('缺确认未被拒绝') }
+    catch (error) { if (!/confirmed=true|确认/.test(String(error.message))) throw error }
+    try { await callGeneration('design_voice', { provider: 'bailian', project_root: bailianRoot, flavor: 'cosyvoice-design', voice_prompt: '低沉女声', preview_text: '你好', prefix: 'cv', confirmed: true }); throw new Error('过短预览文本未被拒绝') }
+    catch (error) { if (!String(error.message).includes('预览文本')) throw error }
+    try { await callGeneration('delete_voice', { provider: 'bailian', project_root: bailianRoot, voice_id: 'cosyvoice-v2-x' }); throw new Error('未确认删除未被拒绝') }
+    catch (error) { if (!String(error.message).includes('confirmed=true')) throw error }
+
+    // fetch 桩端到端：litterbox 上传 + customization 四个 action 全部本地桩接
+    process.env.BAILIAN_API_KEY = 'self-check-key'
+    const jsonResponse = (payload) => new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } })
+    globalThis.fetch = async (url, options = {}) => {
+      const href = String(url)
+      if (href.includes('litterbox.catbox.moe')) return new Response('https://litter.catbox.moe/ref.wav', { status: 200 })
+      if (!href.includes('/audio/tts/customization')) throw new Error(`未桩接的请求：${href}`)
+      const body = JSON.parse(options.body || '{}')
+      const action = body.input?.action
+      if (body.model === 'voice-enrollment' && action === 'list_voice') return jsonResponse({ output: { voices: [{ voice_id: 'cosyvoice-v3.5-plus-t1', target_model: 'cosyvoice-v3.5-plus', status: 'OK' }, { voice_id: 'cosyvoice-v3.5-plus-cl1', target_model: 'cosyvoice-v3.5-plus', status: 'OK' }] }, request_id: 'r-list-c' })
+      if (body.model === 'qwen-voice-design' && action === 'list') return jsonResponse({ output: { voices: [{ voice: 'qwen-old-1' }] } })
+      if (action === 'create_voice') return body.input.url
+        ? jsonResponse({ output: { voice_id: 'cosyvoice-v3.5-plus-cl1', target_model: 'cosyvoice-v3.5-plus', status: 'OK' }, request_id: 'r-clone' })
+        : jsonResponse({ output: { voice_id: 'cosyvoice-v3.5-plus-t1', target_model: 'cosyvoice-v3.5-plus', status: 'OK', preview_audio: { data: Buffer.from('preview pcm').toString('base64'), sample_rate: 24000, response_format: 'wav' } }, request_id: 'r-design' })
+      if (action === 'delete_voice' || action === 'delete') return jsonResponse({ request_id: 'r-delete' })
+      throw new Error(`未桩接的 customization action：${action}`)
+    }
+    const designed = await callGeneration('design_voice', { provider: 'bailian', project_root: bailianRoot, flavor: 'cosyvoice-design', voice_prompt: '低沉女声', preview_text: '你好，这是试听。', prefix: 'cv', target_model: 'cosyvoice-v3.5-plus', confirmed: true })
+    if (designed.voice_id !== 'cosyvoice-v3.5-plus-t1' || !designed.preview_path?.endsWith('.wav')) throw new Error('design_voice 端到端结果错误')
+    const preview = await readFile(resolve(bailianRoot, designed.preview_path))
+    if (preview.length === 0) throw new Error('音色预览音频未落盘')
+    await writeFile(resolve(bailianRoot, 'assets', 'ref.wav'), Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WAVE'), Buffer.alloc(32)]))
+    const cloned = await callGeneration('clone_voice', { provider: 'bailian', project_root: bailianRoot, prefix: 'cl', reference_audio_path: resolve(bailianRoot, 'assets', 'ref.wav'), target_model: 'cosyvoice-v3.5-plus', ...rights })
+    if (cloned.voice_id !== 'cosyvoice-v3.5-plus-cl1' || !cloned.upload_receipt_id || cloned.source !== 'clone') throw new Error('clone_voice 端到端结果错误')
+    const ledger = JSON.parse(await readFile(resolve(bailianRoot, '.short-drama', 'voices.json'), 'utf8'))
+    if (ledger.voices.length !== 2) throw new Error('音色登记条数错误')
+    const listed = await callGeneration('list_voices', { provider: 'bailian', project_root: bailianRoot })
+    if (listed.provider !== 'bailian' || listed.voices.length !== 3 || listed.local_only.length !== 0) throw new Error('list_voices 云端/本地叠加错误')
+    const t1Row = listed.voices.find((item) => item.voice_id === 'cosyvoice-v3.5-plus-t1')
+    const cl1Row = listed.voices.find((item) => item.voice_id === 'cosyvoice-v3.5-plus-cl1')
+    if (t1Row?.local?.source !== 'design' || cl1Row?.local?.source !== 'clone' || !listed.voices.some((item) => item.source === 'qwen')) throw new Error('list_voices 本地登记叠加错误')
+    const receipts = await listReferenceUploads(bailianRoot, { state: 'active' })
+    if (receipts.length !== 1 || receipts[0].media_type !== 'audio') throw new Error('克隆音频托管收据缺失')
+    const deleted = await callGeneration('delete_voice', { provider: 'bailian', project_root: bailianRoot, voice_id: 'cosyvoice-v3.5-plus-t1', confirmed: true })
+    if (!deleted.local_removed || !deleted.preview_deleted || deleted.flavor !== 'cosyvoice') throw new Error('delete_voice 收敛结果错误')
+    const ledgerAfter = JSON.parse(await readFile(resolve(bailianRoot, '.short-drama', 'voices.json'), 'utf8'))
+    if (ledgerAfter.voices.length !== 1 || ledgerAfter.voices[0].voice_id !== 'cosyvoice-v3.5-plus-cl1') throw new Error('删除后本地登记未收敛')
+  } finally {
+    globalThis.fetch = originalFetch
+    if (originalKey === undefined) delete process.env.BAILIAN_API_KEY
+    else process.env.BAILIAN_API_KEY = originalKey
+    await rm(bailianRoot, { recursive: true, force: true })
+  }
+}
+
 async function main() {
   if (!process.argv.includes('--self-check')) throw new Error('仅支持 --self-check')
   const imageSchema = generationTools.find((tool) => tool.name === 'generate_image')?.inputSchema?.properties
   if (!imageSchema?.reference_paths || imageSchema.reference_image_paths || JSON.stringify(imageSchema.reference_manifest?.items?.required) !== JSON.stringify(['type', 'order', 'asset_key', 'version_id', 'role'])) throw new Error('图片生成 MCP Schema 与运行时参考素材合同不一致')
   for (const name of ['transcribe_audio', 'translate_audio']) if (!generationTools.find((tool) => tool.name === name)?.inputSchema?.properties?.file_path) throw new Error(`${name} MCP Schema 缺失`)
-  for (const script of ['asset-ledger.mjs', 'character-profiles.mjs', 'editing-store.mjs', 'export-edit-subtitles.mjs', 'file-lock.mjs', 'freeze-edit-candidate.mjs', 'media-tools.mjs', 'native-audio-audit.mjs', 'preflight.mjs', 'project-store.mjs', 'render-prompt.mjs', 'review-ledger.mjs', 'shot-fingerprint.mjs', 'task-ledger.mjs', 'task-sync.mjs', 'workflow-gates.mjs']) run(script, '--self-check')
-  for (const check of [checkComfly, checkRunningHub, checkStarRouter, checkProviders, checkLitterbox]) check()
+  for (const name of ['design_voice', 'clone_voice', 'list_voices', 'delete_voice']) if (!generationTools.find((tool) => tool.name === name)) throw new Error(`${name} MCP 工具缺失`)
+  const cloneSchema = generationTools.find((tool) => tool.name === 'clone_voice')?.inputSchema
+  for (const field of ['confirmed', 'rights_confirmed', 'public_exposure_confirmed', 'usage_terms_confirmed', 'usage_scope']) if (!cloneSchema?.required?.includes(field)) throw new Error(`clone_voice 缺少必填确认字段：${field}`)
+  const audioSchema = generationTools.find((tool) => tool.name === 'generate_audio')?.inputSchema?.properties
+  if (!audioSchema.language_hints || !audioSchema.instruction || audioSchema.response_format.enum.join() !== 'mp3,pcm,flac,wav,opus') throw new Error('generate_audio 百炼字段缺失')
+  for (const script of ['asset-ledger.mjs', 'character-profiles.mjs', 'editing-store.mjs', 'export-edit-subtitles.mjs', 'file-lock.mjs', 'freeze-edit-candidate.mjs', 'media-tools.mjs', 'native-audio-audit.mjs', 'preflight.mjs', 'project-store.mjs', 'render-prompt.mjs', 'review-ledger.mjs', 'shot-fingerprint.mjs', 'task-ledger.mjs', 'task-sync.mjs', 'workflow-gates.mjs', 'generation/bailian.mjs', 'generation/voice-tools.mjs', 'voice-ledger.mjs']) run(script, '--self-check')
+  for (const check of [checkComfly, checkRunningHub, checkStarRouter, checkProviders, checkLitterbox, checkBailian, checkPublish]) await check()
   await checkMultiEpisodeEvidence()
+  await checkBailianVoiceLifecycle()
   const root = await mkdtemp(resolve(tmpdir(), 'short-drama-integration-'))
   try {
     const initialProject = await json(root, 'initial-project.json', { key: 'integration-drama', title: '集成测试短剧', providers: { image: { provider: 'starrouter', model_or_workflow: 'gpt-image-2', prompt_profile: null }, video: { provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', parameters: { watermark: true } }, audio: { provider: 'starrouter', model_or_workflow: 'speech-2.8-hd', prompt_profile: null, parameters: { speed: 1, response_format: 'flac' } }, music: { provider: 'starrouter', model_or_workflow: 'suno_music', prompt_profile: null, parameters: { make_instrumental: true } } } })
@@ -121,7 +206,7 @@ async function main() {
     run('project-store.mjs', 'update-project', root, await json(root, 'replace-video-parameters.json', { providers: { video: { parameters: { duration: 5 } } } }))
     if (Object.keys(JSON.parse(run('project-store.mjs', 'project', root)).providers.video.parameters).join() !== 'duration') throw new Error('模型参数更新未整体替换旧字段')
     const mediaHosts = await callGeneration('list_media_hosts')
-    if (!mediaHosts.litterbox?.free || mediaHosts.litterbox?.permanent || mediaHosts.litterbox?.expiries?.join(',') !== '1h,12h,24h,72h') throw new Error('Litterbox MCP 能力目录无效')
+    if (!mediaHosts.litterbox?.free || mediaHosts.litterbox?.permanent || mediaHosts.litterbox?.expiries?.join(',') !== '1h,12h,24h,72h' || !mediaHosts.litterbox?.media_types?.includes('audio')) throw new Error('Litterbox MCP 能力目录无效')
     try { await callGeneration('transcribe_audio', { provider: 'starrouter', model: 'whisper-1', file_path: '/etc/hosts', project_root: root, confirmed: true }); throw new Error('项目外 ASR 文件未被拒绝') }
     catch (error) { if (!String(error.message).includes('assets/ 内文件')) throw error }
     const environment = JSON.parse(await readFile(resolve(root, '.short-drama/environment.json'), 'utf8'))
