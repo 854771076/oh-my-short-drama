@@ -228,6 +228,94 @@ export function buildDeleteRequest(voiceId) {
     : { flavor: 'qwen', body: { model: 'qwen-voice-design', input: { action: 'delete', voice: voiceId } } }
 }
 
+function apiKey() {
+  const value = credential('BAILIAN_API_KEY')
+  if (!value) throw new Error('BAILIAN_API_KEY 未配置')
+  return value
+}
+function confirm(input) {
+  if (input?.confirmed !== true) throw new Error('付费生成前必须取得用户确认，并传 confirmed=true')
+}
+function normalizeHttpError(status, data, raw) {
+  const detail = [data?.code, data?.message].filter(Boolean).join(': ') || raw
+  return new Error(`BAILIAN_REQUEST_FAILED(${status}): ${String(detail).slice(0, 500)}`)
+}
+async function postJson(path, body, { timeout = 300000 } = {}) {
+  const response = await fetch(`${DASHSCOPE_BASE}${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeout),
+  })
+  const raw = await response.text()
+  let data = {}
+  try { data = raw ? JSON.parse(raw) : {} } catch { throw new Error('BAILIAN_RESPONSE_INVALID_JSON') }
+  if (!response.ok) throw normalizeHttpError(response.status, data, raw)
+  return data
+}
+async function fetchAudioBuffer(audio) {
+  const b64 = trim(audio?.data)
+  const url = trim(audio?.url)
+  if (b64) return { buffer: Buffer.from(b64, 'base64'), url: url || undefined }
+  if (!url) throw new Error('BAILIAN_TTS_AUDIO_MISSING')
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`BAILIAN_TTS_AUDIO_DOWNLOAD_FAILED(${response.status})`)
+  return { buffer: Buffer.from(await response.arrayBuffer()), url }
+}
+function normalizeAudioResult(buffer, format, requestId) {
+  const mime = AUDIO_MIME[format] || 'audio/wav'
+  return {
+    provider: 'bailian',
+    task_id: `bailian-sync-${randomUUID()}`,
+    status: 'completed',
+    outputs: [{ b64_json: `data:${mime};base64,${buffer.toString('base64')}`, media_type: 'audio', content_type: mime, format }],
+    ...(requestId ? { request_id: requestId } : {}),
+  }
+}
+async function synthesize(input) {
+  const model = trim(input.model)
+  if (!BAILIAN_AUDIO_MODELS.includes(model)) throw new Error(`未注册的语音模型：${model}`)
+  const voice = trim(input.voice)
+  const text = trim(input.input ?? input.prompt)
+  if (!voice) throw new Error('voice 必填')
+  if (!text) throw new Error('input 必填')
+  const cosy = isCosyVoiceModel(model)
+  const segments = splitTextByLimit(text, cosy ? COSYVOICE_MAX_CHARS : QWEN_MAX_CHARS)
+  const buffers = []
+  let format = 'wav'
+  let lastRequestId
+  for (const segment of segments) {
+    const body = cosy
+      ? buildCosyTtsBody({ model, text: segment, voice, format: trim(input.response_format) || 'wav', sampleRate: input.sample_rate ?? 24000, volume: input.volume, rate: input.speed, pitch: input.pitch, languageHints: trim(input.language_hints) || undefined, instruction: trim(input.instruction) || undefined })
+      : buildQwenTtsBody({ model, text: segment, voice, languageType: trim(input.language_type) || 'Chinese' })
+    const data = await postJson(cosy ? COSYVOICE_TTS_PATH : MULTIMODAL_TTS_PATH, body)
+    if (!data.output?.audio) throw new Error('BAILIAN_TTS_OUTPUT_AUDIO_MISSING')
+    const got = await fetchAudioBuffer(data.output.audio)
+    buffers.push(got.buffer)
+    format = cosy ? body.input.format : 'wav'
+    if (trim(data.request_id)) lastRequestId = trim(data.request_id)
+  }
+  // 非 WAV 返回编码帧流，顺序拼接保留全部分段；时长仅 wav 可计算。
+  const merged = format === 'wav' ? mergeWavBuffers(buffers) : Buffer.concat(buffers)
+  return normalizeAudioResult(merged, format, lastRequestId)
+}
+
+export const bailian = {
+  label: '阿里云百炼',
+  credentialEnv: 'BAILIAN_API_KEY',
+  catalog: { image: [], video: [], audio: BAILIAN_AUDIO_MODELS, music: [], asr: [] },
+  capabilities: { text: false, image: false, video: false, audio: true, music: false, transcription: false, translation: false, voice_design: true },
+  async models() { return { catalog: bailian.catalog } },
+  async testConnection() {
+    await postJson(CUSTOMIZATION_PATH, { model: 'voice-enrollment', input: { action: 'list_voice', page_size: 1 } }, { timeout: 20000 })
+    return { ok: true }
+  },
+  async audio(input) {
+    confirm(input)
+    return synthesize(input)
+  },
+}
+
 export function selfCheck() {
   // 模型矩阵
   if (BAILIAN_AUDIO_MODELS.join(',') !== 'cosyvoice-v3.5-plus,cosyvoice-v3.5-flash,cosyvoice-v3-plus,cosyvoice-v3-flash,cosyvoice-v2,qwen3-tts-vd-2026-01-26') throw new Error('百炼模型目录或推荐顺序错误')
@@ -284,6 +372,17 @@ export function selfCheck() {
   if (clone.body.input.url !== 'https://example.com/a.wav' || clone.body.input.max_prompt_audio_length !== 25 || clone.body.input.enable_preprocess !== true) throw new Error('克隆请求体错误')
   if (buildCloneRequest({ url: 'u', prefix: 'cl' }).body.input.max_prompt_audio_length !== 10) throw new Error('克隆参考时长默认值错误')
   if (buildDeleteRequest('cosyvoice-v2-x').flavor !== 'cosyvoice' || buildDeleteRequest('qwenvoice').flavor !== 'qwen') throw new Error('删除 flavor 分流错误')
+
+  // audio 结果归一化
+  const result = normalizeAudioResult(Buffer.from([1, 2, 3]), 'mp3', 'req-1')
+  if (result.provider !== 'bailian' || result.status !== 'completed' || !result.outputs[0].b64_json.startsWith('data:audio/mpeg;base64,') || result.outputs[0].format !== 'mp3' || !result.task_id.startsWith('bailian-sync-')) throw new Error('audio 结果归一化错误')
+  if (!result.outputs[0].b64_json.includes(Buffer.from([1, 2, 3]).toString('base64'))) throw new Error('audio base64 内容错误')
+  // HTTP 错误归一化（spec §6：稳定 code + 截断 500）
+  const httpError = normalizeHttpError(401, { code: 'InvalidApiKey', message: 'bad key' }, '')
+  if (httpError.message !== 'BAILIAN_REQUEST_FAILED(401): InvalidApiKey: bad key') throw new Error('HTTP 错误归一化错误')
+  const truncated = normalizeHttpError(500, { message: 'x'.repeat(600) }, '')
+  if (!truncated.message.startsWith('BAILIAN_REQUEST_FAILED(500): ') || truncated.message.length !== 'BAILIAN_REQUEST_FAILED(500): '.length + 500) throw new Error('HTTP 错误截断错误')
+  if (normalizeHttpError(502, {}, 'raw body').message !== 'BAILIAN_REQUEST_FAILED(502): raw body') throw new Error('HTTP 错误 raw 回退错误')
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) { selfCheck(); console.log('ok') }
