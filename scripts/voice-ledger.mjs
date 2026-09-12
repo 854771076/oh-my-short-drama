@@ -11,7 +11,10 @@ const REQUIRED_FIELDS = ['voice_id', 'flavor', 'target_model', 'source', 'create
 function ledgerPath(root) { return resolve(root, LEDGER_RELATIVE) }
 function emptyLedger() { return { version: 1, voices: [] } }
 export function safeVoiceFileId(voiceId) { return String(voiceId).replace(/[^A-Za-z0-9._-]/g, '_') }
-export function previewRelativePath(voiceId, format) { return `.short-drama/voice-previews/${safeVoiceFileId(voiceId)}.${format || 'wav'}` }
+export function previewRelativePath(voiceId, format) {
+  const extension = /^[A-Za-z0-9]{1,8}$/.test(format || '') ? format : 'wav'
+  return `.short-drama/voice-previews/${safeVoiceFileId(voiceId)}.${extension}`
+}
 
 export async function readVoiceLedger(rootArg) {
   const root = await realpath(resolve(rootArg))
@@ -87,6 +90,9 @@ export async function selfCheck() {
     await addVoiceEntry(root, entry)
     if (safeVoiceFileId('cosyvoice-v3.5-plus-a/b') !== 'cosyvoice-v3.5-plus-a_b') throw new Error('文件名消毒错误')
     if (previewRelativePath('x', 'mp3') !== '.short-drama/voice-previews/x.mp3') throw new Error('预览路径错误')
+    const traversalPreview = previewRelativePath('x', '../../x')
+    if (!traversalPreview.startsWith('.short-drama/voice-previews/') || !traversalPreview.endsWith('.wav') || traversalPreview.includes('..')) throw new Error('云端返回扩展名路径穿越未被阻断')
+    if (previewRelativePath('x', 'x/y') !== '.short-drama/voice-previews/x.wav') throw new Error('非法扩展名未回退为 wav')
     if ((await readVoiceLedger(root)).voices.length !== 1) throw new Error('音色登记写入失败')
     await addVoiceEntry(root, { ...entry, request_id: 'r2' })
     if ((await readVoiceLedger(root)).voices.length !== 1 || (await readVoiceLedger(root)).voices[0].request_id !== 'r2') throw new Error('同 voice_id 覆盖失败')
