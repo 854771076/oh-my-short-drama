@@ -3,7 +3,7 @@
 本地优先、可追溯、可扩展的 Codex 标准短剧制作插件。从小说、故事梗概或创意开始，由 Codex 完成文本创作，通过生成 Provider 完成图片、视频和音频，最终在本地完成剪辑与交付。
 
 ```text
-Codex → codex-short-drama → drama-generation MCP → StarRouter / RunningHub / Comfly / 后续 Provider
+Codex → codex-short-drama → drama-generation MCP → 阿里云百炼 / StarRouter / RunningHub / Comfly
                                              ↘ Litterbox 临时参考图 URL（按需）
 ```
 
@@ -39,6 +39,14 @@ Codex → codex-short-drama → drama-generation MCP → StarRouter / RunningHub
 ## 支持的生成 Provider
 
 凭据可使用下列环境变量，也可在 Dashboard 的“生成配置”中录入。Dashboard 凭据保存在本机 `~/.config/codex-short-drama/credentials.json`（仅当前用户可读写），环境变量优先；两种方式都不会把凭据写入项目。
+
+### 阿里云百炼（配音默认推荐）
+
+```bash
+export BAILIAN_API_KEY='your-dashscope-key'
+```
+
+只提供语音模态：CosyVoice 全系列（推荐 `cosyvoice-v3.5-plus`，需先设计/克隆自定义音色；`cosyvoice-v2` 支持预置音色）与 `qwen3-tts-vd-2026-01-26`。通过 `design_voice`（文本设计音色）、`clone_voice`（参考音频克隆，本地素材自动临时发布 72h，需确认权利与使用范围）、`list_voices`、`delete_voice` 管理音色；音色登记保存在项目 `.short-drama/voices.json`，预览音频保存在 `.short-drama/voice-previews/`。
 
 ### StarRouter
 
@@ -158,6 +166,7 @@ project/
 - `submit_video`
 - `get_generation_task`
 - `generate_audio`
+- `design_voice` / `clone_voice` / `list_voices` / `delete_voice`
 
 如果当前任务看不到这些工具，应使用 `⌘Q` 完全退出 Codex，再重新打开并新建任务；不得降级为占位媒体。
 

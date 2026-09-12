@@ -7,9 +7,9 @@ description: 设计并在本地管理短剧声音资产。用于角色声音分�
 
 只处理制作计划标记为 post-dub/independent 的镜头，或 Provider 明确不支持原生音频的模型。`audio_strategy.mode=native` 的 MiniMax H3 镜头由视频模型一次生成声音，本 Skill 不重复安排 TTS。
 
-独立音频依次执行：由 Codex 使用 `assets/prompts/voice_analysis.{zh,en}.txt` 分离说话人和台词。Provider 返回受控标签时使用 `character_voice_recommend`；Provider 接受自然语言音色描述时使用 `character_voice_description`。设计或克隆得到真实音色 ID 后，把台词、来源版本、音色绑定、未决项和批准状态保存为 `episodes/<ep>/audio-plan/vNNN.json` 并显式选版，再按逐字文本生成语音。克隆前确认参考音频权利与具体文件，目标模型必须接受该音色 ID。逐条试听语言、说话者、文本、读音、语速、音高、时长、静音与破音，选版后才允许口型同步。
+独立音频依次执行：由 Codex 使用 `assets/prompts/voice_analysis.{zh,en}.txt` 分离说话人和台词。Provider 返回受控标签时使用 `character_voice_recommend`；Provider 接受自然语言音色描述时使用 `character_voice_description`。配音默认推荐阿里云百炼：先调用 `design_voice`（声音描述）或 `clone_voice`（已授权参考音频；必须传 usage_scope 与三项权利确认）取得真实音色 ID，本地登记可通过 `list_voices` 跨集查看、`delete_voice` 收敛；设计或克隆得到真实音色 ID 后，把台词、来源版本、音色绑定、未决项和批准状态保存为 `episodes/<ep>/audio-plan/vNNN.json` 并显式选版，再按逐字文本生成语音。克隆前确认参考音频权利与具体文件，目标模型必须接受该音色 ID。逐条试听语言、说话者、文本、读音、语速、音高、时长、静音与破音，选版后才允许口型同步。
 
-音频通过 `drama-generation-service` 交给用户确认的 Provider。逐句调用传 `{kind:"audio-plan",episode_key,version_id,line_index}`；入口会核对当前选版、批准状态、逐字台词以及角色—Provider—模型—voice 绑定。StarRouter 可使用 `speech-2.8-hd`、`speech-2.8-turbo`、Qwen3 TTS、PawSense 或 `tts-1` 同步生成，必须提供已确认的台词、模型对应 voice、语速和输出格式；RunningHub 可使用用户音频工作流。每条结果必须解码、复制或下载到本地 `assets/audio/` 后登记选版并保存同一行引用和输入指纹，失败只重做受影响语句。
+音频通过 `drama-generation-service` 交给用户确认的 Provider。百炼路径使用 `generate_audio`（provider=bailian，model 与 audio-plan 绑定一致），推荐 `cosyvoice-v3.5-plus`；voice 必须传 `design_voice`/`clone_voice` 返回的自定义音色 ID，v3.5-plus/flash 拒绝预置音色；instruction 仅 v3.5-plus/flash 与 v3-flash 接受（加权长度 ≤100），语言 hint 必须在目标模型矩阵内；长文本自动按标点分段并合并为 wav（选 mp3/pcm/opus 时按帧流拼接），逐句结果仍登记到 `assets/audio/`。逐句调用传 `{kind:"audio-plan",episode_key,version_id,line_index}`；入口会核对当前选版、批准状态、逐字台词以及角色—Provider—模型—voice 绑定。StarRouter 可使用 `speech-2.8-hd`、`speech-2.8-turbo`、Qwen3 TTS、PawSense 或 `tts-1` 同步生成，必须提供已确认的台词、模型对应 voice、语速和输出格式；RunningHub 可使用用户音频工作流。每条结果必须解码、复制或下载到本地 `assets/audio/` 后登记选版并保存同一行引用和输入指纹，失败只重做受影响语句。
 
 OP、ED、BGM 或音乐短视频配乐写入可选 `music_tracks`，每项包含 `key`、`purpose`、`title`、`prompt`、`tags`、`lyrics`、`make_instrumental`、`provider`、`model`、`matched_shots`。StarRouter `suno_music` 调用 `generate_music` 并传 `{kind:"audio-plan",episode_key,version_id,track_key}`；结果仍保存为 `assets/audio/` 音频资产。
 

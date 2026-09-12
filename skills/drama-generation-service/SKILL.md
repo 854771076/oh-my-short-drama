@@ -7,7 +7,7 @@ description: 统一路由短剧图片、视频和音频生成 Provider。用于�
 
 标准流程中的剧本、导演本、资产描述、制作规划和视频提示词由 Codex 直接生成并落盘，不调用外部文本模型。图片、视频或音频生成前先调用 `list_generation_providers`，按用户明确选择的 Provider 和模态能力路由；未选择时停止，不自动使用默认供应商。
 
-如果当前任务的 MCP 工具列表没有 `list_generation_providers`、`list_models`、`generate_image`、`submit_video`、`generate_audio` 或需要配乐时没有 `generate_music`，必须停止对应媒体生产并提示用户使用 `⌘Q` 完全退出 Codex 后重新打开；仅新建任务不会刷新桌面进程的插件 MCP 快照。禁止用占位文件、虚构成功响应或纯文本替代媒体结果。
+如果当前任务的 MCP 工具列表没有 `list_generation_providers`、`list_models`、`generate_image`、`submit_video`、`generate_audio`、`design_voice`、`clone_voice`、`list_voices`、`delete_voice` 或需要配乐时没有 `generate_music`，必须停止对应媒体生产并提示用户使用 `⌘Q` 完全退出 Codex 后重新打开；仅新建任务不会刷新桌面进程的插件 MCP 快照。禁止用占位文件、虚构成功响应或纯文本替代媒体结果。
 
 付费前必须展示并确认：Provider、模型或工作流 ID、提示词版本、prompt_profile、input_mode、数量、尺寸/分辨率、时长、参考素材版本及其用途与顺序、声音策略和费用影响。所有图片、视频、音频调用必须传项目绝对路径 `project_root`、目标资产 key `target` 和 `prompt_document`：视频为 `{episode_key,version_id,shot_number}`；人物/场景/道具图为 `{kind:"asset-plan",episode_key,version_id,asset_key}`；分镜图为 `{kind:"storyboard",episode_key,version_id,shot_number}`；语音为 `{kind:"audio-plan",episode_key,version_id,line_index}`；音乐为 `{kind:"audio-plan",episode_key,version_id,track_key}`。只有不属于正式制作资产的 `other-*` 辅助图可传 `null`。视频还必须传 `prompt_version` 和结构化 `reference_manifest`，确认后才传 `confirmed: true`。
 
