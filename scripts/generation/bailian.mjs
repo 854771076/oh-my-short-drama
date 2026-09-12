@@ -305,6 +305,46 @@ async function synthesize(input) {
   return normalizeAudioResult(merged, format, lastRequestId)
 }
 
+function normalizeCustomizationResult(data, flavor) {
+  const output = data.output || {}
+  const voiceId = trim(output.voice) || trim(output.voice_id)
+  return {
+    success: true,
+    voice_id: voiceId || undefined,
+    target_model: trim(output.target_model) || undefined,
+    status: trim(output.status) || undefined,
+    preview: output.preview_audio?.data ? { data_base64: output.preview_audio.data, sample_rate: output.preview_audio.sample_rate, format: trim(output.preview_audio.response_format) || 'wav' } : undefined,
+    request_id: trim(data.request_id) || undefined,
+    flavor,
+  }
+}
+function toDeleteError(error) {
+  const message = String(error?.message || '')
+  if (!message.startsWith('BAILIAN_REQUEST_FAILED(')) return error
+  return new Error(message.replace('BAILIAN_REQUEST_FAILED', 'BAILIAN_VOICE_DELETE_FAILED'))
+}
+function normalizeVoiceRow(row, source) {
+  return {
+    voice_id: trim(row.voice_id) || trim(row.voice) || trim(row.voice_name),
+    prefix: trim(row.prefix) || undefined,
+    target_model: trim(row.target_model) || trim(row.model) || undefined,
+    status: trim(row.status) || undefined,
+    create_time: trim(row.create_time) || undefined,
+    update_time: trim(row.update_time) || undefined,
+    source,
+  }
+}
+async function fetchVoiceList(model, action, source) {
+  try {
+    const data = await postJson(CUSTOMIZATION_PATH, { model, input: { action, page_size: 100 } }, { timeout: 20000 })
+    const rows = data.output?.voices ?? data.output?.voice_list ?? []
+    return rows.map((row) => normalizeVoiceRow(row, source)).filter((row) => row.voice_id)
+  } catch {
+    // 单个端点失败不阻塞另一路（移植 waoowaoo listBailianVoices 行为）
+    return []
+  }
+}
+
 export const bailian = {
   label: '阿里云百炼',
   credentialEnv: 'BAILIAN_API_KEY',
@@ -318,6 +358,42 @@ export const bailian = {
   async audio(input) {
     confirm(input)
     return synthesize(input)
+  },
+  async createVoiceDesign(input) {
+    confirm(input)
+    requireValid(validateVoicePrompt(input.voice_prompt))
+    requireValid(validatePreviewText(input.preview_text))
+    requireValid(validateVoicePrefix(trim(input.prefix) || 'cv'))
+    const languageHints = trim(input.language_hints)
+    if (languageHints && input.flavor !== 'qwen' && !languageHintsFor(input.target_model || 'cosyvoice-v3.5-plus').includes(languageHints)) throw new Error(`language_hints 不受目标模型支持：${languageHints}`)
+    const { flavor, body } = buildDesignRequest(input)
+    return normalizeCustomizationResult(await postJson(CUSTOMIZATION_PATH, body), flavor)
+  },
+  async createVoiceClone(input) {
+    confirm(input)
+    assertPublicHttps(input.url, 'audio_url')
+    requireValid(validateVoicePrefix(trim(input.prefix) || 'clone'))
+    const languageHints = trim(input.language_hints)
+    if (languageHints && !languageHintsFor(input.target_model || 'cosyvoice-v3.5-plus').includes(languageHints)) throw new Error(`language_hints 不受目标模型支持：${languageHints}`)
+    const { body } = buildCloneRequest(input)
+    return normalizeCustomizationResult(await postJson(CUSTOMIZATION_PATH, body), 'cosyvoice-clone')
+  },
+  async listCloudVoices() {
+    const [cosy, qwen] = await Promise.all([
+      fetchVoiceList('voice-enrollment', 'list_voice', 'cosyvoice'),
+      fetchVoiceList('qwen-voice-design', 'list', 'qwen'),
+    ])
+    return [...cosy, ...qwen]
+  },
+  async deleteCloudVoice(voiceId) {
+    const id = trim(voiceId)
+    if (!id) throw new Error('BAILIAN_VOICE_ID_REQUIRED')
+    const { flavor, body } = buildDeleteRequest(id)
+    let data
+    try {
+      data = await postJson(CUSTOMIZATION_PATH, body, { timeout: 20000 })
+    } catch (error) { throw toDeleteError(error) }
+    return { flavor, request_id: trim(data.request_id) || undefined }
   },
 }
 
@@ -405,11 +481,28 @@ export async function selfCheck() {
     globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => '{"request_id":"x"}' })
     const okData = await postJson('/x', {})
     if (okData.request_id !== 'x') throw new Error('postJson 正常响应解析错误')
+
+    globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => '' })
+    const emptyData = await postJson('/x', {})
+    if (Object.keys(emptyData).length !== 0) throw new Error('postJson 空响应体应归一化为零键对象')
   } finally {
     globalThis.fetch = previousFetch
     if (previousApiKey === undefined) delete process.env.BAILIAN_API_KEY
     else process.env.BAILIAN_API_KEY = previousApiKey
   }
+
+  // 定制化响应归一化
+  const designed = normalizeCustomizationResult({ output: { voice_id: 'cosyvoice-v3.5-plus-x', target_model: 'cosyvoice-v3.5-plus', status: 'OK', preview_audio: { data: 'AAA=', sample_rate: 24000, response_format: 'wav' } }, request_id: 'r1' }, 'cosyvoice-design')
+  if (designed.success !== true || designed.voice_id !== 'cosyvoice-v3.5-plus-x' || designed.preview?.data_base64 !== 'AAA=' || designed.flavor !== 'cosyvoice-design') throw new Error('设计响应归一化错误')
+  const cloned = normalizeCustomizationResult({ output: { voice: 'clone-x' } }, 'cosyvoice-clone')
+  if (cloned.voice_id !== 'clone-x' || cloned.preview !== undefined) throw new Error('克隆响应归一化错误')
+  if (normalizeCustomizationResult({ output: {} }, 'cosyvoice-clone').voice_id) throw new Error('空 voiceId 归一化错误')
+  if (normalizeVoiceRow({ voice: 'cosyvoice-v2-a', prefix: 'p', target_model: 'cosyvoice-v2' }, 'cosyvoice').voice_id !== 'cosyvoice-v2-a') throw new Error('云端音色行归一化错误')
+  // 删除失败专用 code（spec §4.1：BAILIAN_VOICE_DELETE_FAILED），非 HTTP 错误原样透传
+  const deleteError = toDeleteError(new Error('BAILIAN_REQUEST_FAILED(400): InvalidVoice: gone'))
+  if (deleteError.message !== 'BAILIAN_VOICE_DELETE_FAILED(400): InvalidVoice: gone') throw new Error('删除错误归一化错误')
+  const networkError = new Error('fetch failed')
+  if (toDeleteError(networkError) !== networkError) throw new Error('非 HTTP 删除错误不应包装')
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) { selfCheck().then(() => console.log('ok')).catch((error) => { console.error(error.message); process.exitCode = 1 }) }
