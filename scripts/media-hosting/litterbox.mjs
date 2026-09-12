@@ -5,7 +5,7 @@ const ENDPOINT = 'https://litterbox.catbox.moe/resources/internals/api.php'
 const EXPIRIES = new Set(['1h', '12h', '24h', '72h'])
 const DISALLOWED = /\.(?:exe|scr|cpl|doc[^.]?|jar)$/i
 
-export const capabilities = { media_types: ['image'], anonymous: true, free: true, expiries: [...EXPIRIES], max_bytes: 1024 ** 3, permanent: false }
+export const capabilities = { media_types: ['image', 'audio'], anonymous: true, free: true, expiries: [...EXPIRIES], max_bytes: 1024 ** 3, permanent: false }
 
 export async function upload(path, expiry, fetchImpl = fetch) {
   if (!EXPIRIES.has(expiry)) throw new Error('Litterbox expires_in 只能是 1h、12h、24h 或 72h')
@@ -24,7 +24,7 @@ export async function upload(path, expiry, fetchImpl = fetch) {
 }
 
 export function selfCheck() {
-  if (capabilities.expiries.join(',') !== '1h,12h,24h,72h' || capabilities.permanent !== false) throw new Error('Litterbox 能力合同自检失败')
+  if (capabilities.media_types.join() !== 'image,audio' || capabilities.expiries.join(',') !== '1h,12h,24h,72h' || capabilities.permanent !== false) throw new Error('Litterbox 能力合同自检失败')
   return true
 }
 
