@@ -141,6 +141,7 @@ Base：`https://dashscope.aliyuncs.com`，鉴权 `Authorization: Bearer ${BAILIA
 
   - 四个工具**不走** `enforceGenerationStage`、请求快照和任务账本（不产生 audio-* 资产，可在媒体生产之前的音频设计阶段使用）；但必须 `realpath(project_root)` 并成功读取/校验 `.short-drama/project.json`（证明在合法项目内）。
   - `design_voice` 分发：MCP 层做入参校验（复用 bailian.mjs 导出的 validators 与模型矩阵）→ `adapter.createVoiceDesign` → 写 voice-ledger → 预览音频落盘 → 返回 ledger 条目（含 preview_path）。
+  - 实现顺序说明（2026-09-12 终修）：实现中预览音频先于 ledger 写入尝试；预览持久化失败时云端音色仍按成功登记/上报（`preview_path:null` + 中文 warning，提示用 `list_voices`/`delete_voice` 收敛，不重试付费调用），ledger 写入失败则尽力删除已落盘预览并同样返回 voice_id + warning；两层失败同时发生时 warning 仍明确告知云端音色已创建。
   - `clone_voice` 分发：
     1. 若给 `audio_url`：校验 https 公网（拒绝 localhost/私网）。
     2. 若给 `reference_audio_path`：realpath 必须位于项目 `assets/` 内（仿 ASR 路径校验）；扩展名白名单 `.wav,.mp3,.m4a,.aac,.ogg,.flac,.webm`；大小 ≤ 20 MiB；魔数嗅探（RIFF/ID3/`0xFFFx`/`ftyp`/OggS/`fLaC`）与扩展名一致。

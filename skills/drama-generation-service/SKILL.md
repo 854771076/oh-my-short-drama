@@ -1,6 +1,6 @@
 ---
 name: drama-generation-service
-description: 统一路由短剧图片、视频和音频生成 Provider。用于让用户选择 StarRouter、RunningHub、Comfly 或后续适配器，提交任务并把结果保存到本地；不负责文本创作判断。
+description: 统一路由短剧图片、视频和音频生成 Provider。用于让用户选择阿里云百炼、StarRouter、RunningHub、Comfly 或后续适配器，提交任务并把结果保存到本地；不负责文本创作判断。
 ---
 
 # 短剧生成服务

@@ -20,7 +20,7 @@ description: 本地标准短剧插件的总索引。用于查询画风、人物/
 - 配音、TTS、口型 → `design-drama-audio`
 - 镜头验收、时间线、交付 → `review-drama-shots`、`remotion-best-practices`、`edit-drama-timeline`、`edit-deliver-drama`
 - 画风生成、选择与变更 → `generate-drama-art-style`、`manage-drama-art-styles`
-- StarRouter、RunningHub、Comfly 等 Provider 配置和媒体生成 → `configure-generation-providers`、`drama-generation-service`
+- 阿里云百炼、StarRouter、RunningHub、Comfly 等 Provider 配置和媒体生成 → `configure-generation-providers`、`drama-generation-service`
 - Provider 只接受公网 URL 时临时发布本地参考图 → `publish-drama-references`
 - 本地任务监控和故障恢复 → `monitor-drama-tasks`、`recover-drama-pipeline`
 

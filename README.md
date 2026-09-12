@@ -48,6 +48,8 @@ export BAILIAN_API_KEY='your-dashscope-key'
 
 只提供语音模态：CosyVoice 全系列（推荐 `cosyvoice-v3.5-plus`，需先设计/克隆自定义音色；`cosyvoice-v2` 支持预置音色）与 `qwen3-tts-vd-2026-01-26`。通过 `design_voice`（文本设计音色）、`clone_voice`（参考音频克隆，本地素材自动临时发布 72h，需确认权利与使用范围）、`list_voices`、`delete_voice` 管理音色；音色登记保存在项目 `.short-drama/voices.json`，预览音频保存在 `.short-drama/voice-previews/`。
 
+`audio_url` 客户端校验只拒绝非 HTTPS、落在本机/私网/链路本地/云元数据等保留网段的 IP 字面量以及 `.localhost` 域名，不对公网域名做 DNS 解析；若公网域名实际解析到内网地址，超出此客户端门禁范围，须由网络出站策略控制。
+
 ### StarRouter
 
 - 图片：`gpt-image-2`

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, rmdir, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, extname, resolve, sep } from 'node:path'
 import { validateProject } from '../project-store.mjs'
@@ -48,11 +48,20 @@ export async function designVoice(args) {
   })
   if (!result.voice_id) throw new Error('BAILIAN_VOICE_INVALID_RESULT: 设计成功响应缺少 voice_id')
   let previewPath = null
+  let previewWarning = ''
   if (result.preview?.data_base64) {
-    previewPath = previewRelativePath(result.voice_id, result.preview.format)
-    const target = resolve(root, previewPath)
-    await mkdir(dirname(target), { recursive: true })
-    await writeFile(target, Buffer.from(result.preview.data_base64, 'base64'))
+    const candidate = previewRelativePath(result.voice_id, result.preview.format)
+    const target = resolve(root, candidate)
+    try {
+      // 付费云调用已成功：本地落盘失败不得抛出（否则谎称失败并诱发付费重试），降级为 preview_path=null + warning
+      await mkdir(dirname(target), { recursive: true })
+      await writeFile(target, Buffer.from(result.preview.data_base64, 'base64'))
+      previewPath = candidate
+    } catch (previewError) {
+      previewWarning = `云端音色已创建，但本地试听音频保存失败：${String(previewError.message).slice(0, 200)}；可用 list_voices/delete_voice 收敛`
+      await rm(target, { force: true }).catch(() => {})
+      await rmdir(target).catch(() => {}) // 目标路径恰好是个空目录（EISDIR）时顺手清理
+    }
   }
   const entry = {
     voice_id: result.voice_id,
@@ -67,11 +76,15 @@ export async function designVoice(args) {
     created_at: new Date().toISOString(),
   }
   // spec §6：云端已成功时本地账本写失败不谎称失败，带 warning 返回 voice_id
-  try { return await addVoiceEntry(root, entry) }
+  let saved
+  try { saved = await addVoiceEntry(root, entry) }
   catch (error) {
     if (previewPath) await rm(resolve(root, previewPath), { force: true }).catch(() => {})
-    return { ...entry, preview_path: null, warning: `云端音色已创建，但本地登记写入失败：${String(error.message).slice(0, 200)}；可用 list_voices/delete_voice 收敛` }
+    const ledgerWarning = `云端音色已创建，但本地登记写入失败：${String(error.message).slice(0, 200)}；可用 list_voices/delete_voice 收敛`
+    return { ...entry, preview_path: null, warning: previewWarning ? `${previewWarning}；${ledgerWarning}` : ledgerWarning }
   }
+  if (previewWarning) return { ...saved, preview_path: null, warning: previewWarning }
+  return saved
 }
 
 export async function cloneVoice(args) {

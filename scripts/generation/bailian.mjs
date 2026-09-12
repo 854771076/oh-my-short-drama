@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto'
+import { isIP } from 'node:net'
 import { credential } from './credentials.mjs'
 
 const DASHSCOPE_BASE = (process.env.BAILIAN_BASE_URL || 'https://dashscope.aliyuncs.com').replace(/\/$/, '')
@@ -42,10 +43,92 @@ export function inferModelFromVoiceId(voiceId) {
   const id = trim(voiceId)
   return COSYVOICE_MODELS.find((model) => id === model || id.startsWith(`${model}-`)) || ''
 }
+// WHATWG URL 会把 hex/八进制/整数/短写 IPv4 规范化为点分十进制；这里只接受规范形式，异常即闭合拒绝
+function parseIpv4Octets(host) {
+  const parts = String(host).split('.')
+  if (parts.length !== 4) return null
+  const octets = []
+  for (const part of parts) {
+    if (!/^(0|[1-9][0-9]{0,2})$/.test(part)) return null
+    const number = Number(part)
+    if (number > 255) return null
+    octets.push(number)
+  }
+  return octets
+}
+function isNonPublicIPv4([a, b, c]) {
+  return a === 0 // 0.0.0.0/8 本机网络/未指定
+    || a === 10 // RFC1918
+    || a === 127 // loopback
+    || (a === 100 && b >= 64 && b <= 127) // CGNAT 100.64.0.0/10
+    || (a === 169 && b === 254) // link-local（含云元数据 169.254.169.254）
+    || (a === 172 && b >= 16 && b <= 31) // RFC1918
+    || (a === 192 && b === 0 && (c === 0 || c === 2)) // 192.0.0.0/24、TEST-NET-1
+    || (a === 192 && b === 88 && c === 99) // 6to4 任播遗留
+    || (a === 192 && b === 168) // RFC1918
+    || (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) // benchmark / TEST-NET-2
+    || (a === 203 && b === 0 && c === 113) // TEST-NET-3
+    || a >= 224 // 224/4 组播、240/4 保留、255.255.255.255
+}
+function parseIpv6Bytes(raw) {
+  let addr = String(raw).toLowerCase()
+  if (!addr || addr.includes(':::') || addr.includes('%')) return null
+  let embedded = null
+  if (addr.includes('.')) {
+    const colon = addr.lastIndexOf(':')
+    if (colon < 0) return null
+    embedded = parseIpv4Octets(addr.slice(colon + 1))
+    if (!embedded) return null
+    addr = addr.slice(0, colon)
+  }
+  let head = []
+  let tail = []
+  if (addr.includes('::')) {
+    if (addr.indexOf('::') !== addr.lastIndexOf('::')) return null
+    const [left, right] = addr.split('::')
+    head = left ? left.split(':') : []
+    tail = right ? right.split(':') : []
+  } else {
+    head = addr.split(':')
+  }
+  if (embedded) tail.push(((embedded[0] << 8) | embedded[1]).toString(16), ((embedded[2] << 8) | embedded[3]).toString(16))
+  const groups = addr.includes('::') ? [...head, ...new Array(8 - head.length - tail.length).fill('0'), ...tail] : head
+  if (groups.length !== 8 || groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return null
+  const bytes = new Uint8Array(16)
+  groups.forEach((group, index) => {
+    const value = parseInt(group, 16)
+    bytes[index * 2] = value >> 8
+    bytes[index * 2 + 1] = value & 255
+  })
+  return bytes
+}
+function isNonPublicIPv6(bytes) {
+  // ::1 回环与 :: 未指定天然落入“内嵌 IPv4”判定（0.0.0.1 / 0.0.0.0 均非公网）
+  if (bytes.subarray(0, 10).every((byte) => byte === 0)) return isNonPublicIPv4([bytes[12], bytes[13], bytes[14], bytes[15]])
+  if (bytes[0] === 0xff) return true // ff00::/8 组播
+  if (bytes[0] === 0xfe && ((bytes[1] & 0xc0) === 0x80 || (bytes[1] & 0xc0) === 0xc0)) return true // fe80::/10 链路本地、fec0::/10 废弃站点本地
+  if ((bytes[0] & 0xfe) === 0xfc) return true // fc00::/7 唯一本地地址
+  if (bytes[0] === 0x20 && bytes[1] === 0x01 && bytes[2] === 0x0d && bytes[3] === 0xb8) return true // 2001:db8::/32 文档保留
+  return false
+}
 export function assertPublicHttps(value, field = 'url') {
-  const url = new URL(value)
-  const hostname = url.hostname.replace(/^\[|\]$/g, '')
-  if (url.protocol !== 'https:' || ['localhost', '127.0.0.1', '::1'].includes(hostname)) throw new Error(`${field} 必须是公网 HTTPS URL`)
+  let url
+  try { url = new URL(typeof value === 'string' ? value : String(value ?? '')) }
+  catch { throw new Error(`${field} 必须是公网 HTTPS URL`) }
+  if (url.protocol !== 'https:') throw new Error(`${field} 必须是公网 HTTPS URL`)
+  const hostname = url.hostname
+  if (!hostname) throw new Error(`${field} 必须是公网 HTTPS URL`)
+  const bare = hostname.startsWith('[') ? hostname.slice(1, -1) : hostname
+  const lower = bare.toLowerCase().replace(/\.$/, '') // 去掉根标签尾点：localhost. 仍是本机
+  if (lower === 'localhost' || lower.endsWith('.localhost')) throw new Error(`${field} 必须是公网 HTTPS URL`)
+  const kind = isIP(bare)
+  if (kind === 4) {
+    const octets = parseIpv4Octets(bare)
+    if (!octets || isNonPublicIPv4(octets)) throw new Error(`${field} 必须是公网 HTTPS URL`)
+  } else if (kind === 6) {
+    const bytes = parseIpv6Bytes(bare)
+    if (!bytes || isNonPublicIPv6(bytes)) throw new Error(`${field} 必须是公网 HTTPS URL`)
+  }
   return value
 }
 
@@ -410,9 +493,23 @@ export async function selfCheck() {
   if (validateVoicePrompt('  ').valid || !validateVoicePrompt('低沉女声').valid || validateVoicePrompt('a'.repeat(501)).valid) throw new Error('声音提示词校验错误')
   if (validatePreviewText('1234').valid || !validatePreviewText('你好，很高兴认识你。').valid || validatePreviewText('a'.repeat(201)).valid) throw new Error('预览文本校验错误')
   if (validateVoicePrefix('cv_1').valid || validateVoicePrefix('').valid || !validateVoicePrefix('cv01').valid) throw new Error('音色前缀校验错误')
-  try { assertPublicHttps('http://x.com/a'); throw new Error('私网 URL 校验失败') } catch (error) { if (!String(error.message).includes('公网 HTTPS')) throw error }
-  try { assertPublicHttps('https://127.0.0.1/a'); throw new Error('localhost URL 校验失败') } catch (error) { if (!String(error.message).includes('公网 HTTPS')) throw error }
-  try { assertPublicHttps('https://[::1]/a'); throw new Error('IPv6 loopback URL 校验失败') } catch (error) { if (!String(error.message).includes('公网 HTTPS')) throw error }
+  // SSRF 网关：非 https、localhost/.localhost、私网/环回/链路本地/元数据/保留 IP 字面量全部拒绝（不做 DNS 解析）
+  const blockedUrls = [
+    'http://example.com/a.wav', 'not-a-url', '',
+    'https://localhost/a.wav', 'https://LocalHost./a.wav', 'https://example.localhost/a.wav',
+    'https://127.0.0.1/a.wav', 'https://0x7f000001/a.wav', 'https://2130706433/a.wav',
+    'https://0.0.0.0/a.wav', 'https://10.0.0.1/a.wav', 'https://192.168.1.1/a.wav', 'https://172.16.0.1/a.wav',
+    'https://169.254.169.254/latest/meta-data/', 'https://100.64.0.1/a.wav',
+    'https://[::1]/a.wav', 'https://[::]/a.wav', 'https://[fe80::1]/a.wav', 'https://[fc00::1]/a.wav',
+    'https://[fd12::1]/a.wav', 'https://[ff02::1]/a.wav', 'https://[::ffff:127.0.0.1]/a.wav',
+    'https://[::ffff:7f00:1]/a.wav', 'https://[::ffff:a9fe:a9fe]/a.wav', 'https://[::ffff:10.0.0.1]/a.wav',
+  ]
+  for (const blocked of blockedUrls) {
+    try { assertPublicHttps(blocked, 'audio_url'); throw new Error(`私网 URL 未被拒绝：${blocked}`) }
+    catch (error) { if (!String(error.message).includes('公网 HTTPS')) throw error }
+  }
+  for (const allowed of ['https://dashscope.aliyuncs.com/a.wav', 'https://8.8.8.8/a.wav', 'https://[2606:4700:4700::1111]/a.wav', 'https://[::ffff:8.8.8.8]/a.wav']) assertPublicHttps(allowed)
+  try { assertPublicHttps(undefined); throw new Error('空 URL 校验失败') } catch (error) { if (!String(error.message).includes('公网 HTTPS')) throw error }
 
   // WAV 合并：44100 单声道 16bit，两段 100 samples
   const format = { audioFormat: 1, numChannels: 1, sampleRate: 44100, byteRate: 44100 * 2, blockAlign: 2, bitsPerSample: 16 }
@@ -485,6 +582,40 @@ export async function selfCheck() {
     globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => '' })
     const emptyData = await postJson('/x', {})
     if (Object.keys(emptyData).length !== 0) throw new Error('postJson 空响应体应归一化为零键对象')
+
+    // audio() 默认付费主路径：确认门前零 fetch、双分段 WAV 合并、audio.data/audio.url 两分支（全部打桩）
+    const ttsUrl = `${DASHSCOPE_BASE}${COSYVOICE_TTS_PATH}`
+    const audioOkUrl = 'https://audio.example.com/seg.wav'
+    const audioBadUrl = 'https://audio.example.com/bad.wav'
+    let synthCalls = 0
+    let fetchCalls = 0
+    globalThis.fetch = async (url) => {
+      fetchCalls += 1
+      const href = String(url)
+      if (href === audioOkUrl) return new Response(Buffer.from(wavA), { status: 200, headers: { 'content-type': 'audio/wav' } })
+      if (href === audioBadUrl) return new Response('Bad Gateway', { status: 502 })
+      if (href !== ttsUrl) throw new Error(`audio 自检遇到未桩接 URL：${href}`)
+      synthCalls += 1
+      if (synthCalls <= 2) {
+        const wav = synthCalls === 1 ? wavA : wavB
+        return new Response(JSON.stringify({ output: { audio: { data: wav.toString('base64') } }, request_id: `req-seg-${synthCalls}` }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      if (synthCalls === 3) return new Response(JSON.stringify({ output: { audio: { url: audioOkUrl } }, request_id: 'req-url-ok' }), { status: 200, headers: { 'content-type': 'application/json' } })
+      return new Response(JSON.stringify({ output: { audio: { url: audioBadUrl } }, request_id: 'req-url-bad' }), { status: 200, headers: { 'content-type': 'application/json' } })
+    }
+    try { await bailian.audio({ model: 'cosyvoice-v3.5-plus', voice: 'cosyvoice-v3.5-plus-x', input: '不应发出的请求' }); throw new Error('audio 未确认仍被执行') }
+    catch (error) { if (!String(error.message).includes('confirmed=true')) throw error }
+    if (fetchCalls !== 0) throw new Error('付费确认门前不得发生任何 fetch')
+    const segmented = await bailian.audio({ model: 'cosyvoice-v3.5-plus', voice: 'cosyvoice-v3.5-plus-x', input: longText, confirmed: true })
+    if (synthCalls !== 2) throw new Error('长文本应触发两个 TTS 分段请求')
+    const segmentedWav = decodeWavBuffer(Buffer.from(String(segmented.outputs[0].b64_json).split(',')[1], 'base64'))
+    if (segmentedWav.data.length !== 500 || segmented.request_id !== 'req-seg-2') throw new Error('双分段 WAV 合并 PCM 长度或末次 request_id 错误')
+    const urlOk = await bailian.audio({ model: 'cosyvoice-v3.5-plus', voice: 'cosyvoice-v3.5-plus-x', input: 'url 成功分支短句', confirmed: true })
+    if (decodeWavBuffer(Buffer.from(String(urlOk.outputs[0].b64_json).split(',')[1], 'base64')).data.length !== 200 || urlOk.request_id !== 'req-url-ok') throw new Error('audio.url 成功分支结果错误')
+    try {
+      await bailian.audio({ model: 'cosyvoice-v3.5-plus', voice: 'cosyvoice-v3.5-plus-x', input: 'url 失败分支短句', confirmed: true })
+      throw new Error('audio.url 非 2xx 未被拒绝')
+    } catch (error) { if (!String(error.message).includes('BAILIAN_TTS_AUDIO_DOWNLOAD_FAILED(502)')) throw error }
   } finally {
     globalThis.fetch = previousFetch
     if (previousApiKey === undefined) delete process.env.BAILIAN_API_KEY

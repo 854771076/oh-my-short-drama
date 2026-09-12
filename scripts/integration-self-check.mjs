@@ -103,7 +103,13 @@ async function checkBailianVoiceLifecycle() {
   const bailianRoot = await mkdtemp(resolve(tmpdir(), 'short-drama-bailian-'))
   const originalFetch = globalThis.fetch
   const originalKey = process.env.BAILIAN_API_KEY
+  // 项目外哨兵：植入账本 preview_path 穿越行时，delete_voice 绝不能删掉它
+  const sentinelName = `p7-sentinel-${process.pid}.txt`
+  const sentinelPath = resolve(bailianRoot, '..', sentinelName)
   try {
+    // 前置门禁阶段：即使环境里预置了 BAILIAN_API_KEY 也先摘除，并用拒绝型 fetch 陷阱兜底任何意外出站
+    delete process.env.BAILIAN_API_KEY
+    globalThis.fetch = async (url) => { throw new Error(`前置门禁自检阶段禁止任何真实网络请求：${url}`) }
     const bailianInit = await json(bailianRoot, 'initial-project.json', { key: 'bailian-drama', title: '百炼配音短剧', providers: { image: { provider: 'starrouter', model_or_workflow: 'gpt-image-2', prompt_profile: null }, video: { provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', parameters: { watermark: true } }, audio: { provider: 'bailian', model_or_workflow: 'cosyvoice-v3.5-plus', prompt_profile: null, parameters: { speed: 1, response_format: 'wav', sample_rate: 24000, volume: 50, pitch: 1, language_hints: 'zh', instruction: '' } }, music: { provider: 'starrouter', model_or_workflow: 'suno_music', prompt_profile: null, parameters: { make_instrumental: true } } } })
     run('project-store.mjs', 'init', bailianRoot, bailianInit)
     // path 模式克隆门禁要求 assets/ 真实存在（realpath assetsRoot）
@@ -119,14 +125,26 @@ async function checkBailianVoiceLifecycle() {
     await expectRejected('v3-plus-instruction.json', { providers: { audio: { model_or_workflow: 'cosyvoice-v3-plus', prompt_profile: null, parameters: { language_hints: 'zh', instruction: '冷静地说' } } } }, '模型参数不受支持')
     await expectRejected('unknown-model.json', { providers: { audio: { provider: 'bailian', model_or_workflow: 'not-a-model', prompt_profile: null } } }, '不受 bailian 支持')
 
-    // 前置门禁：全部必须在到达百炼网络前被拒绝（此时尚未设置 BAILIAN_API_KEY）
+    // 前置门禁：全部必须在到达百炼网络前被拒绝（fetch 是拒绝陷阱，且未设置 BAILIAN_API_KEY）
     const rights = { usage_scope: 'non-commercial', confirmed: true, rights_confirmed: true, public_exposure_confirmed: true, usage_terms_confirmed: true }
-    try { await callGeneration('clone_voice', { provider: 'bailian', project_root: bailianRoot, prefix: 'cl', audio_url: 'http://127.0.0.1/a.wav', ...rights }); throw new Error('私网克隆 URL 未被拒绝') }
-    catch (error) { if (!String(error.message).includes('公网 HTTPS')) throw error }
+    const expectGate = async (label, payload, fragment) => {
+      try { await callGeneration('clone_voice', payload); throw new Error(`${label} 未被拒绝`) }
+      catch (error) { if (!String(error.message).includes(fragment)) throw error }
+    }
+    await expectGate('私网克隆 URL', { provider: 'bailian', project_root: bailianRoot, prefix: 'cl', audio_url: 'http://127.0.0.1/a.wav', ...rights }, '公网 HTTPS')
+    await expectGate('元数据地址克隆 URL', { provider: 'bailian', project_root: bailianRoot, prefix: 'cl', audio_url: 'https://169.254.169.254/latest/meta-data/', ...rights }, '公网 HTTPS')
     try { await callGeneration('clone_voice', { provider: 'bailian', project_root: bailianRoot, prefix: 'cl', reference_audio_path: '/etc/hosts', ...rights }); throw new Error('项目外参考音频未被拒绝') }
     catch (error) { if (!String(error.message).includes('assets/ 内文件')) throw error }
-    try { await callGeneration('clone_voice', { provider: 'bailian', project_root: bailianRoot, prefix: 'cl', audio_url: 'https://example.com/a.wav', usage_scope: 'non-commercial' }); throw new Error('缺确认未被拒绝') }
-    catch (error) { if (!/confirmed=true|确认/.test(String(error.message))) throw error }
+    // 付费确认门先于素材权利门（与权利门不同的 confirmed=true 文案）
+    await expectGate('未确认克隆', { provider: 'bailian', project_root: bailianRoot, prefix: 'cl', audio_url: 'https://example.com/a.wav', rights_confirmed: true, public_exposure_confirmed: true, usage_terms_confirmed: true, usage_scope: 'non-commercial' }, 'confirmed=true')
+    // 权利门：三个布尔字段各自独立为 false 都必须被同一条素材权利文案拒绝
+    for (const field of ['rights_confirmed', 'public_exposure_confirmed', 'usage_terms_confirmed']) {
+      await expectGate(`权利字段 ${field}=false`, { provider: 'bailian', project_root: bailianRoot, prefix: 'cl', audio_url: 'https://example.com/a.wav', ...{ ...rights, [field]: false } }, '必须确认素材权利')
+    }
+    // 权利门：confirmed=true 但缺 rights_confirmed（其余为 true）
+    await expectGate('缺少 rights_confirmed', { provider: 'bailian', project_root: bailianRoot, prefix: 'cl', audio_url: 'https://example.com/a.wav', confirmed: true, public_exposure_confirmed: true, usage_terms_confirmed: true, usage_scope: 'non-commercial' }, '必须确认素材权利')
+    // 权利门：全部布尔为 true 但 usage_scope 越枚举
+    await expectGate('越界 usage_scope', { provider: 'bailian', project_root: bailianRoot, prefix: 'cl', audio_url: 'https://example.com/a.wav', confirmed: true, rights_confirmed: true, public_exposure_confirmed: true, usage_terms_confirmed: true, usage_scope: 'internal' }, '必须确认素材权利')
     try { await callGeneration('design_voice', { provider: 'bailian', project_root: bailianRoot, flavor: 'cosyvoice-design', voice_prompt: '低沉女声', preview_text: '你好', prefix: 'cv', confirmed: true }); throw new Error('过短预览文本未被拒绝') }
     catch (error) { if (!String(error.message).includes('预览文本')) throw error }
     try { await callGeneration('delete_voice', { provider: 'bailian', project_root: bailianRoot, voice_id: 'cosyvoice-v2-x' }); throw new Error('未确认删除未被拒绝') }
@@ -169,10 +187,36 @@ async function checkBailianVoiceLifecycle() {
     if (!deleted.local_removed || !deleted.preview_deleted || deleted.flavor !== 'cosyvoice') throw new Error('delete_voice 收敛结果错误')
     const ledgerAfter = JSON.parse(await readFile(resolve(bailianRoot, '.short-drama', 'voices.json'), 'utf8'))
     if (ledgerAfter.voices.length !== 1 || ledgerAfter.voices[0].voice_id !== 'cosyvoice-v3.5-plus-cl1') throw new Error('删除后本地登记未收敛')
+
+    // P6：付费设计已成功但本地预览落盘失败（目标路径预建成目录 → writeFile EISDIR）：不得抛出/不得重试，登记 preview_path=null 并给中文 warning
+    const previewTarget = resolve(bailianRoot, '.short-drama', 'voice-previews', 'cosyvoice-v3.5-plus-t1.wav')
+    await mkdir(previewTarget, { recursive: true })
+    const degraded = await callGeneration('design_voice', { provider: 'bailian', project_root: bailianRoot, flavor: 'cosyvoice-design', voice_prompt: '低沉女声', preview_text: '你好，这是试听。', prefix: 'cv', target_model: 'cosyvoice-v3.5-plus', confirmed: true })
+    if (degraded.voice_id !== 'cosyvoice-v3.5-plus-t1' || degraded.preview_path !== null || !String(degraded.warning).includes('试听音频保存失败') || !String(degraded.warning).includes('list_voices/delete_voice')) throw new Error('预览落盘失败降级返回错误')
+    const degradedLedger = JSON.parse(await readFile(resolve(bailianRoot, '.short-drama', 'voices.json'), 'utf8'))
+    const degradedRow = degradedLedger.voices.find((item) => item.voice_id === 'cosyvoice-v3.5-plus-t1')
+    if (!degradedRow || degradedRow.preview_path !== null) throw new Error('预览落盘失败后登记行必须为 preview_path=null')
+    await rm(previewTarget, { recursive: true, force: true })
+
+    // P7：植入穿越 preview_path 的账本行，delete_voice 必须在读取边界拒绝；项目外哨兵保留、账本行保留
+    await writeFile(sentinelPath, 'guard')
+    const plantedLedger = { version: 1, voices: [{ voice_id: 'cosyvoice-v2-p7probe', flavor: 'cosyvoice-clone', target_model: 'cosyvoice-v2', prefix: 'p7', name: 'p7', source: 'clone', preview_path: `../${sentinelName}`, upload_receipt_id: null, request_id: null, created_at: new Date().toISOString() }] }
+    await writeFile(resolve(bailianRoot, '.short-drama', 'voices.json'), `${JSON.stringify(plantedLedger)}\n`)
+    try {
+      await callGeneration('delete_voice', { provider: 'bailian', project_root: bailianRoot, voice_id: 'cosyvoice-v2-p7probe', confirmed: true })
+      throw new Error('穿越 preview_path 账本行未被拒绝')
+    } catch (error) {
+      if (!String(error.message).includes('形状损坏')) throw error
+    }
+    if ((await readFile(sentinelPath, 'utf8').catch(() => null)) !== 'guard') throw new Error('项目外哨兵文件被穿越删除')
+    const preservedLedger = JSON.parse(await readFile(resolve(bailianRoot, '.short-drama', 'voices.json'), 'utf8'))
+    if (preservedLedger.voices.length !== 1 || preservedLedger.voices[0].voice_id !== 'cosyvoice-v2-p7probe' || preservedLedger.voices[0].preview_path !== `../${sentinelName}`) throw new Error('拒绝删除后植入账本行应原样保留')
+    await rm(sentinelPath, { force: true })
   } finally {
     globalThis.fetch = originalFetch
     if (originalKey === undefined) delete process.env.BAILIAN_API_KEY
     else process.env.BAILIAN_API_KEY = originalKey
+    await rm(sentinelPath, { force: true })
     await rm(bailianRoot, { recursive: true, force: true })
   }
 }
