@@ -44,7 +44,8 @@ export function inferModelFromVoiceId(voiceId) {
 }
 export function assertPublicHttps(value, field = 'url') {
   const url = new URL(value)
-  if (url.protocol !== 'https:' || ['localhost', '127.0.0.1', '::1'].includes(url.hostname)) throw new Error(`${field} 必须是公网 HTTPS URL`)
+  const hostname = url.hostname.replace(/^\[|\]$/g, '')
+  if (url.protocol !== 'https:' || ['localhost', '127.0.0.1', '::1'].includes(hostname)) throw new Error(`${field} 必须是公网 HTTPS URL`)
   return value
 }
 
@@ -229,7 +230,7 @@ export function buildDeleteRequest(voiceId) {
 
 export function selfCheck() {
   // 模型矩阵
-  if (BAILIAN_AUDIO_MODELS.length !== 6 || BAILIAN_AUDIO_MODELS[0] !== 'cosyvoice-v3.5-plus') throw new Error('百炼模型目录或推荐顺序错误')
+  if (BAILIAN_AUDIO_MODELS.join(',') !== 'cosyvoice-v3.5-plus,cosyvoice-v3.5-flash,cosyvoice-v3-plus,cosyvoice-v3-flash,cosyvoice-v2,qwen3-tts-vd-2026-01-26') throw new Error('百炼模型目录或推荐顺序错误')
   if (languageHintsFor('cosyvoice-v2').join() !== 'zh,en') throw new Error('v2 语言矩阵错误')
   if (languageHintsFor('cosyvoice-v3-plus').length !== 7 || languageHintsFor('cosyvoice-v3.5-plus').length !== 11) throw new Error('语言矩阵错误')
   if (!supportsInstruction('cosyvoice-v3.5-plus') || supportsInstruction('cosyvoice-v3-plus') || !supportsInstruction('cosyvoice-v3-flash')) throw new Error('instruction 支持矩阵错误')
@@ -242,6 +243,7 @@ export function selfCheck() {
   if (validateVoicePrefix('cv_1').valid || validateVoicePrefix('').valid || !validateVoicePrefix('cv01').valid) throw new Error('音色前缀校验错误')
   try { assertPublicHttps('http://x.com/a'); throw new Error('私网 URL 校验失败') } catch (error) { if (!String(error.message).includes('公网 HTTPS')) throw error }
   try { assertPublicHttps('https://127.0.0.1/a'); throw new Error('localhost URL 校验失败') } catch (error) { if (!String(error.message).includes('公网 HTTPS')) throw error }
+  try { assertPublicHttps('https://[::1]/a'); throw new Error('IPv6 loopback URL 校验失败') } catch (error) { if (!String(error.message).includes('公网 HTTPS')) throw error }
 
   // WAV 合并：44100 单声道 16bit，两段 100 samples
   const format = { audioFormat: 1, numChannels: 1, sampleRate: 44100, byteRate: 44100 * 2, blockAlign: 2, bitsPerSample: 16 }
