@@ -13,7 +13,6 @@
   "license": "MIT",
   "keywords": ["short-drama", "video", "workflow", "mcp"],
   "skills": "./skills/",
-  "hooks": "./hooks/hooks.json",
   "mcpServers": "./.claude-plugin/mcp.json"
 }
 

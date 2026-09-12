@@ -24,12 +24,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: 安装媒体工具
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ffmpeg
       - name: 检查脚本语法
         run: find scripts studio -type f \( -name '*.mjs' -o -name '*.js' \) -print0 | xargs -0 -n1 node --check
       - name: 检查 JSON
         run: node -e "const fs=require('node:fs');const path=require('node:path');for(const root of ['.codex-plugin','.claude-plugin','hooks','references','scripts']){const walk=p=>{for(const e of fs.readdirSync(p,{withFileTypes:true})){const f=path.join(p,e.name);if(e.isDirectory())walk(f);else if(f.endsWith('.json'))JSON.parse(fs.readFileSync(f,'utf8'))}};walk(root)}"
       - name: 审计插件
         run: node scripts/audit-plugin.mjs
+      - name: 测试版本比较
+        run: node scripts/check-update.mjs --self-check
       - name: 运行构图词表测试
         run: node scripts/composition-vocabulary.test.mjs
       - name: 运行工作台测试

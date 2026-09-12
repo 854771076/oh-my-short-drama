@@ -134,6 +134,12 @@ hermes skills install 854771076/oh-my-short-drama/use-short-drama-studio
 
 本仓库的标签发布会生成 `.tar.gz`、`.zip` 和 `SHA256SUMS`。发布标签必须严格等于 Codex/Claude 清单版本，例如 `v0.4.0+codex.20260912111400`。
 
+插件在 SessionStart 时会检查 GitHub 最新正式 Release，检查结果缓存 24 小时；仅发现新版本时提示，网络或 GitHub 故障不会阻塞启动。也可手动强制检查：
+
+```bash
+node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/check-update.mjs" --check
+```
+
 安装、更新或修改 Provider 环境后，Codex 必须使用 `⌘Q` 完全退出再重新打开并新建任务；Claude Code 执行 `/reload-plugins` 或重启会话。不要直接修改客户端插件缓存；源码目录才是事实来源。
 
 ## 开始使用

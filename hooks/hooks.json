@@ -9,6 +9,12 @@
             "command": "node \"${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/session-context.mjs\"",
             "timeout": 5,
             "statusMessage": "恢复短剧工作流状态..."
+          },
+          {
+            "type": "command",
+            "command": "node \"${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/scripts/check-update.mjs\"",
+            "timeout": 5,
+            "statusMessage": "检查短剧插件版本..."
           }
         ]
       }

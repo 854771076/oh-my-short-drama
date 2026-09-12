@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: 安装媒体工具
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ffmpeg
       - name: 获取最新正式 Release
         id: release
         env:
@@ -108,6 +110,7 @@ jobs:
         if: steps.freshness.outputs.changed == 'true'
         run: |
           node scripts/audit-plugin.mjs
+          node scripts/check-update.mjs --self-check
           node scripts/composition-vocabulary.test.mjs
           node scripts/studio.test.mjs
           node scripts/integration-self-check.mjs --self-check

@@ -12,7 +12,7 @@ for (const path of ['.DS_Store', '.playwright-mcp']) {
   try { await access(resolve(root, path)); failures.push(`插件包包含本地临时文件：${path}`) } catch {}
 }
 
-for (const path of ['README.md', 'LICENSE', '.codex-plugin/plugin.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.claude-plugin/mcp.json', '.github/workflows/ci.yml', '.github/workflows/release.yml', '.github/workflows/upstream-sync.yml', 'references/project-spec-v1.md', 'references/codex-contracts.md', 'scripts/validate-project.mjs', 'scripts/skill-runs.mjs', 'scripts/preflight.mjs', 'scripts/generation/live-smoke-test.mjs', 'scripts/document-reference.mjs', 'scripts/reference-bindings.mjs', 'scripts/media-hosting/litterbox.mjs', 'scripts/media-hosting/publish.mjs']) {
+for (const path of ['README.md', 'LICENSE', '.codex-plugin/plugin.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.claude-plugin/mcp.json', '.github/workflows/ci.yml', '.github/workflows/release.yml', '.github/workflows/upstream-sync.yml', 'references/project-spec-v1.md', 'references/codex-contracts.md', 'scripts/check-update.mjs', 'scripts/validate-project.mjs', 'scripts/skill-runs.mjs', 'scripts/preflight.mjs', 'scripts/generation/live-smoke-test.mjs', 'scripts/document-reference.mjs', 'scripts/reference-bindings.mjs', 'scripts/media-hosting/litterbox.mjs', 'scripts/media-hosting/publish.mjs']) {
   try { await access(resolve(root, path)) } catch { failures.push(`缺少项目规范组件：${path}`) }
 }
 
@@ -25,6 +25,8 @@ for (const manifest of [codexManifest, claudeManifest]) if (manifest.license !==
 if (claudeMarketplace.plugins?.[0]?.source !== './') failures.push('Claude marketplace 必须从仓库根目录加载插件')
 if (claudeManifest.mcpServers !== './.claude-plugin/mcp.json') failures.push('Claude 插件未绑定专用 MCP 配置')
 if (!claudeMcp.mcpServers?.['drama-generation']?.args?.[0]?.startsWith('${CLAUDE_PLUGIN_ROOT}/')) failures.push('Claude MCP 未使用 CLAUDE_PLUGIN_ROOT 定位脚本')
+const hooks = JSON.parse(await readFile(resolve(root, 'hooks/hooks.json'), 'utf8'))
+if (!JSON.stringify(hooks).includes('/scripts/check-update.mjs')) failures.push('SessionStart 未启用内部版本检查')
 
 async function files(directory) {
   const output = []
