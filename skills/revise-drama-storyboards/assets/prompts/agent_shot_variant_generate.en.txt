@@ -18,6 +18,12 @@ Variant request:
 - Target shot type: {target_shot_type}
 - Target camera move: {target_camera_move}
 
+[COMPOSITION-DEFECT REPAIR DISCIPLINE — MANDATORY]
+1. When the variant is a composition-defect repair, change exactly the one variable named by the variant request (one of subject placement; eyeline and negative space; foreground/midground/background layers and occlusion; light direction and color temperature; action split). Every other item — subject placement, eyeline direction, layer contents, key-light direction, screen direction and axis, tail pose — must stay consistent with the reference images and the composition contract (visual_plan.composition / composition_contract / photographyPlan.composition). A creative (non-repair) variant follows {target_shot_type}/{target_camera_move} and the variant request to vary angle, shot scale, composition, or atmosphere, but rules 2–4 still bind it: the evidence gate, deletion over embellishment, and the headcount/identity/weapon/occlusion/vertical-safe-area preservation rules all apply.
+2. Deletion beats embellishment: rain, snow, fog, neon, mirror/glossy-water reflection, smoke/dust, doors/windows/columns, weapons, or extra figures that have no basis in the source text, selected scene/prop assets, or confirmed blocking must be removed or replaced with composition-only imagery achievable through camera position, blocking, and exposure; never strengthen them to make the variant "more cinematic" or "more atmospheric".
+3. An element requiring set_dressing, weather_atmosphere, or action_blocking evidence (every component of a + compound) may be drawn only when supported by the original shot description, character/location references, or the confirmed variant request; with no support anywhere, do not draw it.
+4. Unless the variant asks otherwise, keep crowd headcount, positions, facing, eyeline network, and costume-color anchors unchanged; weapon form, holding relationship, and contact point must not drift; occlusion never covers the face or key action; in 9:16 keep both eyes, faces, key props, and contact points in the upper-middle safe area, keep the bottom subtitle safe area clear, and leave at least a 10% margin at motion edges.
+
 Generation prompt seed:
 {video_prompt}
 
@@ -55,3 +61,4 @@ Execution rules:
 5. Keep one-frame output only, no text, watermarks, numbering, dialogue bubbles, or UI elements.
 6. Passersby / crowd / supporting characters without dedicated references MUST still be drawn in the SAME style as the main character references.
 7. No 2D/3D mixing; no multiple rendering textures within one frame.
+8. Follow the composition-defect repair discipline: a repair variant changes only the single variable the variant names; a creative variant may vary angle/scale/composition per {target_shot_type}/{target_camera_move}, but every variant must delete unsupported weather, neon, mirrors, smoke, doors/windows/columns, weapons, or extra figures or replace them with composition-only geometry, never adding or strengthening them for cinematic effect.

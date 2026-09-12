@@ -8,7 +8,7 @@ import { selfCheck as checkRunningHub } from './runninghub.mjs'
 import { selfCheck as checkComfly } from './comfly.mjs'
 import { selfCheck as checkBailian } from './bailian.mjs'
 import { designVoice, cloneVoice, listVoices, deleteVoice } from './voice-tools.mjs'
-import { createRequestSnapshot, reserveTask, settleReservedTask } from '../task-ledger.mjs'
+import { createRequestSnapshot, listTasks, reserveTask, settleReservedTask } from '../task-ledger.mjs'
 import { validateGenerationDocumentReference } from '../document-reference.mjs'
 import { mediaHostCatalog, mediaHostNames } from '../media-hosting/providers.mjs'
 import { listReferenceUploads, publishReferenceImage } from '../media-hosting/publish.mjs'
@@ -18,6 +18,7 @@ import { inspectStage, missingStoryboardAssets, missingStoryboardReviews } from 
 import { stages } from '../workflow-stages.mjs'
 import { validateProject, validateVideoPrompts } from '../project-store.mjs'
 import { syncTaskResult } from '../task-sync.mjs'
+import { detectMedia, hasPanelBoardClaim } from '../grid-detect.mjs'
 
 checkStarRouter()
 checkRunningHub()
@@ -129,6 +130,17 @@ export const tools = [
     provider, model: { type: 'string' }, prompt_profile: { type: 'string', enum: ['seedance2', 'h3', 'generic'] }, input_mode: { type: 'string', enum: ['first-last-frame', 'full-reference', 'T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA', 'generic'] }, prompt_version: { type: 'string' }, prompt: { type: 'string' }, frame_url: { type: 'string' }, images: { type: 'array', maxItems: 9, items: { type: 'string' } }, input_reference: { type: 'string' }, reference_urls: { type: 'array', items: { type: 'string' } }, reference_image_urls: { type: 'array', maxItems: 9, items: { type: 'string' } }, reference_video_urls: { type: 'array', maxItems: 3, items: { type: 'string' } }, reference_audio_urls: { type: 'array', maxItems: 3, items: { type: 'string' } }, reference_manifest: { type: 'array', maxItems: 12, items: referenceManifestItem }, reference_only: { type: 'boolean' }, duration: { type: 'integer', minimum: 1, maximum: 15 }, size: { type: 'string', enum: ['480P', '768P', '2K'] }, resolution: { type: 'string', enum: ['480p', '720p', '1080p', '480P', '768P', '1K', '2K'] }, ratio: { type: 'string', enum: ['21:9', '16:9', '9:16', '1:1', '4:3', '3:4'] }, generate_audio: { type: 'boolean' }, watermark: { type: 'boolean' }, seed: { type: 'integer', minimum: 1 }, fps: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1 }, response_format: { type: 'string' }, user: { type: 'string' }, metadata: { type: 'object' }, extra_options: { type: 'object' }, confirmed: { const: true }, ...workflow, ...projectTracking,
   }, ['provider', 'prompt_profile', 'input_mode', 'prompt_version', 'prompt', 'confirmed', 'project_root', 'target', 'prompt_document']],
   ['get_generation_task', '查询指定 Provider 的异步任务；完成时自动下载为本地候选版本并回写任务账本。', { provider, task_id: { type: 'string' }, media_type: mediaType, project_root: { type: 'string' } }, ['provider', 'task_id', 'media_type', 'project_root']],
+  ['ensure_reference_urls', '整集一次确认：把当前 selected 视频提示词中、需要公网 URL 的图片参考批量临时发布（有效收据自动复用，不重复上传）；RunningHub 走本地路径不需要发布。', {
+    project_root: { type: 'string' }, episode_key: { type: 'string', pattern: '^ep-\\d{3}$' },
+    service: { type: 'string', enum: mediaHostNames }, expires_in: { type: 'string', enum: ['1h', '12h', '24h', '72h'] }, usage_scope: { type: 'string', enum: ['non-commercial', 'commercial-authorized'] }, force_reupload: { type: 'boolean' },
+    confirmed: { const: true }, rights_confirmed: { const: true }, public_exposure_confirmed: { const: true }, usage_terms_confirmed: { const: true },
+  }, ['project_root', 'episode_key', 'service', 'expires_in', 'usage_scope', 'confirmed', 'rights_confirmed', 'public_exposure_confirmed', 'usage_terms_confirmed']],
+  ['submit_episode_videos', '整集批量提交视频：先以 confirmed=false 取得逐镜费用摘要与校验结果；用户确认后 confirmed=true 一次性并发提交整集，单镜失败不阻塞其他镜头。', {
+    project_root: { type: 'string' }, episode_key: { type: 'string', pattern: '^ep-\\d{3}$' }, shot_numbers: { type: 'array', items: { type: 'integer', minimum: 1 } }, confirmed: { type: 'boolean', description: 'false 仅返回费用摘要不提交；true 在用户看过摘要并确认费用后并发提交。' },
+  }, ['project_root', 'episode_key', 'confirmed']],
+  ['await_episode_tasks', '在 MCP 超时预算内并发轮询整集在途视频任务；完成即自动下载登记并回写（含宫格检测标记），失败不自动重试；超时返回仍在途清单。', {
+    project_root: { type: 'string' }, episode_key: { type: 'string', pattern: '^ep-\\d{3}$' }, timeout_seconds: { type: 'integer', minimum: 10, maximum: 540 }, poll_interval_seconds: { type: 'integer', minimum: 3, maximum: 30 },
+  }, ['project_root', 'episode_key']],
 ].map(([name, description, properties, required]) => ({
   name, description, inputSchema: { type: 'object', properties, required, additionalProperties: false },
 }))
@@ -211,7 +223,15 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
   }
   const manifest = Array.isArray(args.reference_manifest) ? args.reference_manifest : []
   const planShot = plan.shots?.find((item) => item.shot_number === promptDocument.shot_number)
-  if (args.input_mode === 'Ref2VA' && planShot?.image_strategy?.panel_grid_size > 1 && manifest.some((item) => item.asset_key?.startsWith('board-'))) throw new Error('Ref2VA 不得直接使用多格分镜板；请先用 media-tools extract-grid-cell 生成无批注单格参考并登记为 derived 资产')
+  // 整张多格分镜板允许直接作为语义参考输入（靠固定反宫格声明+分镜板条款约束模型），但不得放进首/尾帧像素槽位
+  const boardRefs = (planShot?.image_strategy?.panel_grid_size ?? 1) > 1
+    ? manifest.filter((item) => item.type === 'image' && item.asset_key?.startsWith('board-'))
+    : []
+  if (boardRefs.length) {
+    const framed = boardRefs.filter((item) => item.role === 'first_frame' || item.role === 'last_frame')
+    if (framed.length) throw new Error(`多格分镜板不能作为首帧/尾帧像素输入：${framed.map((item) => `${item.asset_key}@${item.version_id}(${item.role})`).join('、')}；整板改用 full-reference/Ref2VA 的 reference_image 语义参考位，或用 media-tools extract-grid-cell 裁单格`)
+    if (!hasPanelBoardClaim(args.prompt)) throw new Error('直接引用多格分镜板时，prompt 必须在固定反宫格声明之外原样包含分镜板时间顺序条款（见 panel_grid/panel_storyboard 视频模板）')
+  }
   if (manifest.length !== shot.references.length) throw new Error('实际参考素材与提示词文档数量不一致')
   for (const [index, reference] of shot.references.entries()) {
     const actual = manifest[index]
@@ -219,7 +239,270 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
     const asset = assets.assets?.[reference.asset_key]
     if (asset?.selectedVersionId !== reference.version_id || asset.staleVersionIds?.includes(reference.version_id) || !asset.versions?.some((item) => item.id === reference.version_id)) throw new Error(`参考素材不是当前 selected 未失效版本：${reference.asset_key}@${reference.version_id}`)
   }
+  // 宫格输入 → 宫格输出：逐份参考做启发式检测；board-* 多格分镜板是允许直接输入的叙事参考（已过八维审计），
+  // other-refpack-* 是按流程登记的身份合板，均豁免；分镜板的宫格风险由分镜板条款+成片侧 grid_suspect 兜底。
+  for (const reference of manifest) {
+    if (reference.type === 'audio' || reference.asset_key.startsWith('other-refpack-') || reference.asset_key.startsWith('board-')) continue
+    const version = assets.assets?.[reference.asset_key]?.versions?.find((item) => item.id === reference.version_id)
+    if (!version?.localPath) continue
+    const grid = detectMedia(resolve(root, version.localPath))
+    // 只硬拦 high：门框/地平线类误报为 medium 时放行，成片侧 A4 检测仍会兜底标记 grid_suspect
+    if (grid.detected && grid.confidence === 'high') throw new Error(`参考素材疑似宫格/分屏，已阻止提交：${reference.asset_key}@${reference.version_id} 命中 ${grid.lines.map((line) => `${line.line}(${line.frames}/${grid.total_frames}帧)`).join('、')}；请重新生成单格素材，或按流程裁格/登记 other-refpack-* 合板`)
+  }
   await validateVideoReferenceBindings(root, providerName, args, manifest)
+}
+
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
+const shotTarget = (episodeKey, shotNumber) => `shot-${episodeKey.replace('-', '')}-${String(shotNumber).padStart(3, '0')}`
+
+// 纯映射：把镜头参考清单按 Provider 合同转成提交字段；locate 把参考项解析成公网 URL 或本地路径，返回 null 表示缺失。
+export function referenceInputs(providerName, shot, locate) {
+  const refs = shot.references || []
+  const args = {}
+  const missing = []
+  const take = (reference) => {
+    let value
+    try { value = locate(reference) } catch { value = null }
+    if (!value) missing.push(`${reference.asset_key}@${reference.version_id}`)
+    return value
+  }
+  const images = refs.filter((reference) => reference.type === 'image')
+  const videos = refs.filter((reference) => reference.type === 'video')
+  const audios = refs.filter((reference) => reference.type === 'audio')
+  if (providerName === 'runninghub') {
+    if (shot.model_or_workflow === 'minimax-h3-reference-to-video') {
+      if (images.length) args.reference_image_paths = images.map(take).filter(Boolean)
+      if (videos.length) args.reference_video_paths = videos.map(take).filter(Boolean)
+      if (audios.length) args.reference_audio_paths = audios.map(take).filter(Boolean)
+    } else args.reference_paths = refs.map(take).filter(Boolean)
+    return { args, missing }
+  }
+  const imageValues = images.map(take)
+  const videoValues = videos.map(take)
+  const audioValues = audios.map(take)
+  if (providerName === 'starrouter' && shot.prompt_profile === 'h3') {
+    const content = [{ type: 'text', text: shot.prompt }]
+    const keyframeRoles = { I2VA: ['first_frame'], L2VA: ['last_frame'], FL2VA: ['first_frame', 'last_frame'] }[shot.input_mode]
+    if (shot.input_mode === 'Ref2VA') {
+      content.push(...imageValues.filter(Boolean).map((url) => ({ type: 'image_url', image_url: { url }, role: 'reference_image' })))
+    } else if (keyframeRoles) {
+      if (images.length !== keyframeRoles.length) throw new Error(`H3 ${shot.input_mode} 关键帧参考数量必须为 ${keyframeRoles.length}`)
+      content.push(...imageValues.filter(Boolean).map((url, index) => ({ type: 'image_url', image_url: { url }, role: keyframeRoles[index] })))
+    }
+    content.push(...videoValues.filter(Boolean).map((url) => ({ type: 'video_url', video_url: { url }, role: 'reference_video' })))
+    content.push(...audioValues.filter(Boolean).map((url) => ({ type: 'audio_url', audio_url: { url }, role: 'reference_audio' })))
+    args.metadata = { content }
+    return { args, missing }
+  }
+  if (providerName === 'starrouter' && shot.prompt_profile === 'seedance2' && shot.input_mode === 'first-last-frame') {
+    if (imageValues[0]) args.frame_url = imageValues[0]
+    if (imageValues.slice(1).some(Boolean)) args.reference_image_urls = imageValues.slice(1).filter(Boolean)
+  } else if (imageValues.some(Boolean)) {
+    args.reference_image_urls = imageValues.filter(Boolean)
+  }
+  if (videoValues.some(Boolean)) args.reference_video_urls = videoValues.filter(Boolean)
+  if (audioValues.some(Boolean)) args.reference_audio_urls = audioValues.filter(Boolean)
+  return { args, missing }
+}
+
+function applyRunninghubVideoDefaults(providerArgs) {
+  if (providerArgs.provider !== 'runninghub') return
+  if (providerArgs.model === 'minimax-h3-reference-to-video') {
+    providerArgs.workflow_id ||= process.env.RUNNINGHUB_H3_WORKFLOW_ID || '2086743729407733762'
+    if (Number.isInteger(providerArgs.duration) && providerArgs.duration < 5) providerArgs.duration = 5
+  } else if (providerArgs.model !== 'krea2-normal-v1') providerArgs.workflow_id ||= process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID
+}
+
+// 读取 selected 视频提示词文档，组装并逐镜校验整集提交参数；付费提交前的唯一计划入口。
+async function planEpisodeVideos(projectRoot, episodeKey, shotNumbers = null) {
+  const root = await realpath(resolve(projectRoot))
+  if (!/^ep-\d{3}$/.test(episodeKey)) throw new Error('episode_key 必须为 ep-001 格式')
+  const selection = JSON.parse(await readFile(resolve(root, 'episodes', episodeKey, 'video-prompts', 'selected.json'), 'utf8'))
+  const document = JSON.parse(await readFile(resolve(root, selection.path), 'utf8'))
+  const wanted = shotNumbers ? new Set(shotNumbers) : null
+  if (wanted) for (const number of wanted) if (!(document.shots || []).some((shot) => shot.shot_number === number)) throw new Error(`提示词文档中不存在镜号：${number}`)
+  const shots = (document.shots || []).filter((shot) => !wanted || wanted.has(shot.shot_number))
+  const assetsLedger = JSON.parse(await readFile(resolve(root, '.short-drama', 'assets.json'), 'utf8'))
+  const receipts = await listReferenceUploads(root, { state: 'active' })
+  const plans = []
+  for (const shot of shots) {
+    const target = shotTarget(episodeKey, shot.shot_number)
+    const promptDocument = { episode_key: episodeKey, version_id: selection.versionId, shot_number: shot.shot_number }
+    const base = { shot_number: shot.shot_number, target, provider: shot.provider, model: shot.model_or_workflow }
+    try {
+      const locate = (reference) => {
+        const asset = assetsLedger.assets?.[reference.asset_key]
+        const version = asset?.versions?.find((item) => item.id === reference.version_id)
+        if (!version || asset.selectedVersionId !== reference.version_id || asset.staleVersionIds?.includes(reference.version_id)) throw new Error('not selected')
+        if (shot.provider === 'runninghub') return resolve(root, version.localPath)
+        const receipt = receipts.find((item) => item.asset_key === reference.asset_key && item.version_id === reference.version_id && item.sha256 === version.sha256)
+        return receipt?.url || null
+      }
+      const { args: referenceArgs, missing } = referenceInputs(shot.provider, shot, locate)
+      const providerArgs = {
+        provider: shot.provider, model: shot.model_or_workflow, prompt_profile: shot.prompt_profile, input_mode: shot.input_mode,
+        prompt_version: selection.versionId, prompt: shot.prompt, duration: shot.duration,
+        reference_manifest: shot.references || [], ...referenceArgs, confirmed: true,
+      }
+      applyRunninghubVideoDefaults(providerArgs)
+      await validateProjectInputs(root, 'video', target, promptDocument, shot.provider, providerArgs)
+      plans.push({
+        ...base, ok: true, missing_urls: missing, promptDocument, providerArgs,
+        cost: { model: providerArgs.model, duration: providerArgs.duration, resolution: providerArgs.resolution || null, ratio: providerArgs.ratio || null, size: providerArgs.size || null, generate_audio: providerArgs.generate_audio ?? null, watermark: providerArgs.watermark ?? null, references: (shot.references || []).length },
+      })
+    } catch (error) {
+      plans.push({ ...base, ok: false, error: error.message })
+    }
+  }
+  return { episode_key: episodeKey, version_id: selection.versionId, plans }
+}
+
+function planSummary(plan) {
+  return {
+    episode_key: plan.episode_key,
+    version_id: plan.version_id,
+    shot_count: plan.plans.length,
+    total_duration_seconds: plan.plans.reduce((sum, item) => sum + (item.ok ? item.cost.duration : 0), 0),
+    shots: plan.plans.map((item) => item.ok
+      ? { shot_number: item.shot_number, target: item.target, provider: item.provider, missing_urls: item.missing_urls, ...item.cost }
+      : { shot_number: item.shot_number, target: item.target, provider: item.provider, error: item.error }),
+  }
+}
+
+async function ensureReferenceUrls(args) {
+  const { project_root: projectRoot, episode_key: episodeKey, ...publishInput } = args
+  const root = await realpath(resolve(projectRoot))
+  const selection = JSON.parse(await readFile(resolve(root, 'episodes', episodeKey, 'video-prompts', 'selected.json'), 'utf8'))
+  const document = JSON.parse(await readFile(resolve(root, selection.path), 'utf8'))
+  const unique = new Map()
+  const skippedNonImage = []
+  for (const shot of document.shots || []) {
+    if (shot.provider === 'runninghub') continue
+    for (const reference of shot.references || []) {
+      if (reference.type !== 'image') { skippedNonImage.push({ shot_number: shot.shot_number, asset_key: reference.asset_key, type: reference.type, reason: '批量发布仅支持图片；视频/音频参考请在单次 submit_video 中传已授权公网 URL' }); continue }
+      unique.set(`${reference.asset_key}@${reference.version_id}`, { asset_key: reference.asset_key, version_id: reference.version_id })
+    }
+  }
+  const results = await Promise.all([...unique.values()].map(async (input) => {
+    try {
+      const receipt = await publishReferenceImage(root, { ...publishInput, ...input })
+      return { ok: true, ...input, url: receipt.url, reused: receipt.reused === true, expires_at: receipt.expires_at }
+    } catch (error) {
+      return { ok: false, ...input, error: error.message }
+    }
+  }))
+  return { episode_key: episodeKey, published: results.filter((item) => item.ok), failed: results.filter((item) => !item.ok), skipped_non_image: skippedNonImage }
+}
+
+async function submitEpisodeVideos(args) {
+  const { project_root: projectRoot, episode_key: episodeKey, shot_numbers: shotNumbers, confirmed } = args
+  if (typeof confirmed !== 'boolean') throw new Error('confirmed 必须是布尔值：false 仅出费用摘要，true 在用户确认费用后并发提交')
+  const plan = await planEpisodeVideos(projectRoot, episodeKey, shotNumbers || null)
+  if (!confirmed) return { phase: 'plan', ready: !plan.plans.some((item) => !item.ok), ...planSummary(plan) }
+  const errors = plan.plans.filter((item) => !item.ok)
+  if (errors.length || !plan.plans.length) throw new Error(`整集校验未通过，未提交任何镜头：\n${errors.map((item) => `第${item.shot_number}镜：${item.error}`).join('\n')}`)
+  await enforceGenerationStage(projectRoot, 'submit_video', plan.plans[0].target)
+  const outcomes = await Promise.allSettled(plan.plans.map(async (item) => {
+    const result = await submitVideoOnce(projectRoot, item.target, item.promptDocument, item.providerArgs)
+    return { shot_number: item.shot_number, target: item.target, task_id: result.task_id, status: result.status, ...(result.output_version_ids ? { output_version_ids: result.output_version_ids, quality: result.output_quality || [] } : {}) }
+  }))
+  const submitted = []
+  const failed = []
+  for (const [index, outcome] of outcomes.entries()) {
+    const shot = plan.plans[index]
+    if (outcome.status === 'fulfilled') submitted.push(outcome.value)
+    else failed.push({ shot_number: shot.shot_number, target: shot.target, error: outcome.reason?.message || String(outcome.reason) })
+  }
+  return { phase: 'submitted', ...planSummary(plan), submitted, failed }
+}
+
+async function awaitEpisodeTasks(args) {
+  const { project_root: projectRoot, episode_key: episodeKey, timeout_seconds: timeoutSeconds = 480, poll_interval_seconds: pollIntervalSeconds = 8 } = args
+  const timeout = Math.min(540, Math.max(10, timeoutSeconds))
+  const interval = Math.min(30, Math.max(3, pollIntervalSeconds)) * 1000
+  const prefix = shotTarget(episodeKey, 1).slice(0, -3)
+  const tasks = (await listTasks(projectRoot, { types: ['video'] }))
+    .filter((task) => task.target.startsWith(prefix) && ['queued', 'running'].includes(task.status))
+  const pending = new Map(tasks.map((task) => [task.taskId, task]))
+  const completed = []
+  const failed = []
+  let rounds = 0
+  const deadline = Date.now() + timeout * 1000
+  while (pending.size && Date.now() < deadline) {
+    await sleep(interval)
+    rounds += 1
+    const entries = [...pending.values()]
+    const outcomes = await Promise.allSettled(entries.map(async (task) => {
+      const remote = await adapter(task.provider).task({ task_id: task.taskId })
+      if (remote.status === 'pending') return null
+      return syncTaskResult(projectRoot, task.taskId, remote)
+    }))
+    for (const [index, outcome] of outcomes.entries()) {
+      const task = entries[index]
+      if (outcome.status === 'rejected') continue // 轮询瞬断不判失败，下一轮继续
+      const result = outcome.value
+      if (!result) continue
+      pending.delete(task.taskId)
+      if (result.status === 'completed') completed.push({ shot_number: Number(task.target.slice(-3)), target: task.target, task_id: task.taskId, version_ids: result.output_version_ids || [], quality: result.output_quality || [] })
+      else failed.push({ shot_number: Number(task.target.slice(-3)), target: task.target, task_id: task.taskId, error: result.error || null })
+    }
+  }
+  return {
+    episode_key: episodeKey, rounds, deadline_reached: pending.size > 0,
+    completed, failed,
+    pending: [...pending.values()].map((task) => ({ target: task.target, task_id: task.taskId, status: task.status })),
+  }
+}
+
+// 单镜提交的唯一实现路径：单工具 submit_video 与整集批量提交都走这里。
+async function submitVideoOnce(projectRoot, target, promptDocument, providerArgs) {
+  const providerName = providerArgs.provider
+  if (typeof providerArgs.confirmed !== 'boolean') providerArgs.confirmed = true
+  await enforceGenerationStage(projectRoot, 'submit_video', target)
+  applyRunninghubVideoDefaults(providerArgs)
+  await validateProjectInputs(projectRoot, 'video', target, promptDocument, providerName, providerArgs)
+  const selectedAdapter = adapter(providerName)
+  const snapshot = await createRequestSnapshot(projectRoot, { tool: 'submit_video', target, type: 'video', provider: providerName, modelOrWorkflow: providerArgs.model || providerArgs.workflow_id, promptDocument, arguments: providerArgs })
+  await reserveTask(projectRoot, { taskId: snapshot.requestId, target, type: 'video', provider: providerName, requestPath: snapshot.requestPath })
+  let result
+  try {
+    result = await selectedAdapter.submitVideo(providerArgs)
+  } catch (error) {
+    await settleReservedTask(projectRoot, snapshot.requestId, { status: 'failed' })
+    throw error
+  }
+  const taskId = result.task_id || snapshot.requestId
+  await settleReservedTask(projectRoot, snapshot.requestId, { taskId, status: result.status === 'submitted' ? 'queued' : 'running' })
+  const tracked = { ...result, task_id: taskId, request_id: snapshot.requestId, request_path: snapshot.requestPath, request_sha256: snapshot.requestSha256 }
+  return result.status === 'completed' ? syncTaskResult(projectRoot, taskId, tracked) : tracked
+}
+
+function selfCheck() {
+  const refs = (types) => types.map((type, index) => ({ type, order: index + 1, asset_key: `asset-${type}-${index + 1}`, version_id: 'v001', role: 'r' }))
+  const urlLocate = (reference) => `https://litter.catbox.moe/${reference.asset_key}.png`
+  const missingLocate = (reference) => (reference.asset_key.includes('missing') ? null : urlLocate(reference))
+  const h3 = (inputMode, references) => ({ provider: 'starrouter', model_or_workflow: 'MiniMax-H3', prompt_profile: 'h3', input_mode: inputMode, prompt: 'P', references })
+  let out = referenceInputs('starrouter', h3('Ref2VA', refs(['image', 'image', 'video'])), urlLocate)
+  const content = out.args.metadata.content
+  if (content.filter((item) => item.type !== 'text').map((item) => item.role).join(',') !== 'reference_image,reference_image,reference_video' || content[1].image_url.url !== 'https://litter.catbox.moe/asset-image-1.png') throw new Error('H3 Ref2VA 参考映射自检失败')
+  out = referenceInputs('starrouter', h3('FL2VA', refs(['image', 'image'])), urlLocate)
+  if (out.args.metadata.content.filter((item) => item.type !== 'text').map((item) => item.role).join(',') !== 'first_frame,last_frame') throw new Error('H3 FL2VA 参考映射自检失败')
+  out = referenceInputs('starrouter', h3('L2VA', refs(['image'])), urlLocate)
+  if (out.args.metadata.content[1].role !== 'last_frame') throw new Error('H3 L2VA 参考映射自检失败')
+  try { referenceInputs('starrouter', h3('I2VA', refs(['image', 'image'])), urlLocate); throw new Error('H3 关键帧数量自检失败') } catch (error) { if (!String(error.message).includes('I2VA')) throw error }
+  const seedance = { provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: 'first-last-frame', prompt: 'P', references: refs(['image', 'image']) }
+  out = referenceInputs('starrouter', seedance, urlLocate)
+  if (out.args.frame_url !== 'https://litter.catbox.moe/asset-image-1.png' || out.args.reference_image_urls[0] !== 'https://litter.catbox.moe/asset-image-2.png') throw new Error('Seedance 首尾帧参考映射自检失败')
+  out = referenceInputs('starrouter', { ...seedance, input_mode: 'full-reference' }, urlLocate)
+  if (out.args.frame_url || out.args.reference_image_urls.length !== 2) throw new Error('Seedance 全参考映射自检失败')
+  out = referenceInputs('comfly', { ...h3('Ref2VA', refs(['image', 'image'])), provider: 'comfly' }, urlLocate)
+  if (out.args.reference_image_urls?.length !== 2 || out.args.metadata) throw new Error('Comfly 参考映射自检失败')
+  out = referenceInputs('runninghub', { provider: 'runninghub', model_or_workflow: 'minimax-h3-reference-to-video', prompt_profile: 'h3', input_mode: 'Ref2VA', prompt: 'P', references: refs(['image', 'video', 'audio']) }, () => '/assets/x.png')
+  if (out.args.reference_image_paths.length !== 1 || out.args.reference_video_paths.length !== 1 || out.args.reference_audio_paths.length !== 1) throw new Error('RunningHub H3 本地参考映射自检失败')
+  out = referenceInputs('runninghub', { provider: 'runninghub', model_or_workflow: 'workflow-x', prompt: 'P', references: refs(['image', 'video']) }, () => '/assets/x.png')
+  if (out.args.reference_paths.length !== 2) throw new Error('RunningHub 顺序本地参考映射自检失败')
+  out = referenceInputs('starrouter', h3('Ref2VA', [{ type: 'image', order: 1, asset_key: 'missing-a', version_id: 'v001', role: 'r' }]), missingLocate)
+  if (out.missing.join() !== 'missing-a@v001' || out.args.metadata.content.some((item) => item.type !== 'text')) throw new Error('参考缺失登记自检失败')
 }
 
 export async function call(name, args = {}) {
@@ -237,6 +520,13 @@ export async function call(name, args = {}) {
   if (name === 'clone_voice') return cloneVoice(args)
   if (name === 'list_voices') return listVoices(args)
   if (name === 'delete_voice') return deleteVoice(args)
+  if (name === 'ensure_reference_urls') return ensureReferenceUrls(args)
+  if (name === 'submit_episode_videos') return submitEpisodeVideos(args)
+  if (name === 'await_episode_tasks') return awaitEpisodeTasks(args)
+  if (name === 'submit_video') {
+    const { project_root: projectRoot, target, prompt_document: promptDocument, ...providerArgs } = args
+    return submitVideoOnce(projectRoot, target, promptDocument, providerArgs)
+  }
   const selected = adapter(args.provider)
   const actions = { list_models: 'models', generate_image: 'image', generate_audio: 'audio', generate_music: 'music', transcribe_audio: 'transcribe', translate_audio: 'translate', submit_video: 'submitVideo', get_generation_task: 'task' }
   const action = actions[name]
@@ -253,20 +543,16 @@ export async function call(name, args = {}) {
     const { project_root, file_path, ...providerArgs } = args
     return selected[action]({ ...providerArgs, file_path: file })
   }
-  if (!['generate_image', 'generate_audio', 'generate_music', 'submit_video'].includes(name)) return selected[action](args)
+  if (!['generate_image', 'generate_audio', 'generate_music'].includes(name)) return selected[action](args)
   if (typeof selected[action] !== 'function') throw new Error(`${args.provider} 不支持 ${name}`)
   const { project_root: projectRoot, target, prompt_document: promptDocument, ...rawProviderArgs } = args
   const providerArgs = { ...rawProviderArgs }
   await enforceGenerationStage(projectRoot, name, target)
   if (args.provider === 'runninghub') {
-    const workflowEnv = name === 'generate_image' ? 'RUNNINGHUB_IMAGE_WORKFLOW_ID' : name === 'generate_audio' ? 'RUNNINGHUB_AUDIO_WORKFLOW_ID' : 'RUNNINGHUB_VIDEO_WORKFLOW_ID'
-    if (providerArgs.model === 'minimax-h3-reference-to-video') {
-      providerArgs.workflow_id ||= process.env.RUNNINGHUB_H3_WORKFLOW_ID || '2086743729407733762'
-      if (Number.isInteger(providerArgs.duration) && providerArgs.duration < 5) providerArgs.duration = 5
-    }
-    else if (providerArgs.model !== 'krea2-normal-v1') providerArgs.workflow_id ||= process.env[workflowEnv]
+    const workflowEnv = name === 'generate_image' ? 'RUNNINGHUB_IMAGE_WORKFLOW_ID' : 'RUNNINGHUB_AUDIO_WORKFLOW_ID'
+    if (providerArgs.model !== 'krea2-normal-v1') providerArgs.workflow_id ||= process.env[workflowEnv]
   }
-  const type = name === 'generate_image' ? 'image' : ['generate_audio', 'generate_music'].includes(name) ? 'audio' : 'video'
+  const type = name === 'generate_image' ? 'image' : 'audio'
   await validateProjectInputs(projectRoot, type, target, promptDocument, args.provider, providerArgs, name === 'generate_music' ? 'music' : type)
   const snapshot = await createRequestSnapshot(projectRoot, { tool: name, target, type, provider: args.provider, modelOrWorkflow: providerArgs.model || providerArgs.workflow_id, promptDocument, arguments: providerArgs })
   await reserveTask(projectRoot, { taskId: snapshot.requestId, target, type, provider: args.provider, requestPath: snapshot.requestPath })
@@ -298,4 +584,9 @@ function serve() {
   })
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) serve()
+if (import.meta.url === `file://${process.argv[1]}`) {
+  if (process.argv[2] === '--self-check') {
+    selfCheck()
+    console.log('ok')
+  } else serve()
+}

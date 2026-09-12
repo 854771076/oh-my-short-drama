@@ -7,6 +7,8 @@ import { selectAssetVersion } from './asset-ledger.mjs'
 import { sameShotVersion } from './shot-fingerprint.mjs'
 
 const CHECKS = new Set(['passed', 'failed', 'not-applicable'])
+// 机器质量标记必须人工复核后才能放行；只能用带实际观察的误报判定覆盖。
+const BLOCKING_QUALITY_FLAGS = new Set(['grid_suspect', 'grid_check_failed'])
 export const STORYBOARD_REVIEW_CRITERIA = [
   '空间关系与轴线', '时间与动作连续性', '物理与交互逻辑', '光线与色彩连续性',
   '人物身份与造型一致性', '场景与道具一致性', '构图与镜头语言', '叙事覆盖与阅读顺序',
@@ -21,6 +23,7 @@ function validate(record) {
   for (const issue of record.issues) if (!['P0', 'P1', 'P2'].includes(issue?.severity) || typeof issue.message !== 'string') throw new Error('issue 必须包含有效 severity/message')
   if (!Array.isArray(record.criteria) || record.criteria.length === 0) throw new Error('criteria[] 必填，必须逐项记录制作计划验收点的实际观察')
   for (const item of record.criteria) if (typeof item?.criterion !== 'string' || !item.criterion.trim() || !['passed', 'failed'].includes(item.status) || typeof item.observation !== 'string' || !item.observation.trim()) throw new Error('criteria[] 必须包含 criterion/status/observation')
+  if (record.grid_check !== undefined && (record.grid_check?.status !== 'false-positive' || typeof record.grid_check.observation !== 'string' || !record.grid_check.observation.trim())) throw new Error('grid_check 必须是 {status:"false-positive", observation:"实际观看观察"}')
   return record.visual === 'passed' && !['audio', 'transition', 'captions'].some((field) => record[field] === 'failed') && record.criteria.every((item) => item.status === 'passed') && !record.issues.some((issue) => issue.severity === 'P0' || issue.severity === 'P1')
 }
 
@@ -41,6 +44,8 @@ async function main() {
   const [command, rootArg, inputPath] = process.argv.slice(2)
   if (command === '--self-check') {
     if (!validate({ assetKey: 'shot-1', versionId: 'v001', visual: 'passed', audio: 'not-applicable', transition: 'passed', captions: 'not-applicable', issues: [], criteria: [{ criterion: '主体清晰', status: 'passed', observation: '主体全程可辨认' }] })) throw new Error('验收自检失败')
+    try { validate({ assetKey: 'shot-1', versionId: 'v001', visual: 'passed', audio: 'not-applicable', transition: 'passed', captions: 'not-applicable', issues: [], criteria: [{ criterion: '主体清晰', status: 'passed', observation: 'ok' }], grid_check: { status: 'ok' } }); throw new Error('grid_check 自检失败') }
+    catch (error) { if (!String(error.message).includes('grid_check')) throw error }
     return console.log('ok')
   }
   if (!rootArg) throw new Error('必须提供项目目录')
@@ -55,6 +60,9 @@ async function main() {
     if (!asset) throw new Error('验收资产不存在')
     const version = asset.versions?.find((item) => item.id === record.versionId)
     if (!version || asset.staleVersionIds?.includes(record.versionId)) throw new Error('验收目标必须是未失效的候选资产版本')
+    const blockingFlags = (version.quality_flags || []).filter((flag) => BLOCKING_QUALITY_FLAGS.has(flag))
+    if (blockingFlags.length && approved && record.grid_check?.status !== 'false-positive') throw new Error(`版本带有机器质量标记 ${blockingFlags.join('、')}：必须实际观看素材，确认为误报时在 grid_check 写明观察再通过；确认宫格请判 failed 并重生`)
+    if (record.grid_check && !blockingFlags.length) throw new Error('版本没有待复核的机器质量标记，不得提交 grid_check')
     const local = resolve(root, version?.localPath || '')
     if (!version?.localPath || (local !== root && !local.startsWith(`${root}${sep}`))) throw new Error('验收资产路径无效')
     const [rootReal, localReal] = await Promise.all([realpath(root), realpath(local)])

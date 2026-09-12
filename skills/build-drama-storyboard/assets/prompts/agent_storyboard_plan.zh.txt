@@ -55,9 +55,21 @@
     - kind 只能是 action-hold-hard-cut/occlusion-cut/whip-pan-cut/action-match-cut/match-cut/motivated-light-cut/dissolve-time-cut/black-cut；screen_direction 只能是 left-to-right/right-to-left/up/down/in/out/neutral；confidence 只能是 high/medium/low
     - 优先使用有证据的动作、遮挡、甩镜、构图、剧情光线、时间或黑场桥。低置信度合同必须退回 action-hold-hard-cut 和 neutral，禁止用无来源闪白、随机烟雾或任意空间扭曲兜底；没有声音动机时省略 audio_bridge
     - dialogue_plan: {mode, focus}；mode 只能是 speaker/listener/two-shot/over-shoulder/dirty-single/clean-single/environment/long-take/none，focus 只能是 speaker/listener/relation/environment/action/none
-    - visual_plan: {emphasis, standout, technique}；standout 为布尔值，technique 只能是 standard/metaphor/reveal/callback/contrast/withhold/spectacle
+    - visual_plan: {emphasis, standout, technique, composition}；standout 为布尔值，technique 只能是 standard/metaphor/reveal/callback/contrast/withhold/spectacle
+    - composition: {primary, secondary, reason, evidence}，为新生成内容必填：
+      · primary 必填且只能是构图受控词表 code（composition.basic.* / composition.film.* / composition.action.* / composition.character.*；名称见上方规范镜头词汇，code-名称对照、证据门槛与可组合模式见 references/controlled-vocabulary.json 与 references/director-composition.md）
+      · secondary 只能为 null 或一个与 primary 不同的 code，仅在确有第二信息层时填写；禁止两个强风格模式并列
+      · reason 必须把该构图绑定到本镜 narrative_purpose 与唯一首要可读信息，说明观众第一眼读到什么
+      · evidence 必须给出具体引用：source_text 原句、场景/道具资产中的具体依据，或剧本成立的动作事实，并标注所用 code 要求的证据等级（composition-only/set_dressing/weather_atmosphere/action_blocking）；复合等级以 + 连接时每个组件都必须满足并各自给出依据
 
    导演合同规则：先确定整场目标、视点、调性、节奏与视听母题，再组织镜头组和逐镜变化。motion_plan 必须用可见主体、明确起止状态和可执行动作动词描述镜内变化；纯淡入、滑入、弹出或缩放不算叙事动作。除有意 hold 外，每镜都应产生与 narrative_purpose 对应的可见状态或信息变化。因果组默认包含 action 与 reaction/payoff 并遵循 pattern 顺序；reaction-omitted 可省略反应，omitted-action/action-hidden 可省略可见动作，reaction-first 允许反应前置，synchronous/repeated-variation/contrapuntal 不强制先后。逐列检查连续镜头的景别、机位、运动和对白覆盖；只有关系压迫、仪式感或蓄意单调等明确目的才允许无变化重复。长场景必须有可读的强弱变化，standout 只留给转折或高潮，不按固定比例凑数。duration 是供视频模型生成的素材时长，intended_duration 是剪辑时间线预计保留时长，两者不得混用。剪切必须写清动机，遵守轴线、视线与屏幕运动方向；J/L cut 或声桥必须有具体声音来源。只有有意停顿时可用 camera_role=hold，且 narrative_purpose 必须说明停顿承载的信息或情绪。
+
+   构图选择顺序（强制，不得跳步或倒序）：
+   1. 场级母题优先：先读导演本场 camera_strategy.composition_motifs（若输入提供），本镜构图必须服务某个场级母题的变化或回收，不得另起无母题依据的风格
+   2. 定本镜唯一首要可读信息：观众第一眼必须读到谁的决定、什么威胁、什么关系变化或什么动作结果；一镜只允许一个
+   3. 再选 primary/secondary：用 64 模式中唯一一个最能承载首要信息的 code 作 primary；确有第二信息层才加一个 secondary
+   4. 最后翻译成可见几何：把 code 落实为主体位置、视线与留白、前中后景、光源、遮挡、动作方向、镜尾状态并写进 description；禁止只复读构图名称，禁止按固定清单逐镜机械轮换构图
+   - 证据硬规则：evidence 是使用该 code 的最低门槛。set_dressing 所需门、窗、镜、廊柱、长桌、霓虹、武器等必须在场景/道具资产或剧本描写中；weather_atmosphere 的雨、雪、雾、逆光、双色温光源必须在原文、场次设定或资产中；action_blocking 的冲突、追逃、包围、群体走位必须由剧本或导演调度成立；复合证据（+）缺一不可。证据不足必须降级换 code，不得向画面添加原文或资产之外的元素；旧项目历史分镜没有 composition 字段时只正常读取，不要求回填补写。
 
 3. source_text 规则（极其重要）：
    ⚠️ 每个分镜都必须包含，不得为null或空字符串
@@ -366,3 +378,4 @@ Clip信息：
 16. duration 必填：根据可见动作、对白实际口播、移动和运镜估算，并严格符合 {shot_duration_constraints}；可用时包含必要剪辑余量，不得为迎合整集目标时长机械增删镜头，也不得把所有镜头固定为同一时长
 17. ⚠️ JSON安全：原文中的所有引号（""''「」等）在 JSON 字符串值中必须统一替换为「」，严禁出现未转义的英文双引号 "
 18. 连续关系必填：本集首镜、换场、时间跳跃、黑场、字幕或明确硬切使用 independent；其余默认 previous-tail。Part 边界不等于换场，不得自动断链
+19. ⚠️ visual_plan.composition 对新生成内容必填：primary 只能是 64 模式词表 code，secondary 为 null 或一个不同 code，reason 必须绑定 narrative_purpose，evidence 必须引用 source_text、场景/道具资产或动作事实并标注证据等级；复合证据（+）逐组件满足。构图按场级母题→首要可读信息→primary/secondary→可见几何的顺序选择，禁止机械轮换；证据不足必须换 code，不得无来源添加天气、陈设或动作

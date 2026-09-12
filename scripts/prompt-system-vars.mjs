@@ -22,10 +22,23 @@ const ageRange = (item, locale) => locale === 'zh'
   : (item.maxAge === null ? `age ${item.minAge}+` : `approximately age ${item.minAge}-${item.maxAge}`)
 
 const cinema = (locale) => {
-  const labels = { shotScale: locale === 'zh' ? '景别' : 'Shot scale', cameraAngle: locale === 'zh' ? '视角' : 'Camera angle', cameraMovement: locale === 'zh' ? '运镜' : 'Camera movement' }
-  const lines = [locale === 'zh' ? '【规范镜头词汇】' : '[CANONICAL CINEMATOGRAPHY VOCABULARY]']
+  const zh = locale === 'zh'
+  const labels = { shotScale: zh ? '景别' : 'Shot scale', cameraAngle: zh ? '视角' : 'Camera angle', cameraMovement: zh ? '运镜' : 'Camera movement' }
+  const compositionGroups = [
+    { category: 'basic', label: zh ? '构图·基础' : 'Composition · basic' },
+    { category: 'film', label: zh ? '构图·光影氛围' : 'Composition · atmosphere' },
+    { category: 'action', label: zh ? '构图·动作' : 'Composition · action' },
+    { category: 'character', label: zh ? '构图·人物叙事' : 'Composition · character' },
+  ]
+  const lines = [zh ? '【规范镜头词汇】' : '[CANONICAL CINEMATOGRAPHY VOCABULARY]']
   for (const key of ['shotScale', 'cameraAngle', 'cameraMovement']) lines.push(`${labels[key]}：${vocabulary.cinematography[key].map((item) => item[locale]).join('、')}`)
-  lines.push(locale === 'zh' ? 'shot_type 使用“视角+景别”，camera_move 只使用规范运镜名称。' : 'Use “camera angle + shot scale” for shot_type and only canonical movement names for camera_move.')
+  for (const group of compositionGroups) {
+    const names = vocabulary.cinematography.compositionPatterns.filter((item) => item.category === group.category).map((item) => item[locale])
+    lines.push(`${group.label}：${names.join(zh ? '、' : ', ')}`)
+  }
+  lines.push(zh
+    ? 'shot_type 使用“视角+景别”，camera_move 只使用规范运镜名称。构图每镜仅选一个 primary、最多一个 secondary，并翻译为可见的主体位置、视线留白、前中后景、光源、遮挡、动作方向与镜尾状态；无证据不得添加雨、雾、霓虹、镜子、烟尘、门窗/廊柱等原文或资产中没有的元素，完整规则见 references/director-composition.md。'
+    : 'Use "camera angle + shot scale" for shot_type and only canonical movement names for camera_move. Choose exactly one primary composition per shot (at most one secondary) and translate it into visible subject placement, eyeline/negative space, foreground-midground-background, light sources, occlusion, action direction, and end-frame state; never add rain, fog, neon, mirrors, smoke, doors/windows/columns or any element unsupported by the script or assets; full rules in references/director-composition.md.')
   return lines.join('\n')
 }
 

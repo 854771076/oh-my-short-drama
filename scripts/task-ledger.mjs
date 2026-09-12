@@ -167,6 +167,12 @@ export async function getTask(rootArg, taskId) {
   return task
 }
 
+export async function listTasks(rootArg, { targetPrefix = '', types = null } = {}) {
+  const ledger = await readLedger(resolve(rootArg))
+  return Object.values(ledger.tasks)
+    .filter((task) => (!targetPrefix || task.target.startsWith(targetPrefix)) && (!types || types.includes(task.type)))
+}
+
 export async function updateTaskStatus(rootArg, taskId, status, outputVersionId) {
   if (!STATUSES.has(status)) throw new Error(`未知任务状态：${status}`)
   const root = resolve(rootArg)
@@ -218,6 +224,8 @@ async function main() {
       try { await reserveTask(temporary, { taskId: 'duplicate', target: 'other-test', type: 'image', provider: 'starrouter', requestPath: snapshot.requestPath }); throw new Error('预登记去重自检失败') } catch (error) { if (!String(error.message).includes('在途任务')) throw error }
       const settled = await settleReservedTask(temporary, snapshot.requestId, { taskId: 'remote-test', status: 'queued' })
       if (settled.taskId !== 'remote-test' || settled.status !== 'queued') throw new Error('预登记结算自检失败')
+      const listed = await listTasks(temporary, { targetPrefix: 'other-', types: ['image'] })
+      if (listed.length !== 1 || listed[0].taskId !== 'remote-test' || (await listTasks(temporary, { types: ['video'] })).length) throw new Error('任务列表过滤自检失败')
     } finally { await rm(temporary, { recursive: true, force: true }) }
     return console.log('ok')
   }

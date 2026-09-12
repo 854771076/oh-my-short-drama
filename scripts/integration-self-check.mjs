@@ -13,6 +13,7 @@ import { selfCheck as checkLitterbox } from './media-hosting/litterbox.mjs'
 import { selfCheck as checkBailian } from './generation/bailian.mjs'
 import { listReferenceUploads, publishReferenceImage, selfCheck as checkPublish, validateTemporaryReferenceUrl } from './media-hosting/publish.mjs'
 import { validateVideoReferenceBindings } from './reference-bindings.mjs'
+import { ANTI_GRID_CLAIM_ZH, PANEL_BOARD_CLAIM_ZH } from './grid-detect.mjs'
 
 const plugin = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const skillMap = JSON.parse(await readFile(resolve(plugin, 'references/skill-map.json'), 'utf8'))
@@ -301,8 +302,8 @@ async function main() {
     try { await validateVideoReferenceBindings(root, 'runninghub', { model: 'minimax-h3-reference-to-video', reference_image_paths: [media] }, [referenceManifest[0]]); throw new Error('错误本地参考路径仍被接受') } catch (error) { if (!String(error.message).includes('本地参考路径与资产版本不一致')) throw error }
     try { await validateTemporaryReferenceUrl(root, 'https://litter.catbox.moe/untracked.png', { asset_key: 'char-a', version_id: 'v001' }); throw new Error('无收据 Litterbox URL 被接受') } catch (error) { if (!String(error.message).includes('本地上传收据')) throw error }
     const snapshot = async (name, target, type, provider, tool, args, promptDocument = null) => JSON.parse(run('task-ledger.mjs', 'snapshot', root, await json(root, `${name}-request.json`, { tool, target, type, provider, modelOrWorkflow: args.model || args.workflow_id, promptDocument, arguments: { ...args, confirmed: true } })))
-    const videoPromptText = '@图片1 作为首帧，人物抬头后停在结束姿态。'
-    const videoPromptText2 = '@图片1 作为首帧，人物转身走向门口后停住。'
+    const videoPromptText = `${ANTI_GRID_CLAIM_ZH}\n@图片1 作为首帧，人物抬头后停在结束姿态。\n${ANTI_GRID_CLAIM_ZH}`
+    const videoPromptText2 = `${ANTI_GRID_CLAIM_ZH}\n@图片1 作为首帧，人物转身走向门口后停住。\n${ANTI_GRID_CLAIM_ZH}`
     const videoPromptReference = { episode_key: 'ep-001', version_id: 'v001', shot_number: 1 }
     const videoPromptReference2 = { episode_key: 'ep-001', version_id: 'v001', shot_number: 2 }
     const audioPromptReference = { kind: 'audio-plan', episode_key: 'ep-001', version_id: 'v001', line_index: 1 }
@@ -447,6 +448,43 @@ async function main() {
     for (const shotNumber of [1, 2]) run('review-ledger.mjs', 'put', root, await json(root, `board-review-${shotNumber}.json`, { assetKey: `board-ep001-${String(shotNumber).padStart(3, '0')}`, versionId: 'v001', visual: 'passed', audio: 'not-applicable', transition: 'not-applicable', captions: 'not-applicable', issues: [], criteria: storyboardCriteria.map((criterion) => ({ criterion, status: 'passed', observation: `${criterion}已有可见证据` })) }))
     try { await callGeneration('submit_video', { ...boundVideo, prompt: '被篡改的提示词' }); throw new Error('视频提示词绑定自检未触发') } catch (error) { if (!String(error.message).includes('prompt 不一致')) throw error }
     try { await callGeneration('submit_video', { ...boundVideo, fps: 25 }); throw new Error('Seedance 参数自检未触发') } catch (error) { if (!String(error.message).includes('fps 仅支持 24')) throw error }
+    const batchConfirmations = (({ service, expires_in, usage_scope, confirmed, rights_confirmed, public_exposure_confirmed, usage_terms_confirmed }) => ({ service, expires_in, usage_scope, confirmed, rights_confirmed, public_exposure_confirmed, usage_terms_confirmed }))(publishInput)
+    const episodeUrls = await callGeneration('ensure_reference_urls', { project_root: root, episode_key: 'ep-001', ...batchConfirmations })
+    if (episodeUrls.published.length !== 1 || !episodeUrls.published[0].reused || episodeUrls.published[0].asset_key !== 'char-a') throw new Error('整集参考 URL 批量复用失败')
+    const episodePlan = await callGeneration('submit_episode_videos', { project_root: root, episode_key: 'ep-001', confirmed: false })
+    if (!episodePlan.ready || episodePlan.phase !== 'plan' || episodePlan.shot_count !== 2 || episodePlan.shots.some((shot) => shot.error) || episodePlan.shots[0].model !== 'dreamina-seedance-2-0-260128') throw new Error(`整集批量费用摘要无效：${JSON.stringify(episodePlan.shots)}`)
+    // 多格分镜板整张输入：语义参考位 + 双声明允许；首帧像素位拒绝；缺分镜板条款拒绝。
+    // 发布前有图片嗅探，给 board-ep001-002 追加一个真实 1x1 PNG 版本并完成选版/审计
+    await writeFile(resolve(root, 'board-ep001-002-v002.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'))
+    // 按完整生成任务链登记 v002（带 storyboard 文档绑定和 Skill 提示词留痕，否则证据链不认）
+    const boardV002Template = resolve(plugin, 'skills/generate-storyboard-images/assets/prompts', 'panel_grid_image.zh.txt')
+    const boardV002Vars = Object.fromEntries([...(await readFile(boardV002Template, 'utf8')).matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((match) => [match[1], match[1] === 'panel_grid_size' ? 3 : match[1] === 'grid_layout' ? '三格横排' : '测试']))
+    const boardV002PromptPath = resolve(root, 'board-task-2b-prompt.txt')
+    run('render-prompt.mjs', '--template', boardV002Template, '--vars', await json(root, 'board-task-2b-vars.json', boardV002Vars), '--output', boardV002PromptPath, '--project-root', root)
+    const boardV002Request = await snapshot('board-task-2b', 'board-ep001-002', 'image', 'starrouter', 'generate_image', { model: 'gpt-image-2', prompt: await readFile(boardV002PromptPath, 'utf8'), reference_manifest: [] }, { kind: 'storyboard', episode_key: 'ep-001', version_id: 'v001', shot_number: 2 })
+    run('task-ledger.mjs', 'put', root, await json(root, 'board-task-2b.json', { taskId: 'board-task-2b', target: 'board-ep001-002', type: 'image', provider: 'starrouter', requestPath: boardV002Request.requestPath, status: 'running' }))
+    const boardV002Provenance = await json(root, 'board-ep001-002-v002-provenance.json', { origin: 'generated', created_by: 'provider', provider: 'starrouter', model_or_workflow: 'gpt-image-2', task_id: 'board-task-2b', prompt_document: { kind: 'storyboard', episode_key: 'ep-001', version_id: 'v001', shot_number: 2 }, source_assets: [], parameters: {} })
+    run('asset-ledger.mjs', 'import', root, 'board-ep001-002', resolve(root, 'board-ep001-002-v002.png'), 'v002', '-', boardV002Provenance)
+    run('task-ledger.mjs', 'update', root, 'board-task-2b', 'completed', 'v002')
+    run('asset-ledger.mjs', 'select', root, 'board-ep001-002', 'v002')
+    run('review-ledger.mjs', 'put', root, await json(root, 'board-review-ep001-002-v002.json', { assetKey: 'board-ep001-002', versionId: 'v002', visual: 'passed', audio: 'not-applicable', transition: 'not-applicable', captions: 'not-applicable', issues: [], criteria: storyboardCriteria.map((criterion) => ({ criterion, status: 'passed', observation: `${criterion}已有可见证据` })) }))
+    await publishReferenceImage(root, { ...publishInput, asset_key: 'board-ep001-002', version_id: 'v002' }, async () => new Response('https://litter.catbox.moe/board.png', { status: 200 }))
+    const boardRole = (role) => [{ type: 'image', order: 1, asset_key: 'board-ep001-002', version_id: 'v002', role }]
+    const panelDoc = (inputMode, role, withClause) => ({ episode_key: 'ep-001', source_versions: { production_plan: 'v001', storyboard: 'v001' }, unresolved: [], approved: true, shots: [{ shot_number: 2, production_plan_version: 'v001', storyboard_version: 'v001', provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: inputMode, prompt: `${ANTI_GRID_CLAIM_ZH}\n${withClause ? `${PANEL_BOARD_CLAIM_ZH}\n` : ''}人物走向门口。\n${ANTI_GRID_CLAIM_ZH}`, duration: 5, references: boardRole(role), continuity: {}, audio_policy: { mode: 'post-dub' }, errors: [] }] })
+    const putPanelVersion = async (version, documentToStore) => {
+      run('project-store.mjs', 'put-episode-document', root, 'video-prompts', 'ep-001', version, await json(root, `video-prompts-${version}.json`, documentToStore))
+      run('project-store.mjs', 'select-episode-document', root, 'video-prompts', 'ep-001', version)
+    }
+    await putPanelVersion('v099', panelDoc('full-reference', 'reference_image', true))
+    const panelAllowedPlan = await callGeneration('submit_episode_videos', { project_root: root, episode_key: 'ep-001', shot_numbers: [2], confirmed: false })
+    if (!panelAllowedPlan.ready || panelAllowedPlan.shots[0].error) throw new Error(`多格分镜板语义参考输入被误拒：${JSON.stringify(panelAllowedPlan.shots[0])}`)
+    await putPanelVersion('v098', panelDoc('first-last-frame', 'first_frame', true))
+    const panelFramedPlan = await callGeneration('submit_episode_videos', { project_root: root, episode_key: 'ep-001', shot_numbers: [2], confirmed: false })
+    if (panelFramedPlan.ready || !panelFramedPlan.shots[0].error?.includes('首帧/尾帧')) throw new Error(`多格分镜板像素槽位未拦截：${JSON.stringify(panelFramedPlan.shots[0])}`)
+    await putPanelVersion('v097', panelDoc('full-reference', 'reference_image', false))
+    const panelNoClaimPlan = await callGeneration('submit_episode_videos', { project_root: root, episode_key: 'ep-001', shot_numbers: [2], confirmed: false })
+    if (panelNoClaimPlan.ready || !panelNoClaimPlan.shots[0].error?.includes('分镜板时间顺序条款')) throw new Error(`缺分镜板条款的多格板输入未拦截：${JSON.stringify(panelNoClaimPlan.shots[0])}`)
+    run('project-store.mjs', 'select-episode-document', root, 'video-prompts', 'ep-001', 'v001')
     const boundFailure = Object.values(JSON.parse(run('task-ledger.mjs', 'list', root)).tasks).find((task) => task.target === 'shot-ep001-001' && task.status === 'failed')
     if (!boundFailure) throw new Error('通过文档绑定校验后的失败视频请求未留档')
     try {

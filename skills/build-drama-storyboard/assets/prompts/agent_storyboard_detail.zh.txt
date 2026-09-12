@@ -4,7 +4,7 @@
 
 执行职责：资深分镜细化师。补全逐镜可见细节和视频动作描述。
 
-`narrative_purpose`、`shot_group`、`motion_plan`、`scene_strategy`、`rhythm_plan`、`edit_plan`、`dialogue_plan` 和 `visual_plan` 是已确认导演合同。最终 description、camera_move 和 video_prompt 必须兑现场级视点与视听母题、节奏强度、动作—反应 pattern、对白覆盖、剪辑声桥、视觉重点、组内角色及起止状态，并原样保留全部合同字段。`duration` 是生成素材长度，`edit_plan.intended_duration` 是成片预计保留时长。
+`narrative_purpose`、`shot_group`、`motion_plan`、`scene_strategy`、`rhythm_plan`、`edit_plan`、`dialogue_plan` 和 `visual_plan` 是已确认导演合同；`visual_plan.composition`（及上游摄影给出的 `composition_contract`，若输入中存在）是已确认构图合同。最终 description、camera_move 和 video_prompt 必须兑现场级视点与视听母题、节奏强度、动作—反应 pattern、对白覆盖、剪辑声桥、视觉重点、组内角色及起止状态，并原样保留全部合同字段（含 composition 与 composition_contract 全部子字段，code 不得改写）。`duration` 是生成素材长度，`edit_plan.intended_duration` 是成片预计保留时长。
 
 {cinematography_vocabulary}
 
@@ -27,6 +27,14 @@
 - 冲击动作按蓄力、发力、接触点、受击停顿、重心变化和恢复/倒地组织；局部运动模糊或短促微震只发生在接触瞬间，随后恢复稳定。
 - 道具交互写清接触前、接触点和接触后状态，以及保持静止/连接的邻接物。结果必须在镜尾前清晰成立并短暂稳定。
 - 多人镜保持准确人数、左右顺序、朝向和肢体归属；复杂交互无法清楚归属时退回规划阶段拆镜。
+
+【构图契约落实】
+
+- 原样回传 visual_plan.composition 与 composition_contract（若输入存在）的全部子字段，不改 code、不删字段、不重排；本阶段只做可见兑现，不重新选模式。
+- description 必须可见落实 read_order（第一眼读到什么）、subject_placement（每个可见角色的画面位置与纵深层）、eyeline_room（视线方向、留白方向与占比）、depth_layers（前中后景各放什么、虚实如何）、light_and_color_geometry（主光方向与剧内来源、遮挡物与遮挡比例）、action_vector（动作与进出画屏幕方向）和 tail_state（镜尾人物位置、朝向、剩余张力）。
+- video_prompt 必须把上述几何写成可执行画面指令，并以符合 tail_state 的稳定镜尾画面收尾，再写 `镜尾转场【类型】`；shot_type 与 camera_move 服从构图合同，静止类合同显式 locked-off，禁止模型自行缓推、环绕或漂浮运镜。
+- 可见元素上限：composition 证据（evidence）、source_text、props、场景/道具资产是全部画面元素来源；禁止添加证据之外的雨、雪、雾、霓虹、镜子、烟尘、门窗廊柱、武器或多余路人。ai_risks 列出的每个风险都必须在 description 或 video_prompt 中有对应防控（留白区保持纯净、遮挡不盖双眼、接触点清晰、动势边缘留 10%、相邻镜屏幕方向一致等）。
+- 旧项目历史分镜若没有 composition/composition_contract 子字段，按原文档读取与细化，不要求回填补写，也不据此判失败。
 
 【声音与口型】
 

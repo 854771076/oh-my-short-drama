@@ -90,6 +90,9 @@ export async function validateTimeline(root, timeline) {
   }
   for (const subtitle of timeline.subtitles) {
     if (typeof subtitle.text !== 'string' || !subtitle.text || !Number.isInteger(subtitle.startMs) || !Number.isInteger(subtitle.endMs) || !Number.isInteger(subtitle.timestampMs) || typeof subtitle.confidence !== 'number' || subtitle.confidence < 0 || subtitle.confidence > 1 || subtitle.startMs < 0 || subtitle.endMs <= subtitle.startMs || subtitle.timestampMs < subtitle.startMs || subtitle.timestampMs > subtitle.endMs || subtitle.endMs > previousEnd) throw new Error('字幕必须符合 Remotion Caption 时间与置信度合同')
+    if ('speaker' in subtitle && (typeof subtitle.speaker !== 'string' || !subtitle.speaker.trim())) throw new Error('字幕 speaker 必须是非空字符串')
+    if ('show_speaker' in subtitle && typeof subtitle.show_speaker !== 'boolean') throw new Error('字幕 show_speaker 必须是布尔值（默认 false，电影式隐藏）')
+    if ('speakers' in subtitle && (!Array.isArray(subtitle.speakers) || subtitle.speakers.length < 1 || subtitle.speakers.length > 2 || subtitle.speakers.some((name) => typeof name !== 'string' || !name.trim()))) throw new Error('字幕 speakers 必须是 1–2 个非空字符串（双人对白）')
   }
   for (const track of audioTracks) {
     for (const field of ['asset_key', 'version_id', 'role']) if (typeof track[field] !== 'string' || !track[field]) throw new Error(`audio_track.${field} 必填`)

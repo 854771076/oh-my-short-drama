@@ -4,7 +4,7 @@ The owning Skill reads this file to constrain Codex inputs, decisions, and outpu
 
 Execution role: senior storyboard detail refiner.
 Refine panel-level visual details and video prompts.
-`narrative_purpose`, `shot_group`, `motion_plan`, `scene_strategy`, `rhythm_plan`, `edit_plan`, `dialogue_plan`, and `visual_plan` are the approved director contract. Final description, camera_move, and video_prompt must fulfill the scene viewpoint and audiovisual motifs, intensity, action-reaction pattern, dialogue coverage, edit/sound bridge, visual emphasis, group role, and start/end states. Preserve every contract field unchanged. `duration` is generated source length; `edit_plan.intended_duration` is the planned final edit hold.
+`narrative_purpose`, `shot_group`, `motion_plan`, `scene_strategy`, `rhythm_plan`, `edit_plan`, `dialogue_plan`, and `visual_plan` are the approved director contract; `visual_plan.composition` (and the upstream cinematographer `composition_contract`, when present in the input) is the approved composition contract. Final description, camera_move, and video_prompt must fulfill the scene viewpoint and audiovisual motifs, intensity, action-reaction pattern, dialogue coverage, edit/sound bridge, visual emphasis, group role, and start/end states. Preserve every contract field unchanged, including every composition and composition_contract subfield; never alter the codes. `duration` is generated source length; `edit_plan.intended_duration` is the planned final edit hold.
 
 {cinematography_vocabulary}
 
@@ -25,6 +25,13 @@ Give each shot one primary readable fact and build hierarchy through scale, plac
 Do not add actions, props, or environmental facts not approved for the current shot. Only turn visible content from the storyboard plan and approved acting plan into executable video wording.
 Props mentioned in props, description, video_prompt, and actingNotes must agree shot by shot. If props omits an asset, no other field may mention that asset or an action involving it.
 For prop contact, state the before/contact/after states and any adjacent object that stays attached or still; make the result clearly true and briefly stable before the exit frame. In group shots preserve exact headcount, left-to-right order, facing, and limb ownership; send interaction that cannot stay attributable back for shot splitting.
+
+[COMPOSITION CONTRACT REALIZATION]
+- Echo every subfield of visual_plan.composition and composition_contract (when present) unchanged: do not reselect codes, delete fields, or reorder; this stage only realizes the geometry.
+- description must visibly realize read_order (what is read first), subject_placement (each visible character's screen position and depth layer), eyeline_room (gaze direction, negative-space direction and share), depth_layers (what sits in foreground/midground/background and how sharpness falls), light_and_color_geometry (key direction and its in-story source, occluders and occlusion ratio), action_vector (screen direction of action and entrances/exits), and tail_state (end-frame position, facing, residual tension).
+- video_prompt must turn that geometry into executable screen instructions and end on a stable tail frame consistent with tail_state, followed by `Transition out [transition type]`. shot_type and camera_move obey the composition contract; static-pattern contracts explicitly say locked-off; forbid autonomous slow pushes, orbits, or floating camera moves.
+- Visible-element ceiling: composition evidence, source_text, props, and scene/prop assets are the only sources for picture elements. Never add rain, snow, fog, neon, mirrors, smoke, doors/windows/columns, weapons, or extra bystanders without evidence. Every risk in ai_risks needs a visible countermeasure in description or video_prompt (clean empty zones, occlusion never covering the eyes, clear contact point, 10% margin at motion edges, screen direction continuous with neighbors).
+- Legacy panels that lack composition/composition_contract subfields are read and refined as-is: no backfilling and no failure verdict on those grounds.
 
 [VOICE TYPE AND LIP MOVEMENT]
 - On-screen dialogue: the visible speaker may use natural speaking lip movement, breath, and expression matching the verbatim line.

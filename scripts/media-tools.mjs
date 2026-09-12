@@ -2,6 +2,7 @@
 import { mkdir } from 'node:fs/promises'
 import { basename, dirname, extname, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { detectMedia } from './grid-detect.mjs'
 
 function positive(value, name) {
   const number = Number(value)
@@ -130,7 +131,12 @@ async function main() {
     run('ffmpeg', ['-nostdin', '-loglevel', 'error', '-n', ...inputArgs, '-filter_complex', `xstack=inputs=${inputs.length}:layout=${gridLayout(inputs.length, columns)}:fill=black`, '-frames:v', '1', '-update', '1', resolve(output)])
     return
   }
-  throw new Error('用法：media-tools.mjs probe|qc|extract-frame|crop|split-grid|extract-grid-cell|compose-grid ...')
+  if (command === 'detect-grid') {
+    if (!args[0]) throw new Error('用法：detect-grid <图片或视频> [抽样帧数]')
+    const samples = Number(args[1] || 8)
+    return console.log(JSON.stringify(detectMedia(resolve(args[0]), { samples: Number.isFinite(samples) ? samples : 8 }), null, 2))
+  }
+  throw new Error('用法：media-tools.mjs probe|qc|extract-frame|crop|split-grid|extract-grid-cell|compose-grid|detect-grid ...')
 }
 
 main().catch((error) => { console.error(error.message); process.exitCode = 1 })

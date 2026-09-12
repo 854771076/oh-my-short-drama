@@ -18,7 +18,13 @@ const PROVENANCE_ORIGINS = new Set(['imported', 'generated', 'transformed'])
 const PROVENANCE_CREATORS = new Set(['user', 'codex', 'provider'])
 const CONTENT_EXTENSIONS = { 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/flac': '.flac', 'audio/x-flac': '.flac', 'audio/L16': '.pcm', 'audio/pcm': '.pcm', 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'video/mp4': '.mp4', 'video/webm': '.webm' }
 const TYPE_EXTENSIONS = { image: new Set(['.gif', '.jpeg', '.jpg', '.png', '.webp']), video: new Set(['.mp4', '.webm']), audio: new Set(['.flac', '.mp3', '.pcm', '.wav']) }
-const MUTATING = new Set(['put', 'add-version', 'revert'])
+const MUTATING = new Set(['put', 'add-version', 'revert', 'flag-version'])
+export const QUALITY_FLAGS = new Set(['grid_suspect', 'grid_check_failed'])
+
+export function normalizeQualityFlags(value) {
+  if (!Array.isArray(value) || value.some((flag) => typeof flag !== 'string' || !QUALITY_FLAGS.has(flag))) throw new Error(`quality_flags 只允许：${[...QUALITY_FLAGS].join('、')}`)
+  return Array.from(new Set(value))
+}
 const MAX_MEDIA_BYTES = Number(process.env.SHORT_DRAMA_MAX_MEDIA_BYTES || 512 * 1024 * 1024)
 if (!Number.isSafeInteger(MAX_MEDIA_BYTES) || MAX_MEDIA_BYTES <= 0) throw new Error('SHORT_DRAMA_MAX_MEDIA_BYTES 必须是正整数')
 
@@ -207,6 +213,8 @@ async function main() {
     try { versionKey('v1'); throw new Error('版本规范自检失败') } catch (error) { if (!String(error.message).includes('v001')) throw error }
     normalizeProvenance(null)
     normalizeProvenance({ origin: 'generated', created_by: 'provider', provider: 'starrouter', model_or_workflow: 'video-model', task_id: 'task-1', prompt_document: null, source_assets: [], parameters: {} })
+    if (normalizeQualityFlags(['grid_suspect', 'grid_suspect']).length !== 1) throw new Error('质量标记去重自检失败')
+    try { normalizeQualityFlags(['unknown']); throw new Error('质量标记自检失败') } catch (error) { if (!String(error.message).includes('quality_flags')) throw error }
     return console.log('ok')
   }
   if (!rootArg) throw new Error('必须提供项目目录')
@@ -248,6 +256,16 @@ async function main() {
     asset.updatedAt = new Date().toISOString()
     await save(root, ledger)
     return console.log(JSON.stringify(asset, null, 2))
+  }
+  if (command === 'flag-version') {
+    const [key, versionId, flagsPath] = args
+    if (!key || !versionId || !flagsPath) throw new Error('用法：flag-version <项目目录> <资产 key> <版本 id> <标记 JSON 数组文件>')
+    const version = get(ledger, key).versions.find((item) => item.id === versionKey(versionId))
+    if (!version) throw new Error(`版本不存在：${versionId}`)
+    version.quality_flags = normalizeQualityFlags([...(version.quality_flags || []), ...JSON.parse(await readFile(resolve(flagsPath), 'utf8'))])
+    ledger.assets[key].updatedAt = new Date().toISOString()
+    await save(root, ledger)
+    return console.log(JSON.stringify(version, null, 2))
   }
   if (['import', 'fetch', 'decode'].includes(command)) {
     const [key, source, versionId, requestedNameValue, provenancePath] = args
@@ -337,7 +355,7 @@ async function main() {
     await save(root, ledger)
     return console.log(JSON.stringify(asset, null, 2))
   }
-  throw new Error('用法：asset-ledger.mjs put|import|fetch|decode|add-version|select|revert|list ...')
+  throw new Error('用法：asset-ledger.mjs put|import|fetch|decode|add-version|flag-version|select|revert|list ...')
   }
   return MUTATING.has(command) ? withFileLock(ledgerPath(root), operate) : operate()
 }

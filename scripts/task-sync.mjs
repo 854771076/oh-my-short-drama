@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { generationProvenance, getTask, updateTaskStatus } from './task-ledger.mjs'
+import { detectMedia } from './grid-detect.mjs'
 
 const execute = promisify(execFile)
 const assetLedger = fileURLToPath(new URL('./asset-ledger.mjs', import.meta.url))
@@ -42,21 +43,36 @@ export async function syncTaskResult(rootArg, taskId, result) {
     }
     const versions = (ledger.assets[task.target].versions || []).filter((item) => item.provenance?.task_id === taskId).map((item) => item.id)
     const existingCount = versions.length
+    const quality = []
     for (const [index, output] of result.outputs.entries()) {
       if (versions[index]) continue
       if (output.media_type && output.media_type !== task.type) throw new Error(`输出类型与任务不一致：${output.media_type}/${task.type}`)
       const versionId = nextVersion(ledger.assets[task.target], index - existingCount)
       const provenance = resolve(temporary, `provenance-${index}.json`)
       await writeFile(provenance, `${JSON.stringify(generationProvenance(task, request), null, 2)}\n`)
-      if (output.url) await run('fetch', root, task.target, output.url, versionId, '-', provenance)
+      let registered
+      if (output.url) registered = JSON.parse(await run('fetch', root, task.target, output.url, versionId, '-', provenance))
       else if (output.b64_json) {
         const encoded = resolve(temporary, `output-${index}.txt`)
         await writeFile(encoded, output.b64_json)
-        await run('decode', root, task.target, encoded, versionId, '-', provenance)
+        registered = JSON.parse(await run('decode', root, task.target, encoded, versionId, '-', provenance))
       } else throw new Error(`第 ${index + 1} 个输出无 URL 或 base64 内容`)
+      // 成片宫格自动检测：只打标，不自动重生（门框/地平线可能误报，交给人工复核）
+      if (task.type === 'video') {
+        let flags = []
+        let report = null
+        try { report = detectMedia(resolve(root, registered.localPath)); if (report.detected) flags = ['grid_suspect'] }
+        catch { flags = ['grid_check_failed'] }
+        quality.push({ version_id: versionId, flags, ...(report ? { grid_report: report } : {}) })
+        if (flags.length) {
+          const flagFile = resolve(temporary, `flags-${index}.json`)
+          await writeFile(flagFile, JSON.stringify(flags))
+          await run('flag-version', root, task.target, versionId, flagFile)
+        }
+      }
       versions.push(versionId)
     }
-    return { ...result, output_version_ids: versions, local_task: await updateTaskStatus(root, taskId, 'completed', versions[0]) }
+    return { ...result, output_version_ids: versions, output_quality: quality, local_task: await updateTaskStatus(root, taskId, 'completed', versions[0]) }
   } finally { await rm(temporary, { recursive: true, force: true }) }
 }
 
