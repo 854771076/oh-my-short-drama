@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "drama-generation": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/generation/mcp.mjs"]
+    }
+  }
+}
+

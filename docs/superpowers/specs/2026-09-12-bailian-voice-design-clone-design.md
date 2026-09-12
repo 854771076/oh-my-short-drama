@@ -2,7 +2,7 @@
 
 日期：2026-09-12
 状态：待评审
-来源：waoowaoo 产品仓库（`src/lib/providers/bailian/`，Next.js 服务端实现）移植到 codex-short-drama 插件的 MCP/Node 脚本体系。
+来源：waoowaoo 产品仓库（`src/lib/providers/bailian/`，Next.js 服务端实现）移植到 oh-my-short-drama 插件的 MCP/Node 脚本体系。
 
 ## 1. 目标与范围
 
@@ -30,7 +30,7 @@
 - Provider adapter 形状见 `scripts/generation/starrouter.mjs`：`{ label, credentialEnv, catalog, capabilities, models(), testConnection(), image/audio/music/transcribe/translate/submitVideo/task }`，在 `scripts/generation/providers.mjs` 的 `adapters` 注册；`providerSetupCatalog()` 自动从 adapter 派生配置目录，`scripts/project-store.mjs` 据此校验 project.json 的 provider/模型/参数——**注册即自动生效，无需改 project-store**。
 - MCP 工具在 `scripts/generation/mcp.mjs` 的 `tools` 数组声明 JSON Schema，`call()` 分发。生成类工具（image/audio/music/video）统一过：阶段门禁 `enforceGenerationStage` → project.json 一致性校验 `validateProjectInputs` → 请求快照 `createRequestSnapshot` → 任务账本 `reserveTask/settleReservedTask` → 结果回写 `syncTaskResult`。
 - 音频文档绑定校验在 `scripts/document-reference.mjs:64`：audio-plan 的 `voice_bindings` 条目为 `{speaker, provider, model, voice_id}`，`generate_audio` 的 provider/model 必须与绑定一致，传了 `voice` 时还必须等于 `voice_id`，`input` 必须与台词逐字一致。
-- 凭证：`scripts/generation/credentials.mjs`，env 优先，其次 `~/.config/codex-short-drama/credentials.json`。
+- 凭证：`scripts/generation/credentials.mjs`，env 优先，其次 `~/.config/oh-my-short-drama/credentials.json`。
 - 临时托管：`scripts/media-hosting/`，目前仅 litterbox，capabilities 仅 `image`；收据写 `.short-drama/uploads/upload-<uuid>.json`，带 sha256 去重。
 - 插件脚本不引入任何 npm 依赖（Node 内置 `fetch`/`FormData`/`Blob` 已满足）。
 - 每个模块带导出的纯函数 `selfCheck()`，在 mcp 启动时调用；`scripts/integration-self-check.mjs` 跑端到端校验。

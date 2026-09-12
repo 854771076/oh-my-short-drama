@@ -1,10 +1,10 @@
-# Codex 短剧工厂
+# 短剧工厂
 
-本地优先、可追溯、可扩展的 Codex 标准短剧制作插件。从小说、故事梗概或创意开始，由 Codex 完成文本创作，通过生成 Provider 完成图片、视频和音频，最终在本地完成剪辑与交付。
+本地优先、可追溯、可扩展的标准短剧制作插件，支持 Codex、Claude Code 与 Hermes Agent。从小说、故事梗概或创意开始，由智能体完成文本创作，通过生成 Provider 完成图片、视频和音频，最终在本地完成剪辑与交付。
 
 ```text
-Codex → codex-short-drama → drama-generation MCP → 阿里云百炼 / StarRouter / RunningHub / Comfly
-                                             ↘ Litterbox 临时参考图 URL（按需）
+Codex / Claude Code / Hermes → oh-my-short-drama → drama-generation MCP → 阿里云百炼 / StarRouter / RunningHub / Comfly
+                                                                  ↘ Litterbox 临时参考图 URL（按需）
 ```
 
 ## 核心原则
@@ -38,7 +38,7 @@ Codex → codex-short-drama → drama-generation MCP → 阿里云百炼 / StarR
 
 ## 支持的生成 Provider
 
-凭据可使用下列环境变量，也可在 Dashboard 的“生成配置”中录入。Dashboard 凭据保存在本机 `~/.config/codex-short-drama/credentials.json`（仅当前用户可读写），环境变量优先；两种方式都不会把凭据写入项目。
+凭据可使用下列环境变量，也可在 Dashboard 的“生成配置”中录入。Dashboard 凭据保存在本机 `~/.config/oh-my-short-drama/credentials.json`（仅当前用户可读写），环境变量优先；两种方式都不会把凭据写入项目。旧版 `~/.config/codex-short-drama/credentials.json` 会被兼容读取，并在下次保存时迁入新路径。
 
 ### 阿里云百炼（配音默认推荐）
 
@@ -96,13 +96,45 @@ export COMFLY_APP_ID='0'
 
 ## 安装与更新
 
+### Codex
+
 该仓库已登记到本地 `personal` marketplace 时执行：
 
 ```bash
-codex plugin add codex-short-drama@personal
+codex plugin add oh-my-short-drama@personal
 ```
 
-安装、更新或修改 Provider 环境后，必须使用 `⌘Q` 完全退出 Codex，再重新打开并新建任务，以加载最新 Skills、hooks 和 MCP 工具。仅关闭窗口或仅新建任务不会刷新桌面进程的 MCP 快照。不要直接修改 `~/.codex/plugins/cache/` 下的安装缓存；源码目录才是事实来源。
+### Claude Code
+
+仓库包含原生 `.claude-plugin/plugin.json`、marketplace、hooks 和独立 MCP 配置：
+
+```bash
+claude plugin marketplace add 854771076/oh-my-short-drama
+claude plugin install oh-my-short-drama@short-drama
+```
+
+开发时可直接运行 `claude --plugin-dir /absolute/path/to/oh-my-short-drama`。更新已安装版本使用 `claude plugin marketplace update short-drama` 后执行 `claude plugin update oh-my-short-drama@short-drama`；也可启用 Claude Code 的 marketplace 自动更新。
+
+### Hermes Agent
+
+Hermes 可直接把本仓库的 `skills/` 目录作为 tap：
+
+```bash
+hermes skills tap add 854771076/oh-my-short-drama
+hermes skills install 854771076/oh-my-short-drama/use-short-drama-studio
+```
+
+需要完整工作流和仓库级 `scripts/`、`references/` 时，应克隆整个仓库，在仓库根目录启动 Hermes，并在 `~/.hermes/config.yaml` 的 `skills.external_dirs` 中加入仓库的绝对 `skills/` 路径；单独安装 Skill 只包含该 Skill 自身目录，不提供 Claude/Codex 的 MCP 与 hooks。Hermes 更新 Skill 使用 `hermes skills check` 和 `hermes skills update`。
+
+### 上游 Release 自动同步
+
+本仓库每天检查 [`oh-my-short-drama` 的最新正式 Release](https://github.com/854771076/oh-my-short-drama/releases)。检测到新版本后，同步 `skills/`、`scripts/`、`references/`、`studio/`、hooks、Codex 清单和 MCP 配置，运行完整门禁并创建 PR；README、许可证、GitHub Actions 与 Claude 兼容层由本仓库独立维护，不会被覆盖。上游当前没有正式 Release 时工作流正常退出，不会回退到分支快照。
+
+首次启用前，请在仓库 `Settings → Actions → General → Workflow permissions` 允许 GitHub Actions 创建 Pull Request；同步任务只在下载和创建 PR 的步骤获得写令牌，自检步骤不持有写凭据。
+
+本仓库的标签发布会生成 `.tar.gz`、`.zip` 和 `SHA256SUMS`。发布标签必须严格等于 Codex/Claude 清单版本，例如 `v0.4.0+codex.20260912111400`。
+
+安装、更新或修改 Provider 环境后，Codex 必须使用 `⌘Q` 完全退出再重新打开并新建任务；Claude Code 执行 `/reload-plugins` 或重启会话。不要直接修改客户端插件缓存；源码目录才是事实来源。
 
 ## 开始使用
 
@@ -193,6 +225,15 @@ node scripts/integration-self-check.mjs --self-check
 node scripts/validate-project.mjs /absolute/path/to/project
 ```
 
+GitHub Actions 会在每次 push 和 PR 中检查脚本语法、JSON、插件审计、构图词表、工作台与集成自检。打标签前可在本地运行同一组核心门禁：
+
+```bash
+node scripts/audit-plugin.mjs
+node scripts/composition-vocabulary.test.mjs
+node scripts/studio.test.mjs
+node scripts/integration-self-check.mjs --self-check
+```
+
 逐模型真实冒烟测试会产生费用，只有用户明确确认后执行：
 
 ```bash
@@ -209,3 +250,7 @@ node scripts/generation/live-smoke-test.mjs --confirmed --output /absolute/path/
 - [能力审计](references/feature-completeness.md)
 - [提示词与 Skill 索引](references/prompt-skill-index.md)
 - [剪辑工作流](references/editing-workflow.md)
+
+## 许可证
+
+项目使用 [MIT License](LICENSE)。`skills/humanizer/` 保留其原作者版权声明与独立 [MIT License](skills/humanizer/LICENSE)。

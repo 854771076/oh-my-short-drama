@@ -531,7 +531,7 @@ async function main() {
     await runPreflight(root, 'init')
     await writeText(resolve(root, '.short-drama/RESUME.md'), '# 短剧项目恢复入口\n\n每次新会话先读取 `project.json`、`state.json`、`skill-runs.json`、`environment.json` 与 `source/manifest.json`，再运行插件的 `validate-project.mjs`、`workflow.mjs status` 和 `skill-runs.mjs required`。只执行当前阶段返回的原子 Skill；文本由 Codex 生成，媒体才调用 Provider。提示词渲染记录在 `prompt-runs/`，媒体调用记录在 `requests/`，临时公开参考图记录在 `uploads/`；先查询有效收据，不能直接重复上传。\n', true)
     try {
-      await writeText(resolve(root, 'AGENTS.md'), '# 本地短剧项目\n\n本目录由 `codex-short-drama` 管理。开始或恢复制作时，必须先读取 `.short-drama/RESUME.md` 和 `.short-drama/state.json`，校验项目后按当前阶段要求的原子 Skill 继续；不得跳过 Skill 凭证、版本、选版和验收门禁。\n', true)
+      await writeText(resolve(root, 'AGENTS.md'), '# 本地短剧项目\n\n本目录由 `oh-my-short-drama` 管理。开始或恢复制作时，必须先读取 `.short-drama/RESUME.md` 和 `.short-drama/state.json`，校验项目后按当前阶段要求的原子 Skill 继续；不得跳过 Skill 凭证、版本、选版和验收门禁。\n', true)
     } catch (error) { if (error?.code !== 'EEXIST') throw error }
     if (dirname(root) === DEFAULT_WORKSPACE_ROOT && process.env.SHORT_DRAMA_STUDIO_ACTIVE !== '1') try { await openStudio() } catch (error) { console.warn(error.message) }
     return console.log(root)

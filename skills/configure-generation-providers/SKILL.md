@@ -7,7 +7,7 @@ description: 配置并验证本地短剧插件的生成 Provider。用于选择�
 
 先调用 `list_generation_providers` 查看模态能力，再让用户为图片、视频、语音和音乐分别选择 Provider；不得假设所有模态使用同一家。文本资产默认由 Codex 直接完成，不需要外部文本 Provider。
 
-确认选择后，把四种模态的 `provider`、`model_or_workflow`、模型 `parameters` 和视频 `prompt_profile` 写入一个不含凭据的更新 JSON，再执行 `node scripts/project-store.mjs update-project <项目目录> <更新 JSON>`；Dashboard 应按模型目录展示枚举、数字范围和布尔参数。生成 MCP 会补齐未显式传入的项目参数，并拒绝与已确认参数不一致的调用；标记为可覆盖的默认参数除外，视频时长必须以当前选版的逐镜头制作计划和提示词为准。旧项目没有 `parameters` 或 `music` 时仍可读取，在 Dashboard 保存一次生成配置即可补齐。凭据使用环境变量或 Dashboard 本机私有凭据文件，环境变量优先；不得写入项目。
+确认选择后，把四种模态的 `provider`、`model_or_workflow`、模型 `parameters` 和视频 `prompt_profile` 写入一个不含凭据的更新 JSON，再执行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/project-store.mjs" update-project <项目目录> <更新 JSON>`；Dashboard 应按模型目录展示枚举、数字范围和布尔参数。生成 MCP 会补齐未显式传入的项目参数，并拒绝与已确认参数不一致的调用；标记为可覆盖的默认参数除外，视频时长必须以当前选版的逐镜头制作计划和提示词为准。旧项目没有 `parameters` 或 `music` 时仍可读取，在 Dashboard 保存一次生成配置即可补齐。凭据使用环境变量或 Dashboard 本机私有凭据文件，环境变量优先；不得写入项目。
 
 不要直接编辑 `project.json`。项目存储会拒绝未注册 Provider、该 Provider 不支持的模型/模态和模型枚举之外的参数；模型切换时 `parameters` 整体替换而非与旧字段合并。Comfly `minimax-h3` 不接收 `generate_audio` 参数，声音策略写入制作计划的 `audio_strategy`，不能伪装成 Provider 参数。
 
@@ -22,4 +22,4 @@ description: 配置并验证本地短剧插件的生成 Provider。用于选择�
 
 凭据不得写入项目文件、参数或聊天。环境变量覆盖的模型目录属于动态扩展，不会自动获得参数兼容性保证；先调用 `list_models` 探活并核对远端目录。401/403 归为认证，429 归为限流。不要用付费任务代替连接检查。新增 Provider 只注册生成适配器并补最小自检，不修改短剧创作 Skill。
 
-用户明确授权逐模型付费验收后，可运行 `node scripts/generation/live-smoke-test.mjs --confirmed --output <本地目录>`。脚本对内置的 1 个图片、9 个视频和 2 个语音模型各调用一次，轮询视频到终态，下载全部结果并写 `report.json`；没有 `--confirmed` 或输出目录时拒绝执行。
+用户明确授权逐模型付费验收后，可运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/generation/live-smoke-test.mjs" --confirmed --output <本地目录>`。脚本对内置的 1 个图片、9 个视频和 2 个语音模型各调用一次，轮询视频到终态，下载全部结果并写 `report.json`；没有 `--confirmed` 或输出目录时拒绝执行。

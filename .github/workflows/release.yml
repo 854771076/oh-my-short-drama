@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要发布的现有标签
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 校验标签与清单版本
+        run: |
+          manifest_version=$(node -p "require('./.codex-plugin/plugin.json').version")
+          test "$RELEASE_TAG" = "v$manifest_version"
+          test "$manifest_version" = "$(node -p "require('./.claude-plugin/plugin.json').version")"
+          test "$manifest_version" = "$(node -p "require('./.claude-plugin/marketplace.json').plugins[0].version")"
+      - name: 运行发布门禁
+        run: |
+          node scripts/audit-plugin.mjs
+          node scripts/composition-vocabulary.test.mjs
+          node scripts/studio.test.mjs
+          node scripts/integration-self-check.mjs --self-check
+      - name: 打包
+        run: |
+          version=${RELEASE_TAG#v}
+          git archive --format=tar.gz --prefix="oh-my-short-drama-$version/" --output="oh-my-short-drama-$version.tar.gz" HEAD
+          git archive --format=zip --prefix="oh-my-short-drama-$version/" --output="oh-my-short-drama-$version.zip" HEAD
+          sha256sum "oh-my-short-drama-$version.tar.gz" "oh-my-short-drama-$version.zip" > SHA256SUMS
+      - name: 创建 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$RELEASE_TAG" oh-my-short-drama-*.tar.gz oh-my-short-drama-*.zip SHA256SUMS --verify-tag --generate-notes

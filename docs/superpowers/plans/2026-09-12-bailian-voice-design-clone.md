@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - 不引入任何 npm 依赖，只用 Node 内置模块；脚本为 ESM（`.mjs`）。
-- 凭证只从环境变量或 `~/.config/codex-short-drama/credentials.json` 读取（走 `credentials.mjs` 的 `credential(name)`），新增凭证名固定 `BAILIAN_API_KEY`；绝不写入项目。
+- 凭证只从环境变量或 `~/.config/oh-my-short-drama/credentials.json` 读取（走 `credentials.mjs` 的 `credential(name)`），新增凭证名固定 `BAILIAN_API_KEY`；绝不写入项目。
 - 面向用户的错误信息用中文，Provider 错误归一化为 `BAILIAN_REQUEST_FAILED(<status>): <code>: <message>`（截断 500 字符）。
 - 付费操作（audio/design/clone/delete）必须校验 `confirmed === true`；克隆额外强制 `rights_confirmed/public_exposure_confirmed/usage_terms_confirmed` 三个 const true 和显式 `usage_scope`。
 - 出站给百炼的 URL 必须是公网 HTTPS（拒绝 localhost/127.0.0.1/::1）；本地文件只能来自当前项目 `assets/`（realpath containment）。
@@ -1665,7 +1665,7 @@ frontmatter 第 3 行 description 中的 "用于选择 StarRouter、RunningHub �
 第 6 行架构链路改为：
 
 ```markdown
-Codex → codex-short-drama → drama-generation MCP → 阿里云百炼 / StarRouter / RunningHub / Comfly
+Codex → oh-my-short-drama → drama-generation MCP → 阿里云百炼 / StarRouter / RunningHub / Comfly
 ```
 
 在 "## 支持的生成 Provider" 章节描述段（第 41 行凭据说明段）之后、StarRouter 小节之前插入百炼小节（下面外层用四反引号围栏，因为内容本身含 bash 代码围栏）：

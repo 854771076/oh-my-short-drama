@@ -9,4 +9,4 @@ description: 由 Codex 分析小说、故事材料和用户制作要求。用于
 
 分析只提取和判断，不擅自改编。原文事实、用户明确要求和创作建议分栏保存；冲突时列出差异并请求确认。长篇小说按章节分块分析后再合并稳定身份与时间线，不能用抽样代替全量覆盖。
 
-结果用 `node scripts/project-store.mjs put-document <项目目录> source-analysis <文件>` 落盘。需要改变集数、结局、人物关系、时代、平台、画幅、语言或内容分级时必须先让用户确认，再进入简报和剧本。
+结果用 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/project-store.mjs" put-document <项目目录> source-analysis <文件>` 落盘。需要改变集数、结局、人物关系、时代、平台、画幅、语言或内容分级时必须先让用户确认，再进入简报和剧本。

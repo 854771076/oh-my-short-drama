@@ -24,6 +24,6 @@ description: 本地标准短剧插件的总索引。用于查询画风、人物/
 - Provider 只接受公网 URL 时临时发布本地参考图 → `publish-drama-references`
 - 本地任务监控和故障恢复 → `monitor-drama-tasks`、`recover-drama-pipeline`
 
-所有生成结果必须先保存到本地项目再进入下一步；远程 URL、任务 ID 或聊天内容都不是资产。用 `node scripts/audit-plugin.mjs` 检查插件自身完整性，不读取任何外部业务仓库。
+所有生成结果必须先保存到本地项目再进入下一步；远程 URL、任务 ID 或聊天内容都不是资产。用 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/audit-plugin.mjs"` 检查插件自身完整性，不读取任何外部业务仓库。
 
-完整制作不能把本索引当作阶段 Skill 的替代品。先运行 `node scripts/skill-runs.mjs required <项目目录> <阶段>`，完整读取并执行列出的原子 Skill；完成后用 `record` 绑定项目内证据，阶段门禁会验证这些记录。
+完整制作不能把本索引当作阶段 Skill 的替代品。先运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/skill-runs.mjs" required <项目目录> <阶段>`，完整读取并执行列出的原子 Skill；完成后用 `record` 绑定项目内证据，阶段门禁会验证这些记录。

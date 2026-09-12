@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 检查脚本语法
+        run: find scripts studio -type f \( -name '*.mjs' -o -name '*.js' \) -print0 | xargs -0 -n1 node --check
+      - name: 检查 JSON
+        run: node -e "const fs=require('node:fs');const path=require('node:path');for(const root of ['.codex-plugin','.claude-plugin','hooks','references','scripts']){const walk=p=>{for(const e of fs.readdirSync(p,{withFileTypes:true})){const f=path.join(p,e.name);if(e.isDirectory())walk(f);else if(f.endsWith('.json'))JSON.parse(fs.readFileSync(f,'utf8'))}};walk(root)}"
+      - name: 审计插件
+        run: node scripts/audit-plugin.mjs
+      - name: 运行构图词表测试
+        run: node scripts/composition-vocabulary.test.mjs
+      - name: 运行工作台测试
+        run: node scripts/studio.test.mjs
+      - name: 运行集成自检
+        run: node scripts/integration-self-check.mjs --self-check

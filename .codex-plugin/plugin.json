@@ -1,13 +1,17 @@
 {
-  "name": "codex-short-drama",
+  "name": "oh-my-short-drama",
   "version": "0.4.0+codex.20260912111400",
   "description": "本地优先的 Codex 标准短剧制作插件：Codex 负责文本创作，可扩展 Provider 负责图片、视频和音频生成。",
   "author": {
-    "name": "xiaomao"
+    "name": "fuyang",
+    "email": "854771076@qq.com"
   },
+  "homepage": "https://github.com/854771076/oh-my-short-drama#readme",
+  "repository": "https://github.com/854771076/oh-my-short-drama",
+  "license": "MIT",
   "skills": "./skills/",
   "interface": {
-    "displayName": "Codex 短剧工厂",
+    "displayName": "短剧工厂",
     "shortDescription": "从创意到成片的原子化短剧工作流",
     "longDescription": "由 Codex 使用各 Skill 内置提示词完成文本创作，通过用户选择的可扩展 Provider 生成媒体，并以本地文件完成剧本、导演本、资产、分镜、剪辑和交付。",
     "developerName": "xiaomao",

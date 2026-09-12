@@ -13,7 +13,7 @@ description: 把通过验收的本地分镜按实际视频模型编译为可执�
 
 所有模板都填充 `base_prompt`、`storyboard_context_json`、`grid_layout`、`panel_grid_size`、`camera_move`、`shot_type`、`style`、`duration_constraints` 和 `reference_manifest_json`。引用清单只包含已选本地资产、版本、用途及提交顺序，不包含密钥或临时 URL。
 
-按制作计划先把当前镜头的分镜板或故事版放入引用清单并占用一个图片槽位，默认使用 `shot-board`。若其他已选人物、场景、道具超过 Provider 剩余图片槽位且 `overflow_strategy=compose-assets`，调用 `node scripts/media-tools.mjs compose-grid` 将这些图片按计划顺序拼成一张 `other-refpack-epNNN-NNN` 合板，登记为 `other` 资产并保留全部 `source_assets`，选版后仅把该合板作为一个图片引用。不得静默丢弃素材；策略为 `reject` 时停止并报告槽位不足。
+按制作计划先把当前镜头的分镜板或故事版放入引用清单并占用一个图片槽位，默认使用 `shot-board`。若其他已选人物、场景、道具超过 Provider 剩余图片槽位且 `overflow_strategy=compose-assets`，调用 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/media-tools.mjs" compose-grid` 将这些图片按计划顺序拼成一张 `other-refpack-epNNN-NNN` 合板，登记为 `other` 资产并保留全部 `source_assets`，选版后仅把该合板作为一个图片引用。不得静默丢弃素材；策略为 `reject` 时停止并报告槽位不足。
 
 每次模板编译统一输出严格 JSON `{prompt_profile,input_mode,prompt,duration,references,continuity,audio_policy,errors}`。Seedance 2.0 的 `prompt` 必须为中文自然语言，并让 `@图片N/@视频N/@音频N` 与引用清单及提交数组一一对应；总素材不超过 12 个，图片≤9、视频≤3且合计2–15秒、音频≤3且合计≤15秒，时长4–15秒，并禁止上传真实人物脸部参考。H3 使用 T2VA/I2VA/FL2VA/L2VA/Ref2VA 中与真实输入一致的模式；Ref2VA 的英文六段必须严格按 `subject_definitions → summary → retention_analysis → detailed_description → overall_soundscape → non_diegetic_music` 排列，仅对白、歌词和画内文字保留原语言。不得混用两套语法。
 

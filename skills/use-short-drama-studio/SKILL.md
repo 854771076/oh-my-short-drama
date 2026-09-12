@@ -7,7 +7,7 @@ description: 使用本地标准短剧插件的总入口。用于了解每个 Ski
 
 开始前完整读取 [使用手册](../../references/usage-guide.md) 和 [Codex 原生合同说明](../../references/codex-contracts.md)；创建、复制、迁移或修复项目时读取 [项目规范 v1](../../references/project-spec-v1.md)，需要查看状态机时再读取 [本地生产合同](../../references/pipeline.md)，需要核对与原项目的能力边界时读取 [能力审计](../../references/feature-completeness.md)。
 
-新项目先确认最少必要配置；用户未指定其他绝对路径时，项目目录固定为 `~/darma_project/<project-key>`。未确认项保留 `null`，再调用 `manage-drama-projects` 初始化；原始小说或要求必须复制进 `source/` 并选定明确版本。既有项目先运行 `node scripts/validate-project.mjs <项目目录>`，再读取 `.short-drama/project.json`、`state.json`、`tasks.json` 和 `assets.json`，只路由当前阶段所需的原子 Skill。
+新项目先确认最少必要配置；用户未指定其他绝对路径时，项目目录固定为 `~/darma_project/<project-key>`。未确认项保留 `null`，再调用 `manage-drama-projects` 初始化；原始小说或要求必须复制进 `source/` 并选定明确版本。既有项目先运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/validate-project.mjs" <项目目录>`，再读取 `.short-drama/project.json`、`state.json`、`tasks.json` 和 `assets.json`，只路由当前阶段所需的原子 Skill。
 
 标准顺序是：初始化与环境预检 → Codex 分析小说与要求 → `short-drama` 方法论 + 剧本初稿 → `humanizer` 自然化新版本 → 剧本复核批准 → 导演本落盘 → 资产分析 → 资产生成落盘 → 制作规划（逐镜判断分镜图类型与格数、拍摄计划、模型和提示词协议）→ Seedance 2.0/H3/通用逐镜提示词落盘 → 整集分镜图生成、落盘和选版 → 空间/时间/物理/光线等八维分镜图审计 → 素材视频与按需配音 → `remotion-best-practices` + Remotion 剪辑 → 成片交付。每阶段必须先用 `skill-runs.mjs required` 获取原子 Skill，完整读取并执行，再用 `skill-runs.mjs record` 记录项目内产物；仅生成文件但没有 Skill 凭证不能通过阶段门禁。
 

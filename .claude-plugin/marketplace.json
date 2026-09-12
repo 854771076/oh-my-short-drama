@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "short-drama",
+  "description": "短剧制作插件市场",
+  "owner": {
+    "name": "fuyang",
+    "email": "854771076@qq.com"
+  },
+  "plugins": [
+    {
+      "name": "oh-my-short-drama",
+      "source": "./",
+      "description": "从创意到成片的本地短剧工作流",
+      "version": "0.4.0+codex.20260912111400"
+    }
+  ]
+}
+

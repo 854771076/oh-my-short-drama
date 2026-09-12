@@ -12,9 +12,19 @@ for (const path of ['.DS_Store', '.playwright-mcp']) {
   try { await access(resolve(root, path)); failures.push(`插件包包含本地临时文件：${path}`) } catch {}
 }
 
-for (const path of ['README.md', 'references/project-spec-v1.md', 'references/codex-contracts.md', 'scripts/validate-project.mjs', 'scripts/skill-runs.mjs', 'scripts/preflight.mjs', 'scripts/generation/live-smoke-test.mjs', 'scripts/document-reference.mjs', 'scripts/reference-bindings.mjs', 'scripts/media-hosting/litterbox.mjs', 'scripts/media-hosting/publish.mjs']) {
+for (const path of ['README.md', 'LICENSE', '.codex-plugin/plugin.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.claude-plugin/mcp.json', '.github/workflows/ci.yml', '.github/workflows/release.yml', '.github/workflows/upstream-sync.yml', 'references/project-spec-v1.md', 'references/codex-contracts.md', 'scripts/validate-project.mjs', 'scripts/skill-runs.mjs', 'scripts/preflight.mjs', 'scripts/generation/live-smoke-test.mjs', 'scripts/document-reference.mjs', 'scripts/reference-bindings.mjs', 'scripts/media-hosting/litterbox.mjs', 'scripts/media-hosting/publish.mjs']) {
   try { await access(resolve(root, path)) } catch { failures.push(`缺少项目规范组件：${path}`) }
 }
+
+const codexManifest = JSON.parse(await readFile(resolve(root, '.codex-plugin/plugin.json'), 'utf8'))
+const claudeManifest = JSON.parse(await readFile(resolve(root, '.claude-plugin/plugin.json'), 'utf8'))
+const claudeMarketplace = JSON.parse(await readFile(resolve(root, '.claude-plugin/marketplace.json'), 'utf8'))
+const claudeMcp = JSON.parse(await readFile(resolve(root, '.claude-plugin/mcp.json'), 'utf8'))
+if (codexManifest.version !== claudeManifest.version || codexManifest.version !== claudeMarketplace.plugins?.[0]?.version) failures.push('Codex、Claude 与 marketplace 版本不一致')
+for (const manifest of [codexManifest, claudeManifest]) if (manifest.license !== 'MIT' || manifest.repository !== 'https://github.com/854771076/oh-my-short-drama') failures.push('插件清单缺少许可证或仓库地址')
+if (claudeMarketplace.plugins?.[0]?.source !== './') failures.push('Claude marketplace 必须从仓库根目录加载插件')
+if (claudeManifest.mcpServers !== './.claude-plugin/mcp.json') failures.push('Claude 插件未绑定专用 MCP 配置')
+if (!claudeMcp.mcpServers?.['drama-generation']?.args?.[0]?.startsWith('${CLAUDE_PLUGIN_ROOT}/')) failures.push('Claude MCP 未使用 CLAUDE_PLUGIN_ROOT 定位脚本')
 
 async function files(directory) {
   const output = []
@@ -39,6 +49,11 @@ for (const [stage, names] of Object.entries(map.stages || {})) {
 for (const name of skillNames) {
   try { await access(resolve(root, 'skills', name, 'SKILL.md')) } catch { failures.push(`缺少 SKILL.md：${name}`) }
   try { await access(resolve(root, 'skills', name, 'agents/openai.yaml')) } catch { failures.push(`缺少 agents/openai.yaml：${name}`) }
+  try {
+    const skill = await readFile(resolve(root, 'skills', name, 'SKILL.md'), 'utf8')
+    if (!/^---\s*\n[\s\S]*?^name:\s*\S+[\s\S]*?^description:\s*\S+/m.test(skill)) failures.push(`Skill 缺少 Hermes 兼容的 name/description：${name}`)
+    if (/node scripts\/[A-Za-z0-9_./-]+\.mjs/.test(skill)) failures.push(`Skill 脚本路径未兼容插件安装目录：${name}`)
+  } catch {}
   try {
     const metadata = await readFile(resolve(root, 'skills', name, 'agents/openai.yaml'), 'utf8')
     if (/Help with .* tasks/.test(metadata)) failures.push(`Skill UI 元数据仍是占位内容：${name}`)

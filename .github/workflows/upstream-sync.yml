@@ -1,0 +1,137 @@
+name: Sync upstream release
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-release-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      UPSTREAM_REPO: 854771076/oh-my-short-drama
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 获取最新正式 Release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! release_json=$(gh api "repos/$UPSTREAM_REPO/releases/latest" 2>"$RUNNER_TEMP/release-error"); then
+            if grep -q 'HTTP 404' "$RUNNER_TEMP/release-error"; then
+              echo '上游当前没有正式 Release。'
+              echo 'available=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            cat "$RUNNER_TEMP/release-error" >&2
+            exit 1
+          fi
+          tag=$(jq -r .tag_name <<<"$release_json")
+          test -n "$tag" && test "$tag" != null
+          echo 'available=true' >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: 检查是否已经同步
+        if: steps.release.outputs.available == 'true'
+        id: freshness
+        env:
+          UPSTREAM_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          if test -f .upstream-version && test "$(cat .upstream-version)" = "$UPSTREAM_TAG"; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: 同步上游核心文件
+        if: steps.freshness.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          archive="$RUNNER_TEMP/upstream.tar.gz"
+          source_dir="$RUNNER_TEMP/upstream"
+          curl --fail --location --retry 3 \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/$UPSTREAM_REPO/tarball/$UPSTREAM_TAG" \
+            --output "$archive"
+          mkdir -p "$source_dir"
+          tar -xzf "$archive" --strip-components=1 -C "$source_dir"
+          for directory in skills scripts references studio hooks .codex-plugin; do
+            test -d "$source_dir/$directory" || continue
+            mkdir -p "$directory"
+            rsync -a --delete "$source_dir/$directory/" "$directory/"
+          done
+          for file in .mcp.json; do
+            test -f "$source_dir/$file" && cp "$source_dir/$file" "$file"
+          done
+          printf '%s\n' "$UPSTREAM_TAG" > .upstream-version
+          node - <<'NODE'
+          const fs = require('node:fs')
+          const codexFile = '.codex-plugin/plugin.json'
+          const codex = JSON.parse(fs.readFileSync(codexFile, 'utf8'))
+          codex.author = { name: 'fuyang', email: '854771076@qq.com' }
+          codex.homepage = 'https://github.com/854771076/oh-my-short-drama#readme'
+          codex.repository = 'https://github.com/854771076/oh-my-short-drama'
+          codex.license = 'MIT'
+          fs.writeFileSync(codexFile, `${JSON.stringify(codex, null, 2)}\n`)
+          const version = codex.version
+          for (const entry of fs.readdirSync('skills', { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue
+            const file = `skills/${entry.name}/SKILL.md`
+            const source = fs.readFileSync(file, 'utf8')
+            const compatible = source.replace(/node scripts\/([A-Za-z0-9_./-]+\.mjs)/g, 'node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/$1"')
+            if (compatible !== source) fs.writeFileSync(file, compatible)
+          }
+          for (const file of ['.claude-plugin/plugin.json', '.claude-plugin/marketplace.json']) {
+            const value = JSON.parse(fs.readFileSync(file, 'utf8'))
+            if (file.endsWith('marketplace.json')) value.plugins[0].version = version
+            else value.version = version
+            fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`)
+          }
+          NODE
+      - name: 运行同步门禁
+        if: steps.freshness.outputs.changed == 'true'
+        run: |
+          node scripts/audit-plugin.mjs
+          node scripts/composition-vocabulary.test.mjs
+          node scripts/studio.test.mjs
+          node scripts/integration-self-check.mjs --self-check
+      - name: 创建更新 PR
+        if: steps.freshness.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          if git diff --quiet --exit-code && test -z "$(git status --short)"; then
+            echo '上游 Release 没有产生文件变化。'
+            exit 0
+          fi
+          safe_tag=$(sed 's/[^A-Za-z0-9._-]/-/g' <<<"$UPSTREAM_TAG")
+          branch="automation/upstream-$safe_tag"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git checkout -B "$branch"
+          git add --all
+          git commit -m "chore: 同步上游 $UPSTREAM_TAG"
+          gh auth setup-git
+          git push --force-with-lease origin "$branch"
+          test "$(gh pr list --state open --head "$branch" --json number --jq length)" != 0 || gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore: 同步上游 $UPSTREAM_TAG" \
+            --body "自动同步自 [$UPSTREAM_REPO](https://github.com/$UPSTREAM_REPO/releases/tag/$UPSTREAM_TAG)。已通过插件审计和本地集成自检。"

@@ -13,7 +13,7 @@ description: 验收短剧分镜图和视频镜头。用于逐镜视觉、音频�
 
 构图缺陷分级固定：构图导致剧情因果、人物关系或动作结果不可读（首要信息被构图/遮挡/光效淹没，动作的地理、蓄力、接触或结果因果不可读，多人关系站位不可辨，竖屏裁切丢失关键元素等）记 P1；构图合同已经兑现、信息完整可读，仅风格强度或氛围不足（模式感偏弱、留白偏空、对称偏呆板等不损信息的问题）记 P2；无证据新增雨、雪、雾、霓虹、镜面、烟尘、门窗廊柱、武器、多余人物等高风险元素，即使画面美观也至少记 P1，并把无据元素与所缺证据写入退回分镜的修订要求，不得在审片端放行或用后期掩盖。
 
-分镜图验收记录使用 `visual=passed|failed`，`audio/transition/captions=not-applicable`，并记录 P0/P1/P2 issues。视频镜头则实际观看完整画面并听完整音轨，按制作计划 `review_checks` 原顺序填写 criteria；缺失关键剧情点必须 failed。用 `node scripts/review-ledger.mjs put <项目目录> <验收.json>` 直接验收未失效候选版本；通过时原子选版，失败时保留为未选候选。
+分镜图验收记录使用 `visual=passed|failed`，`audio/transition/captions=not-applicable`，并记录 P0/P1/P2 issues。视频镜头则实际观看完整画面并听完整音轨，按制作计划 `review_checks` 原顺序填写 criteria；缺失关键剧情点必须 failed。用 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/review-ledger.mjs" put <项目目录> <验收.json>` 直接验收未失效候选版本；通过时原子选版，失败时保留为未选候选。
 
 visual 必须 passed；无声音或字幕时使用 not-applicable，不得伪造通过。P0/P1 只修复受影响镜头并重新验收；不得用字幕掩盖错误人声，用长叠化掩盖动作/轴线错误，或用外部 TTS 覆盖要求原生音频的镜头。四项通过且无 P0/P1 后才加入剪辑候选池。
 
@@ -21,7 +21,7 @@ visual 必须 passed；无声音或字幕时使用 not-applicable，不得伪造
 
 每个缺陷先记录实际症状，再判断最可能的生成机制，并给出只改变一个变量的最小修复；无法从成片区分原因时明确标为待验证，不把猜测写成结论。重生成后对照旧版验证该症状是否消失；同一修复连续失败两次就停止盲重试，回到分镜、参考绑定、提示词或模型能力边界重新定位。
 
-H3 原生音频镜头在候选选版后整集批量审计：先跑 `node scripts/native-audio-audit.mjs audit-episode <项目> <ep-001>` 取待审计清单（自动跳过无 speech_timeline、未选版和已按当前 sha256 审计过的镜头），向用户说明 ASR 转写费用并确认后加 `--confirmed` 顺序执行；单镜重生成后用 `audit <项目> <ep-001> <镜号> <视频资产 key> <候选版本> --confirmed` 单审。默认使用 StarRouter `qwen3-asr-flash`（可用 `STARROUTER_ASR_MODEL` 改为 `whisper-1`）核对 speech_timeline 的对白文本、说话人和时间偏差；接口未返回时间戳或说话人时不能自动通过，命令对未通过项返回非零退出码。再人工核对统一 music_anchor 和相邻 transition_pair；任一对白错位、音乐断层或声音桥不成对都记为 audio/transition 缺陷，不用后配音静默掩盖。
+H3 原生音频镜头在候选选版后整集批量审计：先跑 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/native-audio-audit.mjs" audit-episode <项目> <ep-001>` 取待审计清单（自动跳过无 speech_timeline、未选版和已按当前 sha256 审计过的镜头），向用户说明 ASR 转写费用并确认后加 `--confirmed` 顺序执行；单镜重生成后用 `audit <项目> <ep-001> <镜号> <视频资产 key> <候选版本> --confirmed` 单审。默认使用 StarRouter `qwen3-asr-flash`（可用 `STARROUTER_ASR_MODEL` 改为 `whisper-1`）核对 speech_timeline 的对白文本、说话人和时间偏差；接口未返回时间戳或说话人时不能自动通过，命令对未通过项返回非零退出码。再人工核对统一 music_anchor 和相邻 transition_pair；任一对白错位、音乐断层或声音桥不成对都记为 audio/transition 缺陷，不用后配音静默掩盖。
 
 审片不可只看首帧、联系表或任务状态：逐镜至少按 0.5–1 秒间隔抽查，并对关键动作的入点、接触点、完成点和镜尾逐帧复核；记录实际观察而非复述提示词。整集审片必须完整观看和听完，六个维度分别填写观察；“计划写了动作”不能作为“画面已经实现”的证据。整集剪辑审查还要在每个转场的前一帧、精确切点、淡化中点和完成帧抽检，单帧黑闪、跳轴或动作断裂即记为 P1，即使长时段黑帧/静音检测没有报警；标为 action-cut 的接缝还必须检查地点、主体姿态、运动方向和道具状态，任一突变均不能按动作连续通过。
 
