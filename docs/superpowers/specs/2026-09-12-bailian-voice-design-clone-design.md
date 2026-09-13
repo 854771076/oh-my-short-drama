@@ -204,7 +204,7 @@ Base：`https://dashscope.aliyuncs.com`，鉴权 `Authorization: Bearer ${BAILIA
   - StarRouter 配音段落保留为备选路径。
 - `skills/drama-generation-service/SKILL.md`：工具可用性清单（第 10 行附近）加四个新工具；保留"缺工具需重启 Codex"提示。
 - `README.md`：provider/能力表加百炼一行（配音默认推荐、声音设计/克隆），环境变量表加 `BAILIAN_API_KEY`。
-`.codex-plugin/plugin.json`：按仓库发布惯例 bump `version` 的时间戳段（`0.4.0+codex.<yyyyMMddHHmmss>`）。
+`.codex-plugin/plugin.json`：按仓库发布惯例将 `version` bump 为三段式 SemVer（例如 `0.4.1`），不添加构建时间戳。
 
 ## 5. 数据流
 

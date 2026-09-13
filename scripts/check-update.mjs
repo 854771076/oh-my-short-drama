@@ -38,7 +38,7 @@ export function compareVersions(leftValue, rightValue) {
   if (left.prerelease.length && !right.prerelease.length) return -1
   const prerelease = compareIdentifiers(left.prerelease, right.prerelease)
   if (prerelease) return prerelease
-  // 本项目用构建元数据记录打包时间；标准 SemVer 不比较该字段，这里仅在双方都存在时作为更新判定的末级依据。
+  // 兼容历史构建元数据版本；新版本只使用标准三段式 SemVer。
   return left.build.length && right.build.length ? compareIdentifiers(left.build, right.build) : 0
 }
 
@@ -98,4 +98,3 @@ main().catch((error) => {
     process.exitCode = 1
   }
 })
-

@@ -132,7 +132,7 @@ hermes skills install 854771076/oh-my-short-drama/use-short-drama-studio
 
 首次启用前，请在仓库 `Settings → Actions → General → Workflow permissions` 允许 GitHub Actions 创建 Pull Request；同步任务只在下载和创建 PR 的步骤获得写令牌，自检步骤不持有写凭据。
 
-本仓库的标签发布会生成 `.tar.gz`、`.zip` 和 `SHA256SUMS`。发布标签必须严格等于 Codex/Claude 清单版本，例如 `v0.4.0+codex.20260912111400`。
+本仓库的标签发布会生成 `.tar.gz`、`.zip` 和 `SHA256SUMS`。版本统一使用三段式 SemVer；发布标签必须是清单版本加 `v` 前缀，例如版本 `0.4.0` 对应 `v0.4.0`。
 
 插件在 SessionStart 时会检查 GitHub 最新正式 Release，检查结果缓存 24 小时；仅发现新版本时提示，网络或 GitHub 故障不会阻塞启动。也可手动强制检查：
 

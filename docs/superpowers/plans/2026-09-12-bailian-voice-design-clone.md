@@ -1691,7 +1691,7 @@ export BAILIAN_API_KEY='your-dashscope-key'
 Run:
 
 ```bash
-node -e "const fs=require('fs');const p='.codex-plugin/plugin.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version=j.version.replace(/\+codex\..*$/, '+codex.' + new Date().toISOString().replace(/[-:T]/g,'').slice(0,14));fs.writeFileSync(p, JSON.stringify(j,null,2)+'\n')"
+node -e "const fs=require('fs');const p='.codex-plugin/plugin.json';const j=JSON.parse(fs.readFileSync(p,'utf8'));j.version='0.4.1';fs.writeFileSync(p, JSON.stringify(j,null,2)+'\n')"
 ```
 
 - [ ] **Step 6: 全量回归**
