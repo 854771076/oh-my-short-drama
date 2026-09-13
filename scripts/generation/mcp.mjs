@@ -106,7 +106,7 @@ export const tools = [
   ['generate_image', '使用用户选择的 Provider 生成图片；付费和上传本地参考文件前必须确认。', {
     provider, model: { type: 'string' }, prompt: { type: 'string' }, size: { type: 'string' }, resolution: imageResolution, aspect_ratio: imageAspectRatio, seed: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1, maximum: 4 }, quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'] }, style: { type: 'string' }, background: { type: 'string', enum: ['auto', 'opaque', 'transparent'] }, moderation: { type: 'string', enum: ['auto', 'low'] }, output_format: { type: 'string', enum: ['png', 'jpeg', 'webp'] }, output_compression: { type: 'integer', minimum: 1 }, partial_images: { type: 'integer', minimum: 1 }, user: { type: 'string' }, reference_manifest: { type: 'array', maxItems: 9, items: referenceManifestItem }, confirmed: { const: true }, ...imageWorkflow, ...projectTracking,
   }, ['provider', 'prompt', 'reference_manifest', 'confirmed', 'project_root', 'target', 'prompt_document']],
-  ['submit_episode_images', '批量提交整集图片生成：先以 confirmed=false 返回逐项摘要；confirmed=true 后并发执行，单项失败不阻塞其他图片。每个 items 项目字段与 generate_image 相同。', {
+  ['submit_episode_images', '批量提交整集图片生成：先以 confirmed=false 返回逐项摘要；confirmed=true 后以最多 4 路并发执行，单项失败不阻塞其他图片。每个 items 项目字段与 generate_image 相同。', {
     project_root: { type: 'string' }, items: { type: 'array', minItems: 1, maxItems: 200, items: { type: 'object', properties: batchImageProperties, required: ['provider', 'prompt', 'reference_manifest', 'target', 'prompt_document'], additionalProperties: false } }, confirmed: { type: 'boolean' },
   }, ['project_root', 'items', 'confirmed']],
   ['generate_audio', '使用用户选择的 Provider 生成语音或提交音频工作流。StarRouter 使用 model/input/voice，RunningHub 使用 prompt/workflow，百炼使用 CosyVoice/qwen TTS 与已登记音色。', {
@@ -599,8 +599,22 @@ async function submitEpisodeImages({ project_root: projectRoot, items, confirmed
   const errors = checks.filter((item) => !item.ok)
   if (!confirmed) return { phase: 'plan', ready: errors.length === 0, count: items.length, items: checks }
   if (errors.length) throw new Error(`整批图片校验未通过，未提交任何任务：\n${errors.map((item) => `${item.target || `第${item.index + 1}项`}：${item.error}`).join('\n')}`)
-  const outcomes = await Promise.allSettled(items.map((item) => call('generate_image', { ...item, project_root: projectRoot, confirmed: true })))
+  const outcomes = await mapWithConcurrency(items, 4, (item) => call('generate_image', { ...item, project_root: projectRoot, confirmed: true }))
   return { phase: 'submitted', count: items.length, submitted: outcomes.flatMap((outcome, index) => outcome.status === 'fulfilled' ? [{ index, target: items[index].target, ...outcome.value }] : []), failed: outcomes.flatMap((outcome, index) => outcome.status === 'rejected' ? [{ index, target: items[index].target, error: outcome.reason?.message || String(outcome.reason) }] : []) }
+}
+
+async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length)
+  let cursor = 0
+  async function consume() {
+    while (cursor < items.length) {
+      const index = cursor++
+      try { results[index] = { status: 'fulfilled', value: await worker(items[index], index) } }
+      catch (reason) { results[index] = { status: 'rejected', reason } }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, consume))
+  return results
 }
 
 function serve() {
