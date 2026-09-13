@@ -76,6 +76,7 @@ function projectDefaults(key, title) {
     schema_version: 1,
     key,
     title,
+    automation_mode: true,
     description: null,
     format: { aspect_ratio: null, resolution: null, fps: null, episode_count: null, episode_duration_seconds: null },
     languages: { output: null, spoken: null, subtitle: null },
@@ -107,8 +108,11 @@ function validateArtStyle(style, label = 'art_style') {
 }
 
 export function validateProject(project) {
-  exactKeys(project, ['schema_version', 'key', 'title', 'description', 'format', 'languages', 'creative', 'storyboard', 'providers', 'createdAt', 'updatedAt'], 'project.json')
+  // 旧版 v1 没有该字段时按默认开启，下一次写入会补齐配置。
+  if (!Object.hasOwn(project, 'automation_mode')) project.automation_mode = true
+  exactKeys(project, ['schema_version', 'key', 'title', 'automation_mode', 'description', 'format', 'languages', 'creative', 'storyboard', 'providers', 'createdAt', 'updatedAt'], 'project.json')
   if (project.schema_version !== 1) throw new Error('project.json schema_version 必须为 1')
+  if (typeof project.automation_mode !== 'boolean') throw new Error('automation_mode 必须是布尔值')
   projectKey(project.key)
   if (typeof project.title !== 'string' || !project.title.trim()) throw new Error('project title 必填')
   nullableString(project.description, 'description')
@@ -484,6 +488,7 @@ async function main() {
     versionKey('v001')
     const now = new Date().toISOString()
     validateProject({ ...projectDefaults('short-drama', '短剧'), createdAt: now, updatedAt: now })
+    if (projectDefaults('short-drama', '短剧').automation_mode !== true) throw new Error('全自动化默认值自检失败')
     try {
       validateProject({ ...projectDefaults('short-drama', '短剧'), format: { aspect_ratio: '16:9', resolution: '1080x1920', fps: 24, episode_count: 1, episode_duration_seconds: 60 }, createdAt: now, updatedAt: now })
       throw new Error('画幅与分辨率一致性自检失败')
@@ -529,9 +534,9 @@ async function main() {
     await writeJson(resolve(root, '.short-drama/shot-reviews.json'), { version: 1, reviews: {} }, true)
     await writeJson(resolve(root, 'source/manifest.json'), { version: 1, sources: {} }, true)
     await runPreflight(root, 'init')
-    await writeText(resolve(root, '.short-drama/RESUME.md'), '# 短剧项目恢复入口\n\n每次新会话先读取 `project.json`、`state.json`、`skill-runs.json`、`environment.json` 与 `source/manifest.json`，再运行插件的 `validate-project.mjs`、`workflow.mjs status` 和 `skill-runs.mjs required`。只执行当前阶段返回的原子 Skill；文本由 Codex 生成，媒体才调用 Provider。提示词渲染记录在 `prompt-runs/`，媒体调用记录在 `requests/`，临时公开参考图记录在 `uploads/`；先查询有效收据，不能直接重复上传。\n', true)
+    await writeText(resolve(root, '.short-drama/RESUME.md'), '# 短剧项目恢复入口\n\n每次新会话先读取 `project.json`、`state.json`、`skill-runs.json`、`environment.json` 与 `source/manifest.json`，再运行插件的 `validate-project.mjs`、`workflow.mjs status` 和 `skill-runs.mjs required`。读取 `project.json` 的 `automation_mode`：默认开启时由 agent 自行处理常规确认，关闭时逐项等待用户；任何模式都不得绕过阶段门禁、权限事实或安全校验。只执行当前阶段返回的原子 Skill；文本由 Codex 生成，媒体才调用 Provider。提示词渲染记录在 `prompt-runs/`，媒体调用记录在 `requests/`，临时公开参考图记录在 `uploads/`；先查询有效收据，不能直接重复上传。\n', true)
     try {
-      await writeText(resolve(root, 'AGENTS.md'), '# 本地短剧项目\n\n本目录由 `oh-my-short-drama` 管理。开始或恢复制作时，必须先读取 `.short-drama/RESUME.md` 和 `.short-drama/state.json`，校验项目后按当前阶段要求的原子 Skill 继续；不得跳过 Skill 凭证、版本、选版和验收门禁。\n', true)
+      await writeText(resolve(root, 'AGENTS.md'), '# 本地短剧项目\n\n本目录由 `oh-my-short-drama` 管理。开始或恢复制作时，必须先读取 `.short-drama/RESUME.md`、`.short-drama/project.json` 和 `.short-drama/state.json`。`project.json` 的 `automation_mode` 默认为 `true`；开启时 agent 自主处理常规确认，关闭时等待用户确认。任何模式都不得跳过 Skill 凭证、版本、选版、权限事实和验收门禁。\n', true)
     } catch (error) { if (error?.code !== 'EEXIST') throw error }
     if (dirname(root) === DEFAULT_WORKSPACE_ROOT && process.env.SHORT_DRAMA_STUDIO_ACTIVE !== '1') try { await openStudio() } catch (error) { console.warn(error.message) }
     return console.log(root)
@@ -600,7 +605,7 @@ async function main() {
     if (update.key && update.key !== current.key) throw new Error('project key 不可变')
     if ('schema_version' in update && update.schema_version !== current.schema_version) throw new Error('schema_version 不可直接修改')
     if ('createdAt' in update) throw new Error('createdAt 不可修改')
-    const next = mergeObject(current, { ...update, key: current.key, schema_version: current.schema_version, createdAt: current.createdAt, updatedAt: new Date().toISOString() })
+    const next = mergeObject(validateProject(current), { ...update, key: current.key, schema_version: current.schema_version, createdAt: current.createdAt, updatedAt: new Date().toISOString() })
     for (const modality of ['image', 'video', 'audio', 'music']) if (Object.hasOwn(update.providers?.[modality] || {}, 'parameters')) next.providers[modality].parameters = update.providers[modality].parameters
     validateProject(next)
     const keys = Object.keys(update).filter((key) => key !== 'updatedAt')

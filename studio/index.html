@@ -16,6 +16,7 @@
       <label>项目 Key<input name="key" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="例如：fog-harbor"></label>
       <div class="form-grid"><label>类型<input name="genre" placeholder="悬疑 / 都市 / 古装"></label><label>集数<input name="episodeCount" type="number" min="1" placeholder="12"></label></div>
       <label>单集时长（秒）<input name="episodeDurationSeconds" type="number" min="1" placeholder="90"></label>
+      <label class="checkbox"><input name="automationMode" type="hidden" value="false"><input name="automationMode" type="checkbox" value="true" checked> 全自动化模式（默认开启，后续由 agent 自主决策）</label>
       <footer><button class="secondary" type="button" data-close>取消</button><button class="primary" type="submit">创建项目</button></footer>
     </form>
   </dialog>

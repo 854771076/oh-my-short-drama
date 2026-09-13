@@ -205,6 +205,7 @@ async function createProject(workspaceRoot, input) {
   const temporary = await mkdtemp(resolve(tmpdir(), 'short-drama-project-'))
   const metadata = {
     key, title,
+    automation_mode: input.automationMode !== false && input.automationMode !== 'false',
     description: input.description ? String(input.description).trim() : null,
     creative: { genre: input.genre ? String(input.genre).trim() : null },
     format: { episode_count: positive(input.episodeCount, '集数'), episode_duration_seconds: positive(input.episodeDurationSeconds, '单集时长') },

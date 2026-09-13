@@ -91,6 +91,7 @@ test('Dashboard 通过本地 HTTP API 初始化工作区并创建项目', async 
     const project = JSON.parse(await readFile(resolve(workspace, 'demo-drama/.short-drama/project.json'), 'utf8'))
     assert.equal(project.key, 'demo-drama')
     assert.equal(project.creative.genre, '悬疑')
+    assert.equal(project.automation_mode, true)
     assert.equal(project.format.episode_count, 8)
     assert.equal(project.storyboard.type, 'shot-board')
     assert.equal(project.storyboard.default_panel_grid_size, 4)

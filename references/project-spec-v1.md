@@ -78,6 +78,7 @@
   "schema_version": 1,
   "key": "my-short-drama",
   "title": "短剧名称",
+  "automation_mode": true,
   "description": null,
   "format": {
     "aspect_ratio": "9:16",
@@ -118,6 +119,8 @@
   "updatedAt": "2026-01-01T00:00:00.000Z"
 }
 ```
+
+`automation_mode` 控制项目后续操作的确认策略，默认值为 `true`。开启后，Codex/agent 可自行判断并提交项目内的选版、批量范围、费用和重试确认，不再为每一步询问用户；但仍必须满足阶段门禁、权限/素材权利事实和安全校验，缺少这些依据时必须停下。设置为 `false` 时恢复逐项确认。
 
 未确认的可选值写 `null`，不删除字段，也不使用示例值代替用户决策。例外是新项目画风默认使用 `system-realistic` 完整预设，分镜默认使用 `shot-board`（分镜板）和 4 格；用户可在资产生成前修改。制作计划仍须逐镜在 `single`（单图）、`storyboard`（故事版）和 `shot-board`（分镜板）之间判断，项目默认值只作回退。项目 key 创建后不可变。
 
