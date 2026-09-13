@@ -429,10 +429,11 @@ async function submitEpisodeVideos(args) {
   const errors = plan.plans.filter((item) => !item.ok)
   if (errors.length || !plan.plans.length) throw new Error(`整集校验未通过，未提交任何镜头：\n${errors.map((item) => `第${item.shot_number}镜：${item.error}`).join('\n')}`)
   await enforceGenerationStage(projectRoot, 'submit_video', plan.plans[0].target)
-  const outcomes = await Promise.allSettled(plan.plans.map(async (item) => {
+  const limit = plan.plans.some((item) => item.provider === 'comfly') ? 4 : plan.plans.length
+  const outcomes = await mapWithConcurrency(plan.plans, limit, async (item) => {
     const result = await submitVideoOnce(projectRoot, item.target, item.promptDocument, item.providerArgs)
     return { shot_number: item.shot_number, target: item.target, task_id: result.task_id, status: result.status, ...(result.output_version_ids ? { output_version_ids: result.output_version_ids, quality: result.output_quality || [] } : {}) }
-  }))
+  })
   const submitted = []
   const failed = []
   for (const [index, outcome] of outcomes.entries()) {
