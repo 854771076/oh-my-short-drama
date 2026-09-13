@@ -26,10 +26,12 @@ async function requireImagePromptRun(root, target, prompt, requireCurrent) {
   const stage = target.startsWith('board-') ? 'media-production' : 'asset-generation'
   const cutoff = state.invalidatedAt?.[stage]
   const rootReal = await realpath(root)
+  const candidates = []
   for (const file of await readdir(resolve(root, '.short-drama/prompt-runs'))) {
     if (!/^prompt-[0-9a-f-]+\.json$/.test(file)) continue
     const record = await json(resolve(root, '.short-drama/prompt-runs', file))
     if (!expectedSkills.includes(record.skill) || (requireCurrent && cutoff && Date.parse(record.createdAt) < Date.parse(cutoff))) continue
+    candidates.push(record)
     let matchesPrompt = record.executionMode === 'provider-prompt' && record.resolvedContractOrPrompt === prompt
     if (record.executionMode === 'codex-contract' && record.prompt === 'image_prompt_modify') {
       try { matchesPrompt = JSON.parse(record.codexOutput).image_prompt === prompt } catch {}
@@ -40,7 +42,15 @@ async function requireImagePromptRun(root, target, prompt, requireCurrent) {
     const actual = await readFile(output, 'utf8')
     if ((record.executionMode === 'provider-prompt' && actual === prompt) || (record.executionMode === 'codex-contract' && actual === record.codexOutput)) return
   }
-  throw new Error('图片生成缺少当前阶段、对应 Skill 且正文一致的 Provider 提示词记录')
+  const recentCandidates = candidates.filter((record) => record.executionMode === 'provider-prompt' || record.executionMode === 'codex-contract')
+  const recent = recentCandidates.at(-1)
+  const recentText = String(recent?.resolvedContractOrPrompt || '')
+  let difference = 0
+  while (difference < prompt.length && difference < recentText.length && prompt[difference] === recentText[difference]) difference += 1
+  const detail = recent
+    ? `；已扫描 ${recentCandidates.length} 条候选，期望长度 ${prompt.length}，最近记录长度 ${recentText.length}，首个差异位置 ${difference}，期望片段 ${JSON.stringify(prompt.slice(difference, difference + 24))}，记录片段 ${JSON.stringify(recentText.slice(difference, difference + 24))}`
+    : '；未找到可用提示词记录'
+  throw new Error(`图片生成缺少当前阶段、对应 Skill 且正文一致的 Provider 提示词记录${detail}`)
 }
 
 export async function validateGenerationDocumentReference(root, type, target, reference, args, provider, model, requireCurrent = true) {

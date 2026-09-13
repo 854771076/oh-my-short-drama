@@ -614,6 +614,17 @@ async function main() {
     await invalidateFrom(root, invalidationStage)
     if (artStyleChanged) await markVisualAssetsStale()
     await writeJson(resolve(root, '.short-drama/project.json'), next)
+    const skillRunsPath = resolve(root, '.short-drama/skill-runs.json')
+    if (await exists(skillRunsPath)) {
+      // 项目配置由本命令完成授权写入，立即刷新管理 Skill 自身证据；下游证据仍由失效阶段门禁重新要求。
+      const skillRuns = await readJson(skillRunsPath)
+      const manageRun = skillRuns.runs?.['analysis:manage-drama-projects']
+      if (manageRun?.evidence?.includes('.short-drama/project.json')) {
+        manageRun.evidenceSha256['.short-drama/project.json'] = await sha256(resolve(root, '.short-drama/project.json'))
+        manageRun.completedAt = new Date().toISOString()
+        await writeJson(skillRunsPath, skillRuns)
+      }
+    }
     return console.log(JSON.stringify(next, null, 2))
   }
   if (command === 'put-source') {
@@ -704,7 +715,7 @@ async function main() {
     return console.log(JSON.stringify(episodes.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)), null, 2))
   }
   if (command === 'put-episode-document') {
-    const [kind, episodeKey, versionId, inputPath] = process.argv.slice(4)
+    const [kind, episodeKey, versionId, inputPath, ...flags] = process.argv.slice(4)
     if (!EPISODE_DOCUMENTS.has(kind)) throw new Error('episode document 类型无效')
     validateEpisodeKey(episodeKey); versionKey(versionId, `${kind} version`)
     if (!inputPath) throw new Error('用法：put-episode-document <项目目录> <script-review|director-book|asset-plan|production-plan|storyboard|video-prompts|audio-plan> <episode key> <version> <JSON>')
@@ -712,7 +723,12 @@ async function main() {
     const document = await readJson(resolve(inputPath))
     await validateEpisodeDocument(kind, episodeKey, document)
     await writeJson(resolve(episodeRoot(episodeKey), kind, `${versionId}.json`), document, true)
-    return console.log(versionId)
+    if (flags.includes('--select')) {
+      const invalidationStage = { 'script-review': 'script', 'director-book': 'director-book', 'asset-plan': 'asset-analysis', storyboard: 'production-plan', 'production-plan': 'production-plan', 'video-prompts': 'media-production', 'audio-plan': 'media-production' }[kind]
+      await invalidateFrom(root, invalidationStage)
+      await writeJson(resolve(episodeRoot(episodeKey), kind, 'selected.json'), { versionId, path: `episodes/${episodeKey}/${kind}/${versionId}.json`, selectedAt: new Date().toISOString() })
+    }
+    return console.log(flags.includes('--select') ? `${versionId} selected` : versionId)
   }
   if (command === 'validate-episode-document') {
     const [kind, episodeKey, inputPath] = process.argv.slice(4)

@@ -51,7 +51,7 @@
 
 资产计划包含人物时，必须先由 `generate-character-profiles` 生成并确认 `assets/characters/profiles.json`；计划中的每个规范人物名都必须存在于人物档案，不能用资产计划本身冒充人物档案执行证据。
 
-`skill-runs.json` 记录每个阶段实际执行的原子 Skill、项目内证据及 SHA-256，并绑定该次 Skill 使用的 `prompt-runs` 记录与哈希。用 `skill-runs.mjs required` 获取当前阶段要求，完整读取对应 `SKILL.md`、运行所属 Codex 合同或 Provider 提示词并完成产物后，再用 `record` 登记；缺少正确执行模式或 `completion_prompts` 指定的最终合同会拒绝登记。局部细化、修改和推荐提示词不能冒充最终产物合同，也不能用同一个无关文件冒充多个关键 Skill 产物。证据或提示词运行记录变化后必须重新执行并登记。`workflow.mjs check|advance|complete` 会重新检查全部已完成阶段，而不只检查当前阶段。
+`skill-runs.json` 记录每个阶段实际执行的原子 Skill、项目内证据及 SHA-256，并绑定该次 Skill 使用的 `prompt-runs` 记录与哈希。用 `skill-runs.mjs required` 获取当前阶段要求，完整读取对应 `SKILL.md`、运行所属 Codex 合同或 Provider 提示词并完成产物后，再用 `record` 登记；缺少正确执行模式或 `completion_prompts` 指定的最终合同会拒绝登记。局部细化、修改和推荐提示词不能冒充最终产物合同，也不能用同一个无关文件冒充多个关键 Skill 产物。证据或提示词运行记录变化后必须重新执行并登记。`workflow.mjs <check|advance|complete>` 会重新检查全部已完成阶段，而不只检查当前阶段。
 
 选中新的来源、剧本、导演本、资产计划、分镜、制作计划、视频提示词或媒体版本，以及更新项目创作/Provider 配置、时间线或完整审片时，脚本会自动回退到最早受影响阶段并清除该阶段及之后的 Skill 凭证；`state.json.invalidatedAt` 保存各受影响阶段的最近失效时间。新 Skill 记录及其提示词运行必须晚于该时间，历史 `prompt-runs` 只供审计，不能重放为当前凭证。交付完成后执行 `workflow.mjs complete`，在 `state.json.finishedAt` 固化终态。
 
@@ -201,7 +201,8 @@ node scripts/project-store.mjs migrate-project-layout <项目目录> ep-001
 node scripts/preflight.mjs <init|media|editing> <项目目录>
 node scripts/render-prompt.mjs --template <合同> --vars <变量.json> --codex-output <实际产物> --project-root <项目目录>
 node scripts/render-prompt.mjs --template <媒体模板> --vars <变量.json> --output <提示词文件> --project-root <项目目录>
-node scripts/snapshot-stage-evidence.mjs <项目目录> asset-generation|media-production
+# 已确认重渲染时可追加 --force；不会覆盖 prompt-runs 留痕
+node scripts/snapshot-stage-evidence.mjs <项目目录> <asset-generation|media-production>
 node scripts/validate-project.mjs <项目目录>
 node scripts/workflow.mjs complete <项目目录>
 ```

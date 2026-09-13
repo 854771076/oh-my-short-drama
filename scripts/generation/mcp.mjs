@@ -73,6 +73,14 @@ const projectTracking = {
   target: { type: 'string', description: '本次生成对应的本地资产 key。' },
   prompt_document: { type: ['object', 'null'], description: '制作文档版本引用：视频镜号、audio-plan 行、storyboard 镜号或 asset-plan 资产；仅 other 辅助资产可为 null。' },
 }
+const batchImageProperties = {
+  provider, model: { type: 'string' }, prompt: { type: 'string' }, size: { type: 'string' }, resolution: imageResolution, aspect_ratio: imageAspectRatio,
+  seed: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1, maximum: 4 }, quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'] },
+  style: { type: 'string' }, background: { type: 'string', enum: ['auto', 'opaque', 'transparent'] }, moderation: { type: 'string', enum: ['auto', 'low'] },
+  output_format: { type: 'string', enum: ['png', 'jpeg', 'webp'] }, output_compression: { type: 'integer', minimum: 1 }, partial_images: { type: 'integer', minimum: 1 },
+  user: { type: 'string' }, reference_manifest: { type: 'array', maxItems: 9, items: referenceManifestItem }, ...imageWorkflow,
+  target: projectTracking.target, prompt_document: projectTracking.prompt_document,
+}
 const asrInput = {
   provider: { const: 'starrouter' }, model: { type: 'string' }, file_path: { type: 'string' }, response_format: { type: 'string', enum: ['json', 'text', 'srt', 'verbose_json', 'vtt'] }, language: { type: 'string' }, prompt: { type: 'string' }, temperature: { type: 'number', minimum: 0, maximum: 1 }, project_root: { type: 'string' }, confirmed: { const: true },
 }
@@ -98,6 +106,9 @@ export const tools = [
   ['generate_image', '使用用户选择的 Provider 生成图片；付费和上传本地参考文件前必须确认。', {
     provider, model: { type: 'string' }, prompt: { type: 'string' }, size: { type: 'string' }, resolution: imageResolution, aspect_ratio: imageAspectRatio, seed: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1, maximum: 4 }, quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'] }, style: { type: 'string' }, background: { type: 'string', enum: ['auto', 'opaque', 'transparent'] }, moderation: { type: 'string', enum: ['auto', 'low'] }, output_format: { type: 'string', enum: ['png', 'jpeg', 'webp'] }, output_compression: { type: 'integer', minimum: 1 }, partial_images: { type: 'integer', minimum: 1 }, user: { type: 'string' }, reference_manifest: { type: 'array', maxItems: 9, items: referenceManifestItem }, confirmed: { const: true }, ...imageWorkflow, ...projectTracking,
   }, ['provider', 'prompt', 'reference_manifest', 'confirmed', 'project_root', 'target', 'prompt_document']],
+  ['submit_episode_images', '批量提交整集图片生成：先以 confirmed=false 返回逐项摘要；confirmed=true 后并发执行，单项失败不阻塞其他图片。每个 items 项目字段与 generate_image 相同。', {
+    project_root: { type: 'string' }, items: { type: 'array', minItems: 1, maxItems: 200, items: { type: 'object', properties: batchImageProperties, required: ['provider', 'prompt', 'reference_manifest', 'target', 'prompt_document'], additionalProperties: false } }, confirmed: { type: 'boolean' },
+  }, ['project_root', 'items', 'confirmed']],
   ['generate_audio', '使用用户选择的 Provider 生成语音或提交音频工作流。StarRouter 使用 model/input/voice，RunningHub 使用 prompt/workflow，百炼使用 CosyVoice/qwen TTS 与已登记音色。', {
     provider, model: { type: 'string' }, input: { type: 'string' }, voice: { type: 'string' }, instructions: { type: 'string' }, speed: { type: 'number', minimum: 0.5, maximum: 2 }, response_format: { type: 'string', enum: ['mp3', 'pcm', 'flac', 'wav', 'opus'] }, language_hints: { type: 'string' }, sample_rate: { type: 'integer' }, volume: { type: 'number', minimum: 0, maximum: 100 }, pitch: { type: 'number', minimum: 0.5, maximum: 2 }, instruction: { type: 'string', maxLength: 100 }, metadata: audioMetadata, prompt: { type: 'string' }, confirmed: { const: true }, ...workflow, ...projectTracking,
   }, ['provider', 'confirmed', 'project_root', 'target', 'prompt_document']],
@@ -522,6 +533,7 @@ export async function call(name, args = {}) {
   if (name === 'delete_voice') return deleteVoice(args)
   if (name === 'ensure_reference_urls') return ensureReferenceUrls(args)
   if (name === 'submit_episode_videos') return submitEpisodeVideos(args)
+  if (name === 'submit_episode_images') return submitEpisodeImages(args)
   if (name === 'await_episode_tasks') return awaitEpisodeTasks(args)
   if (name === 'submit_video') {
     const { project_root: projectRoot, target, prompt_document: promptDocument, ...providerArgs } = args
@@ -567,6 +579,28 @@ export async function call(name, args = {}) {
   await settleReservedTask(projectRoot, snapshot.requestId, { taskId, status: result.status === 'submitted' ? 'queued' : 'running' })
   const tracked = { ...result, task_id: taskId, request_id: snapshot.requestId, request_path: snapshot.requestPath, request_sha256: snapshot.requestSha256 }
   return result.status === 'completed' ? syncTaskResult(projectRoot, taskId, tracked) : tracked
+}
+
+async function submitEpisodeImages({ project_root: projectRoot, items, confirmed }) {
+  if (!Array.isArray(items) || !items.length) throw new Error('items 必须是非空图片任务数组')
+  if (typeof confirmed !== 'boolean') throw new Error('confirmed 必须是布尔值：false 仅出摘要，true 并发提交')
+  const checks = await Promise.all(items.map(async (item, index) => {
+    try {
+      const selected = adapter(item.provider)
+      if (typeof selected.image !== 'function') throw new Error(`${item.provider} 不支持 generate_image`)
+      const { target, prompt_document: promptDocument, ...rawProviderArgs } = item
+      const providerArgs = { ...rawProviderArgs, confirmed: true }
+      await enforceGenerationStage(projectRoot, 'generate_image', target)
+      if (item.provider === 'runninghub' && providerArgs.model !== 'krea2-normal-v1') providerArgs.workflow_id ||= process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID
+      await validateProjectInputs(projectRoot, 'image', target, promptDocument, item.provider, providerArgs)
+      return { index, ok: true, target, provider: item.provider, model: providerArgs.model || providerArgs.workflow_id, prompt_document: promptDocument, parameters: Object.fromEntries(['resolution', 'aspect_ratio', 'size', 'n', 'quality'].filter((key) => providerArgs[key] !== undefined).map((key) => [key, providerArgs[key]])) }
+    } catch (error) { return { index, ok: false, target: item.target || null, provider: item.provider || null, error: error.message } }
+  }))
+  const errors = checks.filter((item) => !item.ok)
+  if (!confirmed) return { phase: 'plan', ready: errors.length === 0, count: items.length, items: checks }
+  if (errors.length) throw new Error(`整批图片校验未通过，未提交任何任务：\n${errors.map((item) => `${item.target || `第${item.index + 1}项`}：${item.error}`).join('\n')}`)
+  const outcomes = await Promise.allSettled(items.map((item) => call('generate_image', { ...item, project_root: projectRoot, confirmed: true })))
+  return { phase: 'submitted', count: items.length, submitted: outcomes.flatMap((outcome, index) => outcome.status === 'fulfilled' ? [{ index, target: items[index].target, ...outcome.value }] : []), failed: outcomes.flatMap((outcome, index) => outcome.status === 'rejected' ? [{ index, target: items[index].target, error: outcome.reason?.message || String(outcome.reason) }] : []) }
 }
 
 function serve() {

@@ -2,7 +2,7 @@
 
 所有文件都是插件内置静态资产，不依赖外部提示词目录、数据库或业务系统。先读取 [Codex 原生合同说明](codex-contracts.md)：文本类文件是 Codex 执行合同，不再作为 system prompt 发送给另一个 LLM；`skill-map.json` 的 `provider_prompts` 才是直接提交媒体模型的模板。Skill 决定何时加载哪一份，Codex 每次只处理当前原子步骤。
 
-花括号变量是具名输入槽。文本步骤完成后，用 `node scripts/render-prompt.mjs --template <合同> --vars <输入.json> --codex-output <实际产物> --project-root <项目>` 留存合同、变量和产物；媒体模板用 `--output <本地提示词>` 渲染。缺少变量或包含密钥字段时失败。
+花括号变量是具名输入槽。文本步骤完成后，用 `node scripts/render-prompt.mjs --template <合同> --vars <输入.json> --codex-output <实际产物> --project-root <项目>` 留存合同、变量和产物；媒体模板用 `--output <本地提示词>` 渲染。输出文件已存在时默认拒绝覆盖；确认需要重渲染可追加 `--force`（提示词运行记录仍不可变新增）。缺少变量或包含密钥字段时失败。
 
 | 原子产物 | Skill | 模板 |
 |---|---|---|

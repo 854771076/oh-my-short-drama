@@ -94,6 +94,28 @@ async function main() {
     try { rejectSecretText('api_key=sk-12345678901234567890', '测试'); throw new Error('密钥自检失败') } catch (error) { if (!String(error.message).includes('疑似包含密钥')) throw error }
     return console.log('ok')
   }
+  const batchPath = arg('--batch')
+  if (batchPath) {
+    const projectRoot = arg('--project-root')
+    if (!projectRoot) throw new Error('--batch 必须配合 --project-root')
+    const root = resolve(projectRoot)
+    const manifest = JSON.parse(await readFile(await existingInside(root, batchPath, '批量清单'), 'utf8'))
+    if (!Array.isArray(manifest.items) || !manifest.items.length) throw new Error('批量清单 items 必须是非空数组')
+    const results = []
+    for (const item of manifest.items) {
+      const templatePath = await existingInside(pluginRoot, item.template, '模板')
+      const varsPath = await existingInside(root, item.vars, '变量文件')
+      const outputPath = item.output ? await writableInside(root, item.output, '输出文件') : null
+      const template = await readFile(templatePath, 'utf8')
+      const vars = JSON.parse(await readFile(varsPath, 'utf8'))
+      const locale = item.locale || (/\.en\.txt$/.test(templatePath) ? 'en' : 'zh')
+      const output = render(template, vars, locale)
+      rejectSecretText(output, '解析后的合同或提示词')
+      if (outputPath) await writeFile(outputPath, output, { flag: process.argv.includes('--force') ? 'w' : 'wx' })
+      results.push(await recordPromptRun(root, templatePath, locale, vars, template, output, outputPath, item.codex_output ? await existingInside(root, item.codex_output, 'Codex 产物') : outputPath))
+    }
+    return console.log(JSON.stringify(results))
+  }
   const templatePath = arg('--template')
   const varsPath = arg('--vars')
   if (!templatePath || !varsPath) throw new Error('必须提供 --template 和 --vars')
@@ -114,7 +136,7 @@ async function main() {
   const vars = JSON.parse(await readFile(safeVars, 'utf8'))
   const output = render(template, vars, locale)
   rejectSecretText(output, '解析后的合同或提示词')
-  if (safeOutput) await writeFile(safeOutput, output, { flag: 'wx' })
+  if (safeOutput) await writeFile(safeOutput, output, { flag: process.argv.includes('--force') ? 'w' : 'wx' })
   if (projectRoot) {
     if (!outputPath && !codexOutputPath) throw new Error('--project-root 留痕时必须提供 --output 或 --codex-output')
     console.log(await recordPromptRun(projectRoot, safeTemplate, locale, vars, template, output, safeOutput, safeCodexOutput))

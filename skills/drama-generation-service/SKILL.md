@@ -46,3 +46,5 @@ Provider 错误不触发静默切换；更换 Provider、模型、工作流或�
 - RunningHub：`model=minimax-h3-reference-to-video`；图片 `0..9`、视频 `0..2`、音频 `0..2`；`duration=1..15`（1–4 归一为 5）；`ratio ∈ {16:9,9:16}`；`resolution ∈ {480p,720p,1K,2K}`。
 - RunningHub 图片：`model=krea2-normal-v1`；`resolution ∈ {1K,2K}`；`aspect_ratio ∈ {1:1,16:9,9:16,3:4,4:3,2:3,3:2}`；当前普通工作流不接收参考图。
 - Comfly：`model=minimax-h3`；`input_mode=Ref2VA`；图片 `1..3` 或视频 `0..1`，两者互斥；音频固定 `0`；`duration=5..15` 的整数且不会静默取整；`ratio ∈ {16:9,9:16}`；`resolution ∈ {720p,1K,2K}`。
+
+整集图片优先使用 `submit_episode_images`：先以 `confirmed=false` 做全量门禁和费用预检，再以 `confirmed=true` 并发提交；单项失败不会阻塞其他已提交项，但预检失败时整批不产生 Provider 请求。可在本地先运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/generation/preflight.mjs" images <项目目录> <图片批量 JSON>`。

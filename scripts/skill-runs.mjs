@@ -159,9 +159,29 @@ async function writeJson(path, value) {
 async function main() {
   const [command, rootArg, stage, skill, ...evidenceArgs] = process.argv.slice(2)
   const root = resolve(rootArg || '')
-  if (!rootArg) throw new Error('用法：skill-runs.mjs required|record|list <项目目录> [阶段] [skill] [证据路径...]')
+  if (!rootArg) throw new Error('用法：skill-runs.mjs required|record|record-stage|list <项目目录> [阶段] [skill] [证据路径...]')
   if (command === 'required') return console.log(JSON.stringify(await requiredSkills(root, stage), null, 2))
   if (command === 'list') return console.log(JSON.stringify(await readSkillRuns(root), null, 2))
+  if (command === 'record-stage') {
+    if (!stage) throw new Error('用法：skill-runs.mjs record-stage <项目目录> <阶段>')
+    const ledger = await readSkillRuns(root)
+    const skills = await requiredSkills(root, stage)
+    const missing = skills.filter((name) => !ledger.runs?.[`${stage}:${name}`]?.evidence?.length)
+    if (missing.length) throw new Error(`以下 Skill 没有可复用证据，请先逐项 record：${missing.join('、')}`)
+    for (const name of skills) {
+      const run = ledger.runs[`${stage}:${name}`]
+      const evidence = run.evidence
+      const expected = evidencePatterns[name]
+      if (expected && !evidence.some((path) => expected.test(path))) throw new Error(`${name} 的证据类型无效`)
+      const episodePattern = episodeEvidence[name]
+      if (episodePattern) for (const episode of await selectedEpisodes(root)) if (!evidence.some((path) => episodePattern(episode).test(path))) throw new Error(`${name} 缺少 ${episode} 的执行证据`)
+      const linkedPromptRuns = await promptRuns(root, name, stage, evidence)
+      run.status = 'completed'; run.promptRuns = linkedPromptRuns; run.completedAt = new Date().toISOString()
+      run.evidenceSha256 = Object.fromEntries(await Promise.all(evidence.map(async (path) => [path, await sha256(resolve(root, path))])))
+    }
+    await withFileLock(resolve(root, '.short-drama/skill-runs.json'), async () => writeJson(resolve(root, '.short-drama/skill-runs.json'), ledger))
+    return console.log(`${stage}:${skills.join(',')}`)
+  }
   if (command !== 'record' || !stage || !skill || evidenceArgs.length === 0) throw new Error('用法：skill-runs.mjs record <项目目录> <阶段> <skill> <证据路径...>')
   if (!(await requiredSkills(root, stage)).includes(skill)) throw new Error(`${skill} 不是 ${stage} 当前要求的 Skill`)
   const evidence = []
