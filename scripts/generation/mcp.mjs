@@ -10,9 +10,12 @@ import { selfCheck as checkBailian } from './bailian.mjs'
 import { designVoice, cloneVoice, listVoices, deleteVoice } from './voice-tools.mjs'
 import { createRequestSnapshot, listTasks, reserveTask, settleReservedTask } from '../task-ledger.mjs'
 import { validateGenerationDocumentReference } from '../document-reference.mjs'
-import { mediaHostCatalog, mediaHostNames } from '../media-hosting/providers.mjs'
+import { mediaHostCatalog, mediaHostNames, mediaHostExpiries } from '../media-hosting/providers.mjs'
 import { listReferenceUploads, publishReferenceImage } from '../media-hosting/publish.mjs'
 import { selfCheck as checkLitterbox } from '../media-hosting/litterbox.mjs'
+import { selfCheck as checkTempfile } from '../media-hosting/tempfile.mjs'
+import { selfCheck as checkTmpfiles } from '../media-hosting/tmpfiles.mjs'
+import { selfCheck as checkUguu } from '../media-hosting/uguu.mjs'
 import { validateVideoReferenceBindings } from '../reference-bindings.mjs'
 import { inspectStage, missingStoryboardAssets, missingStoryboardReviews } from '../workflow-gates.mjs'
 import { stages } from '../workflow-stages.mjs'
@@ -25,6 +28,7 @@ checkRunningHub()
 checkComfly()
 checkBailian().catch((error) => { console.error(error.message); process.exitCode = 1 })
 checkLitterbox()
+checkTempfile(); checkTmpfiles(); checkUguu()
 checkProviders()
 
 const provider = { type: 'string', enum: providerNames }
@@ -100,7 +104,7 @@ export const tools = [
     project_root: { type: 'string' }, service: { type: 'string', enum: mediaHostNames }, asset_key: { type: 'string' }, version_id: { type: 'string', pattern: '^v\\d{3}$' }, state: { type: 'string', enum: ['active', 'expired'] },
   }, ['project_root']],
   ['publish_reference_image', '把项目内 selected 图片临时发布为公开 HTTPS URL；上传前必须确认权利、公开风险和商业使用许可。', {
-    service: { type: 'string', enum: mediaHostNames }, project_root: { type: 'string' }, asset_key: { type: 'string' }, version_id: { type: 'string', pattern: '^v\\d{3}$' }, expires_in: { type: 'string', enum: ['1h', '12h', '24h', '72h'] }, usage_scope: { type: 'string', enum: ['non-commercial', 'commercial-authorized'] }, force_reupload: { type: 'boolean' }, confirmed: { const: true }, rights_confirmed: { const: true }, public_exposure_confirmed: { const: true }, usage_terms_confirmed: { const: true },
+    service: { type: 'string', enum: mediaHostNames, default: 'tempfile' }, project_root: { type: 'string' }, asset_key: { type: 'string' }, version_id: { type: 'string', pattern: '^v\\d{3}$' }, expires_in: { type: 'string', enum: mediaHostExpiries, default: '24h' }, usage_scope: { type: 'string', enum: ['non-commercial', 'commercial-authorized'] }, force_reupload: { type: 'boolean' }, confirmed: { const: true }, rights_confirmed: { const: true }, public_exposure_confirmed: { const: true }, usage_terms_confirmed: { const: true },
   }, ['service', 'project_root', 'asset_key', 'version_id', 'expires_in', 'usage_scope', 'confirmed', 'rights_confirmed', 'public_exposure_confirmed', 'usage_terms_confirmed']],
   ['list_models', '读取指定 Provider 的模型或工作流目录。', { provider }, ['provider']],
   ['generate_image', '使用用户选择的 Provider 生成图片；付费和上传本地参考文件前必须确认。', {
@@ -143,7 +147,7 @@ export const tools = [
   ['get_generation_task', '查询指定 Provider 的异步任务；完成时自动下载为本地候选版本并回写任务账本。', { provider, task_id: { type: 'string' }, media_type: mediaType, project_root: { type: 'string' } }, ['provider', 'task_id', 'media_type', 'project_root']],
   ['ensure_reference_urls', '整集一次确认：把当前 selected 视频提示词中、需要公网 URL 的图片参考批量临时发布（有效收据自动复用，不重复上传）；RunningHub 走本地路径不需要发布。', {
     project_root: { type: 'string' }, episode_key: { type: 'string', pattern: '^ep-\\d{3}$' },
-    service: { type: 'string', enum: mediaHostNames }, expires_in: { type: 'string', enum: ['1h', '12h', '24h', '72h'] }, usage_scope: { type: 'string', enum: ['non-commercial', 'commercial-authorized'] }, force_reupload: { type: 'boolean' },
+    service: { type: 'string', enum: mediaHostNames, default: 'tempfile' }, expires_in: { type: 'string', enum: mediaHostExpiries, default: '24h' }, usage_scope: { type: 'string', enum: ['non-commercial', 'commercial-authorized'] }, force_reupload: { type: 'boolean' },
     confirmed: { const: true }, rights_confirmed: { const: true }, public_exposure_confirmed: { const: true }, usage_terms_confirmed: { const: true },
   }, ['project_root', 'episode_key', 'service', 'expires_in', 'usage_scope', 'confirmed', 'rights_confirmed', 'public_exposure_confirmed', 'usage_terms_confirmed']],
   ['submit_episode_videos', '整集批量提交视频：先以 confirmed=false 取得逐镜费用摘要与校验结果；用户确认后 confirmed=true 一次性并发提交整集，单镜失败不阻塞其他镜头。', {

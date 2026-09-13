@@ -181,15 +181,17 @@ async function validateUploads() {
   const directory = resolve(root, '.short-drama/uploads')
   if (!await exists(directory)) return
   const ledger = await json(resolve(root, '.short-drama/assets.json'))
-  const expiryMs = { '1h': 3600000, '12h': 43200000, '24h': 86400000, '72h': 259200000 }
+  const expiryMs = { '1h': 3600000, '6h': 21600000, '12h': 43200000, '24h': 86400000, '48h': 172800000, '72h': 259200000 }
+  const allowedServices = new Set(['litterbox', 'tempfile', 'tmpfiles', 'uguu'])
   const fields = ['version', 'id', 'service', 'media_type', 'asset_key', 'version_id', 'local_path', 'sha256', 'size_bytes', 'url', 'expires_in', 'usage_scope', 'confirmations', 'created_at', 'expires_at', 'permanent']
   for (const file of await readdir(directory)) {
     if (!/^upload-[0-9a-f-]+\.json$/.test(file)) { failures.push(`临时上传收据文件名无效：${file}`); continue }
     const receipt = await json(resolve(directory, file))
-    if (!receipt || Object.keys(receipt).sort().join() !== fields.sort().join() || receipt.version !== 1 || receipt.id !== file.slice(0, -5) || receipt.service !== 'litterbox' || receipt.media_type !== 'image' || receipt.permanent !== false || !expiryMs[receipt.expires_in] || !['non-commercial', 'commercial-authorized'].includes(receipt.usage_scope) || JSON.stringify(receipt.confirmations) !== JSON.stringify({ rights: true, public_exposure: true, terms_of_use: true })) { failures.push(`临时上传收据合同无效：${file}`); continue }
+    if (!receipt || Object.keys(receipt).sort().join() !== fields.sort().join() || receipt.version !== 1 || receipt.id !== file.slice(0, -5) || !allowedServices.has(receipt.service) || receipt.media_type !== 'image' || receipt.permanent !== false || !expiryMs[receipt.expires_in] || !['non-commercial', 'commercial-authorized'].includes(receipt.usage_scope) || JSON.stringify(receipt.confirmations) !== JSON.stringify({ rights: true, public_exposure: true, terms_of_use: true })) { failures.push(`临时上传收据合同无效：${file}`); continue }
     let url
     try { url = new URL(receipt.url) } catch {}
-    if (!url || url.protocol !== 'https:' || url.hostname !== 'litter.catbox.moe' || url.username || url.password) failures.push(`${file} Litterbox URL 无效`)
+    const allowedHosts = { litterbox: 'litter.catbox.moe', tempfile: 'tempfile.org', tmpfiles: 'tmpfiles.org', uguu: 'uguu.se' }
+    if (!url || url.protocol !== 'https:' || url.hostname !== allowedHosts[receipt.service] || url.username || url.password) failures.push(`${file} ${receipt.service === 'litterbox' ? 'Litterbox' : receipt.service} URL 无效`)
     const asset = ledger?.assets?.[receipt.asset_key]
     const version = asset?.versions?.find((item) => item.id === receipt.version_id)
     if (!version || version.localPath !== receipt.local_path || version.sha256 !== receipt.sha256 || version.sizeBytes !== receipt.size_bytes) failures.push(`${file} 与本地资产版本不一致`)

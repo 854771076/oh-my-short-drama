@@ -90,9 +90,9 @@ export COMFLY_APP_ID='0'
 
 当前接入 `minimax-h3` 视频，支持 1–3 张公开图片或一个公开视频。详见 [Comfly Provider 合同](references/comfly-provider.md)。
 
-### Litterbox 临时图床
+### 临时媒体托管
 
-当 Comfly 等 Provider 只接受公网 HTTPS 参考图时，可使用 `publish-drama-references`。Litterbox 免费、匿名、无需 Key，时效为 `1h/12h/24h/72h`；链接公开且不是永久资产。每次上传前必须确认素材权利、公开暴露和使用条款，并明确选择非商业用途或已获许可的商业用途；收据保存到项目 `.short-drama/uploads/`。同一资产版本默认复用有效收据，可用 `list_reference_uploads` 跨会话查看；只有时效不足并再次确认后才强制重传。最终素材仍只以本地账本为准。详见 [Litterbox 合同](skills/publish-drama-references/references/litterbox.md)。
+当 Provider 只接受公网 HTTPS 参考图时，可使用 `publish-drama-references`。当前可选 `litterbox`、`tempfile`、`tmpfiles`、`uguu`，均为匿名临时服务；公共服务可能限流、拒绝自动化上传或随时调整保留策略，不作为最终资产库。先用 `list_media_hosts` 查看各服务时效和大小上限，再选择服务；收据保存到项目 `.short-drama/uploads/`，同一资产版本默认复用有效收据。每次上传前必须确认素材权利、公开暴露和使用条款；最终素材仍只以本地账本为准。
 
 ## 安装与更新
 

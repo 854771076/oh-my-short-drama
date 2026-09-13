@@ -8,7 +8,7 @@ import { mediaHost } from './providers.mjs'
 import { withFileLock } from '../file-lock.mjs'
 
 const IMAGE_TYPES = new Set(['character', 'scene', 'prop', 'storyboard', 'other'])
-const EXPIRY_MS = { '1h': 3600000, '12h': 43200000, '24h': 86400000, '72h': 259200000 }
+const EXPIRY_MS = { '1h': 3600000, '6h': 21600000, '12h': 43200000, '24h': 86400000, '48h': 172800000, '72h': 259200000 }
 
 async function sha256(path) {
   const hash = createHash('sha256')
@@ -135,7 +135,9 @@ export async function listReferenceUploads(rootArg, filters = {}) {
 export async function validateTemporaryReferenceUrl(rootArg, urlValue, reference, at = Date.now()) {
   let url
   try { url = new URL(urlValue) } catch { return }
-  if (url.hostname !== 'litter.catbox.moe') return
+  const hosts = { 'litter.catbox.moe': 'litterbox', 'tempfile.org': 'tempfile', 'tmpfiles.org': 'tmpfiles', 'uguu.se': 'uguu' }
+  const service = hosts[url.hostname]
+  if (!service) return
   const root = await realpath(resolve(rootArg))
   const timestamp = at instanceof Date ? at.getTime() : Number(at)
   if (!Number.isFinite(timestamp)) throw new Error('临时参考 URL 校验时间无效')
@@ -145,7 +147,7 @@ export async function validateTemporaryReferenceUrl(rootArg, urlValue, reference
   for (const file of files) {
     if (!/^upload-[0-9a-f-]+\.json$/.test(file)) continue
     const receipt = JSON.parse(await readFile(resolve(directory, file), 'utf8'))
-    if (receipt.service === 'litterbox' && receipt.url === url.href && receipt.asset_key === reference.asset_key && receipt.version_id === reference.version_id && Date.parse(receipt.created_at) <= timestamp && Date.parse(receipt.expires_at) > timestamp) return receipt
+    if (receipt.service === service && receipt.url === url.href && receipt.asset_key === reference.asset_key && receipt.version_id === reference.version_id && Date.parse(receipt.created_at) <= timestamp && Date.parse(receipt.expires_at) > timestamp) return receipt
   }
   throw new Error(`Litterbox URL 缺少同版本且在校验时间点有效的本地上传收据：${reference.asset_key}@${reference.version_id}`)
 }
