@@ -4,6 +4,13 @@ import { credential } from './credentials.mjs'
 const BASE_URL = (process.env.COMFLY_BASE_URL || 'https://vvicat-comfly-prod.vvicat.dev').replace(/\/+$/, '')
 const MODEL = 'minimax-h3'
 
+function formatRemoteError(value, fallback = 'COMFLY_TASK_FAILED') {
+  if (value == null || value === '') return fallback
+  if (typeof value === 'string') return value
+  if (value instanceof Error) return value.message || fallback
+  try { return JSON.stringify(value) } catch { return Object.prototype.toString.call(value) }
+}
+
 function config() {
   const token = credential('COMFLY_TOKEN')
   if (!token) throw new Error('COMFLY_TOKEN 未配置')
@@ -25,7 +32,7 @@ async function request(path, init) {
   })
   const payload = await response.json().catch(() => null)
   if (!response.ok) throw new Error(`COMFLY_REQUEST_FAILED(${response.status})`)
-  if (!payload || Number(payload.code) !== 0 || payload.data === undefined) throw new Error(String(payload?.msg || 'COMFLY_RESPONSE_INVALID'))
+  if (!payload || Number(payload.code) !== 0 || payload.data === undefined) throw new Error(`COMFLY_RESPONSE_INVALID: ${formatRemoteError(payload?.msg, 'COMFLY_RESPONSE_INVALID')}`)
   return payload.data
 }
 
@@ -109,7 +116,7 @@ export const comfly = {
     const data = await request(`/internal/comfly/tasks/${encodeURIComponent(input.task_id)}`)
     const status = String(data.status || '').toLowerCase()
     if (['pending', 'running'].includes(status)) return { provider: 'comfly', status: 'pending' }
-    if (['failed', 'canceled'].includes(status)) return { provider: 'comfly', status: 'failed', error: String(data.error || 'COMFLY_TASK_FAILED') }
+    if (['failed', 'canceled'].includes(status)) return { provider: 'comfly', status: 'failed', error: formatRemoteError(data.error ?? data.msg ?? data.reason), error_details: typeof (data.error ?? data.msg ?? data.reason) === 'object' ? (data.error ?? data.msg ?? data.reason) : undefined }
     if (status === 'success') {
       const url = (data.files || []).find((value) => typeof value === 'string' && value.trim())
       return url ? { provider: 'comfly', status: 'completed', outputs: [{ url, media_type: 'video' }] } : { provider: 'comfly', status: 'failed', error: 'COMFLY_OUTPUT_MISSING' }
@@ -119,6 +126,7 @@ export const comfly = {
 }
 
 export function selfCheck() {
+  if (!formatRemoteError({ code: 'E', message: '失败' }).includes('"message":"失败"')) throw new Error('Comfly 远端错误序列化自检失败')
   const prompt = 'subject_definitions:\nA\nsummary:\nA\nretention_analysis:\nA\ndetailed_description:\nA\noverall_soundscape:\nA\nnon_diegetic_music:\nN/A'
   const oneInput = { model: MODEL, prompt, prompt_profile: 'h3', input_mode: 'Ref2VA', duration: 5, reference_image_urls: ['https://example.com/a.png'], reference_manifest: [{ type: 'image', order: 1, role: '人物身份与服装连续性' }] }
   validateH3(oneInput)

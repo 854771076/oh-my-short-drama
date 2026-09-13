@@ -248,7 +248,7 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
     if (!hasPanelBoardClaim(args.prompt)) throw new Error('直接引用多格分镜板时，prompt 必须在固定反宫格声明之外原样包含分镜板时间顺序条款（见 panel_grid/panel_storyboard 视频模板）')
   }
   const expectedReferences = providerName === 'comfly'
-    ? [shot.references.find((item) => item.type === 'image' && item.asset_key === `board-${promptDocument.episode_key.replace('-', '')}-${String(promptDocument.shot_number).padStart(3, '0')}`) || shot.references.find((item) => item.type === 'image')].filter(Boolean)
+    ? [shot.references.find((item) => item.type === 'image' && item.asset_key === `board-${promptDocument.episode_key.replace('-', '')}-${String(promptDocument.shot_number).padStart(3, '0')}`) || (() => { const key = `board-${promptDocument.episode_key.replace('-', '')}-${String(promptDocument.shot_number).padStart(3, '0')}`; const asset = assets.assets?.[key]; return asset?.selectedVersionId ? { type: 'image', asset_key: key, version_id: asset.selectedVersionId, role: 'storyboard-reference' } : null })()].filter(Boolean).map((item) => ({ ...item, order: 1 }))
     : shot.references
   if (manifest.length !== expectedReferences.length) throw new Error('实际参考素材与提示词文档数量不一致（Comfly 已按 Provider 合同仅保留分镜图）')
   for (const [index, reference] of expectedReferences.entries()) {
@@ -323,11 +323,12 @@ export function referenceInputs(providerName, shot, locate) {
   return { args, missing }
 }
 
-function comflyStoryboardOnly(shot, episodeKey) {
+function comflyStoryboardOnly(shot, episodeKey, assetsLedger) {
   if (shot.provider !== 'comfly') return shot
   const boardKey = `board-${episodeKey.replace('-', '')}-${String(shot.shot_number).padStart(3, '0')}`
-  const images = (shot.references || []).filter((item) => item.type === 'image')
-  const storyboard = images.find((item) => item.asset_key === boardKey) || images[0]
+  const listed = (shot.references || []).find((item) => item.type === 'image' && item.asset_key === boardKey)
+  const asset = assetsLedger.assets?.[boardKey]
+  const storyboard = listed || (asset?.selectedVersionId ? { type: 'image', asset_key: boardKey, version_id: asset.selectedVersionId, role: 'storyboard-reference' } : null)
   return { ...shot, references: storyboard ? [{ ...storyboard, order: 1 }] : [] }
 }
 
@@ -353,7 +354,7 @@ async function planEpisodeVideos(projectRoot, episodeKey, shotNumbers = null) {
   const plans = []
   for (const shot of shots) {
     const target = shotTarget(episodeKey, shot.shot_number)
-    const effectiveShot = comflyStoryboardOnly(shot, episodeKey)
+    const effectiveShot = comflyStoryboardOnly(shot, episodeKey, assetsLedger)
     const promptDocument = { episode_key: episodeKey, version_id: selection.versionId, shot_number: shot.shot_number }
     const base = { shot_number: shot.shot_number, target, provider: shot.provider, model: shot.model_or_workflow }
     try {
