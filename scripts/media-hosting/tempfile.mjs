@@ -17,7 +17,7 @@ export async function upload(path, expiry, fetchImpl = fetch) {
   try { data = JSON.parse(text) } catch { throw new Error('TempFile.org 返回无效 JSON') }
   const url = data.files?.[0]?.url
   if (!url) throw new Error('TempFile.org 返回缺少文件 URL')
-  return validateUrl(url)
+  return validateUrl(`${url.replace(/\/+$/, '')}/download`)
 }
 export function validateUrl(value) { const url = new URL(value); if (url.protocol !== 'https:' || url.hostname !== 'tempfile.org' || url.username || url.password) throw new Error('TempFile.org 返回了非官方 HTTPS 地址'); return url.href }
 export function selfCheck() { if (capabilities.max_bytes !== 100 * 1024 ** 2) throw new Error('TempFile.org 能力合同自检失败'); return true }

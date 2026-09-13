@@ -40,6 +40,17 @@ function urls(values) {
   return (values || []).filter((value) => typeof value === 'string' && value.trim()).map((value) => value.trim())
 }
 
+async function validateRemoteImage(url, fetchImpl = fetch) {
+  const response = await fetchImpl(url, { method: 'GET', headers: { Range: 'bytes=0-15' }, signal: AbortSignal.timeout(15000) })
+  const contentType = response.headers.get('content-type') || ''
+  const reader = response.body?.getReader()
+  const first = reader ? (await reader.read()).value : new Uint8Array(await response.arrayBuffer())
+  try { await reader?.cancel() } catch {}
+  const bytes = Buffer.from(first || [])
+  const image = bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex')) || bytes.subarray(0, 3).equals(Buffer.from('ffd8ff', 'hex')) || bytes.subarray(0, 4).toString() === 'RIFF' || bytes.subarray(0, 6).toString() === 'GIF87a' || bytes.subarray(0, 6).toString() === 'GIF89a'
+  if (!response.ok || !image || (!contentType.startsWith('image/') && contentType !== 'application/octet-stream')) throw new Error(`Comfly 参考图 URL 不是有效图片流：HTTP ${response.status}，Content-Type ${contentType || 'missing'}`)
+}
+
 function publicUrl(value) {
   const url = new URL(value)
   if (url.protocol !== 'https:' || url.username || url.password || ['localhost', '127.0.0.1', '::1'].includes(url.hostname)) throw new Error('Comfly 参考素材必须是可公开读取的 HTTPS URL；本地文件需先上传到用户确认的存储')
@@ -104,6 +115,7 @@ export const comfly = {
     confirm(input)
     if (input.prompt_profile !== 'h3') throw new Error('Comfly MiniMax H3 必须使用 prompt_profile=h3')
     validateH3(input)
+    for (const url of urls([input.frame_url, input.input_reference, ...(input.images || []), ...(input.reference_image_urls || [])])) await validateRemoteImage(url)
     const { id, inputValues } = workflow(input)
     const { appId } = config()
     const data = await request(`/internal/comfly/tasks?model=comfyui&type=${id}`, { method: 'POST', body: JSON.stringify({ app_id: appId, app_task_id: randomUUID(), input_values: inputValues, workflow: id }) })
