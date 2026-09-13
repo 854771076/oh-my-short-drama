@@ -320,6 +320,14 @@ export function referenceInputs(providerName, shot, locate) {
   return { args, missing }
 }
 
+function comflyStoryboardOnly(shot, episodeKey) {
+  if (shot.provider !== 'comfly') return shot
+  const boardKey = `board-${episodeKey.replace('-', '')}-${String(shot.shot_number).padStart(3, '0')}`
+  const images = (shot.references || []).filter((item) => item.type === 'image')
+  const storyboard = images.find((item) => item.asset_key === boardKey) || images[0]
+  return { ...shot, references: storyboard ? [storyboard] : [] }
+}
+
 function applyRunninghubVideoDefaults(providerArgs) {
   if (providerArgs.provider !== 'runninghub') return
   if (providerArgs.model === 'minimax-h3-reference-to-video') {
@@ -342,6 +350,7 @@ async function planEpisodeVideos(projectRoot, episodeKey, shotNumbers = null) {
   const plans = []
   for (const shot of shots) {
     const target = shotTarget(episodeKey, shot.shot_number)
+    const effectiveShot = comflyStoryboardOnly(shot, episodeKey)
     const promptDocument = { episode_key: episodeKey, version_id: selection.versionId, shot_number: shot.shot_number }
     const base = { shot_number: shot.shot_number, target, provider: shot.provider, model: shot.model_or_workflow }
     try {
@@ -353,17 +362,17 @@ async function planEpisodeVideos(projectRoot, episodeKey, shotNumbers = null) {
         const receipt = receipts.find((item) => item.asset_key === reference.asset_key && item.version_id === reference.version_id && item.sha256 === version.sha256)
         return receipt?.url || null
       }
-      const { args: referenceArgs, missing } = referenceInputs(shot.provider, shot, locate)
+      const { args: referenceArgs, missing } = referenceInputs(effectiveShot.provider, effectiveShot, locate)
       const providerArgs = {
-        provider: shot.provider, model: shot.model_or_workflow, prompt_profile: shot.prompt_profile, input_mode: shot.input_mode,
+        provider: effectiveShot.provider, model: shot.model_or_workflow, prompt_profile: shot.prompt_profile, input_mode: shot.input_mode,
         prompt_version: selection.versionId, prompt: shot.prompt, duration: shot.duration,
-        reference_manifest: shot.references || [], ...referenceArgs, confirmed: true,
+        reference_manifest: effectiveShot.references || [], ...referenceArgs, confirmed: true,
       }
       applyRunninghubVideoDefaults(providerArgs)
       await validateProjectInputs(root, 'video', target, promptDocument, shot.provider, providerArgs)
       plans.push({
         ...base, ok: true, missing_urls: missing, promptDocument, providerArgs,
-        cost: { model: providerArgs.model, duration: providerArgs.duration, resolution: providerArgs.resolution || null, ratio: providerArgs.ratio || null, size: providerArgs.size || null, generate_audio: providerArgs.generate_audio ?? null, watermark: providerArgs.watermark ?? null, references: (shot.references || []).length },
+        cost: { model: providerArgs.model, duration: providerArgs.duration, resolution: providerArgs.resolution || null, ratio: providerArgs.ratio || null, size: providerArgs.size || null, generate_audio: providerArgs.generate_audio ?? null, watermark: providerArgs.watermark ?? null, references: (effectiveShot.references || []).length },
       })
     } catch (error) {
       plans.push({ ...base, ok: false, error: error.message })
