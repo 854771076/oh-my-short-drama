@@ -34,7 +34,8 @@ jobs:
       - name: 校验标签与清单版本
         run: |
           manifest_version=$(node -p "require('./.codex-plugin/plugin.json').version")
-          test "$RELEASE_TAG" = "v$manifest_version"
+          release_version=${manifest_version%%+*}
+          test "$RELEASE_TAG" = "v$manifest_version" || test "$RELEASE_TAG" = "v$release_version"
           test "$manifest_version" = "$(node -p "require('./.claude-plugin/plugin.json').version")"
           test "$manifest_version" = "$(node -p "require('./.claude-plugin/marketplace.json').plugins[0].version")"
       - name: 运行发布门禁
