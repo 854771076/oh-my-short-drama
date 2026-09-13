@@ -18,3 +18,5 @@ description: 汇总本地导演本、已选资产和结构化分镜形成短剧�
 MiniMax H3 仅在 Provider 能力明确声明原生音频且用户选择原生声音时，才使用 `audio_strategy.mode=native`，并锁定逐秒对白表、全片音乐锚点和相邻镜头成对声音转场；此时不安排独立 TTS。其他情况进入 `design-drama-audio`。
 
 使用 `project-store.mjs put-episode-document <项目目录> production-plan <episode-key> <version> <文件>` 保存不可变版本。选定后必须先由 `generate-storyboard-images` 按逐镜类型和格数生成、落盘并选定整集分镜图，全部完成后才能调用 `generate-drama-videos`。计划不得包含 API Key、Token 或远程业务对象 ID。
+
+复核时以 `shot-board` 作为复杂场面的推荐默认，但必须按每镜实际分镜合同确认板型：静态单一瞬间可用 `single`，连续动作可用 `storyboard`，多人调度、对白反应或复杂交互优先用 `shot-board`；不要为了追求类型分布而强行切换。只有分镜图加独立参考图实际超过 Provider 槽位时才使用 `compose-assets`，未超槽位保留独立参考图。项目 `automation_mode=true` 且仅缺 Provider 已支持的分辨率时，agent 直接选择并落档，不等待用户。
