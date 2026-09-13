@@ -18,7 +18,7 @@ const PROVENANCE_ORIGINS = new Set(['imported', 'generated', 'transformed'])
 const PROVENANCE_CREATORS = new Set(['user', 'codex', 'provider'])
 const CONTENT_EXTENSIONS = { 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/flac': '.flac', 'audio/x-flac': '.flac', 'audio/L16': '.pcm', 'audio/pcm': '.pcm', 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'video/mp4': '.mp4', 'video/webm': '.webm' }
 const TYPE_EXTENSIONS = { image: new Set(['.gif', '.jpeg', '.jpg', '.png', '.webp']), video: new Set(['.mp4', '.webm']), audio: new Set(['.flac', '.mp3', '.pcm', '.wav']) }
-const MUTATING = new Set(['put', 'add-version', 'revert', 'flag-version'])
+const MUTATING = new Set(['put', 'add-version', 'revert', 'flag-version', 'restore'])
 export const QUALITY_FLAGS = new Set(['grid_suspect', 'grid_check_failed'])
 
 export function normalizeQualityFlags(value) {
@@ -182,6 +182,18 @@ export async function selectAssetVersion(rootArg, key, versionId) {
   })
 }
 
+export async function restoreAssetVersion(rootArg, key, versionId) {
+  const root = resolve(rootArg)
+  return withFileLock(ledgerPath(root), async () => {
+    const ledger = await readLedger(root); const asset = get(ledger, key); const version = asset.versions.find((item) => item.id === versionId)
+    if (!version || !asset.staleVersionIds?.includes(versionId)) throw new Error(`只能恢复已标记失效的现有版本：${key}@${versionId}`)
+    const path = localPath(root, version.localPath); await access(path)
+    const hash = createHash('sha256'); for await (const chunk of createReadStream(path)) hash.update(chunk)
+    const file = await stat(path); if (hash.digest('hex') !== version.sha256 || file.size !== version.sizeBytes) throw new Error(`本地文件哈希或大小不一致，拒绝恢复：${key}@${versionId}`)
+    asset.staleVersionIds = asset.staleVersionIds.filter((id) => id !== versionId); asset.selectedVersionId = versionId; asset.updatedAt = new Date().toISOString(); await save(root, ledger); return asset
+  })
+}
+
 export async function invalidateShotAssets(rootArg, episodeKey, shotNumbers, kind) {
   const root = resolve(rootArg)
   const suffixes = new Set(shotNumbers.map((number) => `${episodeKey.replace('-', '')}-${String(number).padStart(3, '0')}`))
@@ -220,6 +232,7 @@ async function main() {
   if (!rootArg) throw new Error('必须提供项目目录')
   const root = resolve(rootArg)
   if (command === 'select') return console.log(JSON.stringify(await selectAssetVersion(root, args[0], args[1]), null, 2))
+  if (command === 'restore') return console.log(JSON.stringify(await restoreAssetVersion(root, args[0], args[1]), null, 2))
   const operate = async () => {
   const ledger = await readLedger(root)
   if (command === 'list') return console.log(JSON.stringify(args[0] ? get(ledger, args[0]) : ledger, null, 2))
@@ -355,7 +368,7 @@ async function main() {
     await save(root, ledger)
     return console.log(JSON.stringify(asset, null, 2))
   }
-  throw new Error('用法：asset-ledger.mjs put|import|fetch|decode|add-version|flag-version|select|revert|list ...')
+  throw new Error('用法：asset-ledger.mjs put|import|fetch|decode|add-version|flag-version|select|restore|revert|list ...')
   }
   return MUTATING.has(command) ? withFileLock(ledgerPath(root), operate) : operate()
 }

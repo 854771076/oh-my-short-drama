@@ -12,6 +12,7 @@ Codex / Claude Code / Hermes → oh-my-short-drama → drama-generation MCP → 
 - 文本资产由 Codex 直接生成，不调用外部文本模型。
 - 图片、视频、语音和音乐统一通过 `drama-generation-service` 路由。
 - 项目、剧集、分镜、素材、任务、选版和交付均在本地管理。
+- 上游版本回退后，可用 `node scripts/asset-ledger.mjs restore <项目目录> <资产 key> <版本>` 按本地哈希恢复 stale 选版；文件被修改时会拒绝恢复。
 - 所有媒体版本记录 Provider、模型、任务、参数、上游资产和 SHA-256。
 - 每次媒体调用完整保存模型入参、提示词和引用清单，并由任务记录绑定请求 SHA-256。
 - MCP 工具不可用时停止媒体生产，禁止使用占位文件伪造成片。
