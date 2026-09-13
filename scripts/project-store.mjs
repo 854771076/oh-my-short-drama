@@ -78,6 +78,7 @@ function projectDefaults(key, title) {
     key,
     title,
     automation_mode: true,
+    paid_automation_authorized: false,
     description: null,
     format: { aspect_ratio: null, resolution: null, fps: null, episode_count: null, episode_duration_seconds: null },
     languages: { output: null, spoken: null, subtitle: null },
@@ -111,9 +112,11 @@ function validateArtStyle(style, label = 'art_style') {
 export function validateProject(project) {
   // 旧版 v1 没有该字段时按默认开启，下一次写入会补齐配置。
   if (!Object.hasOwn(project, 'automation_mode')) project.automation_mode = true
-  exactKeys(project, ['schema_version', 'key', 'title', 'automation_mode', 'description', 'format', 'languages', 'creative', 'storyboard', 'providers', 'createdAt', 'updatedAt'], 'project.json')
+  if (!Object.hasOwn(project, 'paid_automation_authorized')) project.paid_automation_authorized = false
+  exactKeys(project, ['schema_version', 'key', 'title', 'automation_mode', 'paid_automation_authorized', 'description', 'format', 'languages', 'creative', 'storyboard', 'providers', 'createdAt', 'updatedAt'], 'project.json')
   if (project.schema_version !== 1) throw new Error('project.json schema_version 必须为 1')
   if (typeof project.automation_mode !== 'boolean') throw new Error('automation_mode 必须是布尔值')
+  if (typeof project.paid_automation_authorized !== 'boolean') throw new Error('paid_automation_authorized 必须是布尔值')
   projectKey(project.key)
   if (typeof project.title !== 'string' || !project.title.trim()) throw new Error('project title 必填')
   nullableString(project.description, 'description')

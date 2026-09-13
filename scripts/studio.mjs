@@ -255,11 +255,12 @@ async function configureProjectProviders(workspaceRoot, key, input) {
 
 async function configureProjectAutomation(workspaceRoot, key, input) {
   if (typeof input.enabled !== 'boolean') throw Object.assign(new Error('自动托管开关必须是布尔值'), { status: 400 })
+  if (input.enabled && input.paidAuthorizationConfirmed !== true) throw Object.assign(new Error('首次启用全托管必须确认项目级付费授权声明'), { status: 400 })
   const root = await projectPath(workspaceRoot, key)
   const temporary = await mkdtemp(resolve(tmpdir(), 'short-drama-automation-'))
   try {
     const update = resolve(temporary, 'automation.json')
-    await writeFile(update, JSON.stringify({ automation_mode: input.enabled }))
+    await writeFile(update, JSON.stringify({ automation_mode: input.enabled, ...(input.enabled ? { paid_automation_authorized: true } : {}) }))
     await run('project-store.mjs', ['update-project', root, update])
   } finally { await rm(temporary, { recursive: true, force: true }) }
   return projectDetail(workspaceRoot, key)
