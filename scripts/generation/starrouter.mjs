@@ -33,7 +33,7 @@ const IMAGE_MODERATIONS = new Set(['auto', 'low'])
 const IMAGE_OUTPUT_FORMATS = new Set(['png', 'jpeg', 'webp'])
 const IMAGE_MIN_PIXELS = 1_048_576
 const IMAGE_MAX_PIXELS = 8_294_400
-const MAX_REFERENCE_IMAGE_BYTES = 4 * 1024 * 1024
+const MAX_REFERENCE_IMAGE_BYTES = 16 * 1024 * 1024
 const MULTIMODAL_VIDEO_MODELS = new Set(configuredModels('STARROUTER_MULTIMODAL_VIDEO_MODELS', ['dreamina-seedance-2-0-260128', 'dreamina-seedance-2-0-fast-260128']))
 const SEEDANCE2_MODELS = new Set(VIDEO_MODELS.filter((model) => /seedance-2-0/.test(model)))
 const H3_MODELS = new Set(VIDEO_MODELS.filter((model) => /^MiniMax-H3(?:-Max)?$/.test(model)))
@@ -421,7 +421,7 @@ export const starrouter = {
       for (const [name, value] of Object.entries(options)) form.append(name, String(value))
       const field = input.reference_paths.length > 1 ? 'image[]' : 'image'
       for (const path of input.reference_paths) {
-        if ((await stat(path)).size > MAX_REFERENCE_IMAGE_BYTES) throw new Error(`参考图超过 4MB：${path}`)
+        if ((await stat(path)).size > MAX_REFERENCE_IMAGE_BYTES) throw new Error(`参考图超过 16MB：${path}`)
         const bytes = await readFile(path)
         form.append(field, new Blob([bytes], { type: IMAGE_MIME_TYPES[extname(path).toLowerCase()] || 'application/octet-stream' }), basename(path))
       }
