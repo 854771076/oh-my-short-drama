@@ -119,6 +119,14 @@ test('Dashboard 通过本地 HTTP API 初始化工作区并创建项目', async 
     assert.equal(JSON.parse(await readFile(resolve(workspace, 'art-styles.custom.json'), 'utf8'))[0].id, 'custom-test')
     assert.equal(configuredProject.project.providers.video.provider, null)
 
+    const automationResponse = await fetch(`${base}/api/v1/projects/demo-drama/automation`, {
+      method: 'POST', headers: providerHeaders, body: JSON.stringify({ enabled: false }),
+    })
+    const automationProject = await automationResponse.json()
+    assert.equal(automationResponse.status, 200, automationProject.error)
+    assert.equal(automationProject.project.automation_mode, false)
+    assert.equal(automationProject.state.stage, 'analysis')
+
     const invalidProvider = await fetch(`${base}/api/v1/projects/demo-drama/providers`, {
       method: 'POST', headers: providerHeaders, body: JSON.stringify({ providers: { video: { provider: 'unknown', model_or_workflow: 'missing' } } }),
     })

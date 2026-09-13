@@ -253,6 +253,18 @@ async function configureProjectProviders(workspaceRoot, key, input) {
   return projectDetail(workspaceRoot, key)
 }
 
+async function configureProjectAutomation(workspaceRoot, key, input) {
+  if (typeof input.enabled !== 'boolean') throw Object.assign(new Error('自动托管开关必须是布尔值'), { status: 400 })
+  const root = await projectPath(workspaceRoot, key)
+  const temporary = await mkdtemp(resolve(tmpdir(), 'short-drama-automation-'))
+  try {
+    const update = resolve(temporary, 'automation.json')
+    await writeFile(update, JSON.stringify({ automation_mode: input.enabled }))
+    await run('project-store.mjs', ['update-project', root, update])
+  } finally { await rm(temporary, { recursive: true, force: true }) }
+  return projectDetail(workspaceRoot, key)
+}
+
 async function configureProviderCredential(key, input) {
   const provider = providerSetupCatalog().find((item) => item.key === key)
   const value = typeof input.credential === 'string' ? input.credential.trim() : ''
@@ -392,6 +404,8 @@ export function createStudioServer({ workspaceRoot: rootArg, providerTester = te
         if (providerTestMatch) return json(response, 200, await testProviderCredential(decodeURIComponent(providerTestMatch[1]), providerTester))
         const providersMatch = /^\/api\/v1\/projects\/([^/]+)\/providers$/.exec(url.pathname)
         if (providersMatch) return json(response, 200, await configureProjectProviders(workspaceRoot, decodeURIComponent(providersMatch[1]), await body(request)))
+        const automationMatch = /^\/api\/v1\/projects\/([^/]+)\/automation$/.exec(url.pathname)
+        if (automationMatch) return json(response, 200, await configureProjectAutomation(workspaceRoot, decodeURIComponent(automationMatch[1]), await body(request)))
         const importMatch = /^\/api\/v1\/projects\/([^/]+)\/assets\/import$/.exec(url.pathname)
         if (importMatch) return json(response, 201, await importAsset(request, workspaceRoot, decodeURIComponent(importMatch[1]), url.searchParams))
         const actionMatch = /^\/api\/v1\/projects\/([^/]+)\/assets\/([^/]+)\/(select|revert)$/.exec(url.pathname)

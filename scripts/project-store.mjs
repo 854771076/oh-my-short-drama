@@ -611,8 +611,9 @@ async function main() {
     validateProject(next)
     const keys = Object.keys(update).filter((key) => key !== 'updatedAt')
     const artStyleChanged = JSON.stringify(current.creative.art_style) !== JSON.stringify(next.creative.art_style)
+    const automationOnly = keys.length > 0 && keys.every((key) => key === 'automation_mode')
     const invalidationStage = keys.every((key) => key === 'providers') ? 'production-plan' : keys.every((key) => key === 'creative') && Object.keys(update.creative || {}).every((key) => key === 'art_style') ? 'asset-analysis' : 'analysis'
-    await invalidateFrom(root, invalidationStage)
+    if (!automationOnly) await invalidateFrom(root, invalidationStage)
     if (artStyleChanged) await markVisualAssetsStale()
     if (artStyleChanged && next.creative.art_style) await saveCustomArtStyle(next.creative.art_style, dirname(root))
     await writeJson(resolve(root, '.short-drama/project.json'), next)
