@@ -11,7 +11,7 @@ description: 统一路由短剧图片、视频和音频生成 Provider。用于�
 
 整集视频按批量流程执行：`ensure_reference_urls` 一次发布公开参考（一次四项确认）、`submit_episode_videos` 先 `confirmed:false` 出逐镜费用摘要、用户确认费用后 `confirmed:true` 并发提交整集、`await_episode_tasks` 服务端并发等待回写；不得逐镜循环确认或逐镜轮询。
 
-付费前必须展示并确认：Provider、模型或工作流 ID、提示词版本、prompt_profile、input_mode、数量、尺寸/分辨率、时长、参考素材版本及其用途与顺序、声音策略和费用影响。所有图片、视频、音频调用必须传项目绝对路径 `project_root`、目标资产 key `target` 和 `prompt_document`：视频为 `{episode_key,version_id,shot_number}`；人物/场景/道具图为 `{kind:"asset-plan",episode_key,version_id,asset_key}`；分镜图为 `{kind:"storyboard",episode_key,version_id,shot_number}`；语音为 `{kind:"audio-plan",episode_key,version_id,line_index}`；音乐为 `{kind:"audio-plan",episode_key,version_id,track_key}`。只有不属于正式制作资产的 `other-*` 辅助图可传 `null`。视频还必须传 `prompt_version` 和结构化 `reference_manifest`，确认后才传 `confirmed: true`。
+付费前必须核对并记录：Provider、模型或工作流 ID、提示词版本、prompt_profile、input_mode、数量、尺寸/分辨率、时长、参考素材版本及其用途与顺序、声音策略和费用影响。项目 `automation_mode=true` 时可自动完成这些常规核对，但真实付费授权仍必须由用户明确给出，不能由 agent 代替；未授权时停在提交前，不产生 Provider 请求。所有图片、视频、音频调用必须传项目绝对路径 `project_root`、目标资产 key `target` 和 `prompt_document`：视频为 `{episode_key,version_id,shot_number}`；人物/场景/道具图为 `{kind:"asset-plan",episode_key,version_id,asset_key}`；分镜图为 `{kind:"storyboard",episode_key,version_id,shot_number}`；语音为 `{kind:"audio-plan",episode_key,version_id,line_index}`；音乐为 `{kind:"audio-plan",episode_key,version_id,track_key}`。只有不属于正式制作资产的 `other-*` 辅助图可传 `null`。视频还必须传 `prompt_version` 和结构化 `reference_manifest`，确认后才传 `confirmed: true`。
 
 批量生成按依赖关系分层：每一层所有门禁已通过、彼此无依赖的目标必须在同一批次全量并发调用，不设置本地并发上限，也不得等待一个目标完成后再提交下一个；并发数就是当前层全部 ready 目标数，由上游网关负责排队。只有派生场景、道具状态或其他明确依赖基础资产选版的目标进入下一层。每个目标仍保持独立请求、任务、失败状态和账本记录，单项失败不取消同批其他目标。
 
