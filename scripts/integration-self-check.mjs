@@ -84,6 +84,11 @@ async function checkMultiEpisodeEvidence() {
   const root = await mkdtemp(resolve(tmpdir(), 'short-drama-multi-'))
   try {
     run('project-store.mjs', 'init', root)
+    const ledgerBefore = await readFile(resolve(root, '.short-drama/skill-runs.json'), 'utf8')
+    const duplicateInit = spawnSync(process.execPath, [resolve(plugin, 'scripts/project-store.mjs'), 'init', root], { encoding: 'utf8' })
+    if (duplicateInit.status === 0 || !duplicateInit.stderr.includes('项目已存在')) throw new Error('重复初始化保护失效')
+    run('project-store.mjs', 'update-project', root, await json(root, 'same-config.json', { description: null }))
+    if ((await readFile(resolve(root, '.short-drama/skill-runs.json'), 'utf8')) !== ledgerBefore) throw new Error('保存未变化配置不应清理 Skill 凭证')
     for (const [key, order] of [['ep-001', 1], ['ep-002', 2]]) {
       run('project-store.mjs', 'put-episode', root, await json(root, `${key}.json`, { key, order, title: `第${order}集` }))
       await writeFile(resolve(root, `${key}.md`), `# 第${order}集\n`)

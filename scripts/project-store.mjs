@@ -518,7 +518,16 @@ async function main() {
       : { key: defaultKey(basename(root)), title: basename(root) || 'short-drama' }
     const key = projectKey(metadata.key || defaultKey(basename(root)))
     const title = typeof metadata.title === 'string' && metadata.title.trim() ? metadata.title.trim() : basename(root) || 'short-drama'
-    for (const path of [resolve(root, '.short-drama/project.json'), resolve(root, '.short-drama/state.json')]) {
+    // 初始化必须是一次性操作；任一项目账本已存在都禁止继续写，避免半初始化时覆盖或混写状态。
+    for (const path of [
+      resolve(root, '.short-drama/project.json'),
+      resolve(root, '.short-drama/state.json'),
+      resolve(root, '.short-drama/skill-runs.json'),
+      resolve(root, '.short-drama/assets.json'),
+      resolve(root, '.short-drama/tasks.json'),
+      resolve(root, '.short-drama/shot-reviews.json'),
+      resolve(root, 'source/manifest.json'),
+    ]) {
       try { await access(path); throw new Error(`项目已存在：${root}`) } catch (error) { if (error?.code !== 'ENOENT') throw error }
     }
     for (const directory of ['source', 'episodes', 'assets/characters', 'assets/scenes', 'assets/props', 'assets/storyboards', 'assets/audio', 'assets/videos', 'assets/other', 'editing', 'delivery', '.short-drama/requests', '.short-drama/prompt-runs', '.short-drama/evidence', '.short-drama/uploads', '.short-drama/environment']) {
@@ -610,10 +619,11 @@ async function main() {
     for (const modality of ['image', 'video', 'audio', 'music']) if (Object.hasOwn(update.providers?.[modality] || {}, 'parameters')) next.providers[modality].parameters = update.providers[modality].parameters
     validateProject(next)
     const keys = Object.keys(update).filter((key) => key !== 'updatedAt')
+    const changedKeys = keys.filter((key) => JSON.stringify(current[key]) !== JSON.stringify(next[key]))
     const artStyleChanged = JSON.stringify(current.creative.art_style) !== JSON.stringify(next.creative.art_style)
-    const automationOnly = keys.length > 0 && keys.every((key) => key === 'automation_mode')
-    const invalidationStage = keys.every((key) => key === 'providers') ? 'production-plan' : keys.every((key) => key === 'creative') && Object.keys(update.creative || {}).every((key) => key === 'art_style') ? 'asset-analysis' : 'analysis'
-    if (!automationOnly) await invalidateFrom(root, invalidationStage)
+    const automationOnly = changedKeys.length > 0 && changedKeys.every((key) => key === 'automation_mode')
+    const invalidationStage = changedKeys.every((key) => key === 'providers') ? 'production-plan' : changedKeys.every((key) => key === 'creative') && Object.keys(update.creative || {}).every((key) => key === 'art_style') ? 'asset-analysis' : 'analysis'
+    if (changedKeys.length > 0 && !automationOnly) await invalidateFrom(root, invalidationStage)
     if (artStyleChanged) await markVisualAssetsStale()
     if (artStyleChanged && next.creative.art_style) await saveCustomArtStyle(next.creative.art_style, dirname(root))
     await writeJson(resolve(root, '.short-drama/project.json'), next)
