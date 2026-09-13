@@ -198,7 +198,7 @@ node scripts/project-store.mjs init <项目目录> <项目元数据.json>
 node scripts/project-store.mjs put-source <项目目录> src-original-novel v001 <原文文件>
 node scripts/project-store.mjs select-source <项目目录> src-original-novel v001
 node scripts/project-store.mjs migrate-project-layout <项目目录> ep-001
-node scripts/preflight.mjs init|media|editing <项目目录>
+node scripts/preflight.mjs <init|media|editing> <项目目录>
 node scripts/render-prompt.mjs --template <合同> --vars <变量.json> --codex-output <实际产物> --project-root <项目目录>
 node scripts/render-prompt.mjs --template <媒体模板> --vars <变量.json> --output <提示词文件> --project-root <项目目录>
 node scripts/snapshot-stage-evidence.mjs <项目目录> asset-generation|media-production
