@@ -73,8 +73,17 @@ async function json(response) {
   return data
 }
 
+async function fetchDiagnosed(path, init) {
+  try {
+    return await fetch(`${ROOT_BASE}${path}`, init)
+  } catch (error) {
+    const cause = error?.cause?.code || error?.cause?.message || error?.message || String(error)
+    throw new Error(`STARROUTER_NETWORK_FAILED(${path}): ${cause}`)
+  }
+}
+
 async function request(path, init = {}) {
-  return json(await fetch(`${ROOT_BASE}${path}`, {
+  return json(await fetchDiagnosed(path, {
     ...init,
     headers: { Authorization: `Bearer ${key()}`, ...(init.headers || {}) },
     signal: AbortSignal.timeout(init.timeout ?? 300_000),
@@ -82,7 +91,7 @@ async function request(path, init = {}) {
 }
 
 async function binaryRequest(path, init = {}) {
-  const response = await fetch(`${ROOT_BASE}${path}`, {
+  const response = await fetchDiagnosed(path, {
     ...init,
     headers: { Authorization: `Bearer ${key()}`, ...(init.headers || {}) },
     signal: AbortSignal.timeout(init.timeout ?? 300_000),
@@ -92,7 +101,7 @@ async function binaryRequest(path, init = {}) {
 }
 
 async function asrRequest(path, form, responseFormat) {
-  const response = await fetch(`${ROOT_BASE}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${key()}` }, body: form, signal: AbortSignal.timeout(300_000) })
+  const response = await fetchDiagnosed(path, { method: 'POST', headers: { Authorization: `Bearer ${key()}` }, body: form, signal: AbortSignal.timeout(300_000) })
   if (['json', 'verbose_json'].includes(responseFormat)) return json(response)
   const text = await response.text()
   if (!response.ok) throw new Error(`STARROUTER_REQUEST_FAILED(${response.status}): ${text.slice(0, 500)}`)
