@@ -135,6 +135,7 @@ export function normalizeModelParameters(provider, model, values = {}) {
       if (field.maxLength && weightedLength(value) > field.maxLength) throw new Error(`${field.label} 不能超过 ${field.maxLength} 个加权字符`)
     }
     if (field.type === 'boolean' && typeof value !== 'boolean') throw new Error(`${field.label} 必须为布尔值`)
+    if (field.type === 'select' && typeof field.options[0] === 'number') value = Number(value)
     if (field.type === 'select' && !field.options.includes(value)) throw new Error(`${field.label} 选项无效`)
     return [field.key, value]
   }))
@@ -178,6 +179,7 @@ export function selfCheck() {
   if (bailianVoice.speed !== 1 || bailianVoice.response_format !== 'wav' || bailianVoice.sample_rate !== 24000 || bailianVoice.volume !== 50 || bailianVoice.language_hints !== 'zh' || bailianVoice.instruction !== '') throw new Error('百炼参数默认值自检失败')
   const bailianV2 = normalizeModelParameters('bailian', 'cosyvoice-v2', { language_hints: 'en' })
   if (bailianV2.language_hints !== 'en') throw new Error('百炼 v2 语言参数自检失败')
+  if (normalizeModelParameters('bailian', 'cosyvoice-v2', { sample_rate: '24000' }).sample_rate !== 24000) throw new Error('数字下拉参数字符串归一化自检失败')
   try { normalizeModelParameters('bailian', 'cosyvoice-v2', { language_hints: 'ja' }); throw new Error('百炼 v2 非法语言未被拒绝') } catch (error) { if (!String(error.message).includes('选项无效')) throw error }
   try { normalizeModelParameters('bailian', 'cosyvoice-v3-plus', { instruction: '说' }); throw new Error('百炼无 instruction 字段未被拒绝') } catch (error) { if (!String(error.message).includes('不受支持')) throw error }
   try { normalizeModelParameters('bailian', 'cosyvoice-v3.5-plus', { instruction: 'a'.repeat(101) }); throw new Error('百炼 instruction 超长未被拒绝') } catch (error) { if (!String(error.message).includes('加权字符')) throw error }
