@@ -247,10 +247,13 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
     if (framed.length) throw new Error(`多格分镜板不能作为首帧/尾帧像素输入：${framed.map((item) => `${item.asset_key}@${item.version_id}(${item.role})`).join('、')}；整板改用 full-reference/Ref2VA 的 reference_image 语义参考位，或用 media-tools extract-grid-cell 裁单格`)
     if (!hasPanelBoardClaim(args.prompt)) throw new Error('直接引用多格分镜板时，prompt 必须在固定反宫格声明之外原样包含分镜板时间顺序条款（见 panel_grid/panel_storyboard 视频模板）')
   }
-  if (manifest.length !== shot.references.length) throw new Error('实际参考素材与提示词文档数量不一致')
-  for (const [index, reference] of shot.references.entries()) {
+  const expectedReferences = providerName === 'comfly'
+    ? [shot.references.find((item) => item.type === 'image' && item.asset_key === `board-${promptDocument.episode_key.replace('-', '')}-${String(promptDocument.shot_number).padStart(3, '0')}`) || shot.references.find((item) => item.type === 'image')].filter(Boolean)
+    : shot.references
+  if (manifest.length !== expectedReferences.length) throw new Error('实际参考素材与提示词文档数量不一致（Comfly 已按 Provider 合同仅保留分镜图）')
+  for (const [index, reference] of expectedReferences.entries()) {
     const actual = manifest[index]
-    for (const field of ['type', 'order', 'asset_key', 'version_id', 'role']) if (actual?.[field] !== reference[field]) throw new Error(`实际参考素材 ${index + 1} 与提示词文档不一致`)
+    for (const field of (providerName === 'comfly' ? ['type', 'asset_key', 'version_id', 'role'] : ['type', 'order', 'asset_key', 'version_id', 'role'])) if (actual?.[field] !== reference[field]) throw new Error(`实际参考素材 ${index + 1} 与提示词文档不一致`)
     const asset = assets.assets?.[reference.asset_key]
     if (asset?.selectedVersionId !== reference.version_id || asset.staleVersionIds?.includes(reference.version_id) || !asset.versions?.some((item) => item.id === reference.version_id)) throw new Error(`参考素材不是当前 selected 未失效版本：${reference.asset_key}@${reference.version_id}`)
   }
@@ -325,7 +328,7 @@ function comflyStoryboardOnly(shot, episodeKey) {
   const boardKey = `board-${episodeKey.replace('-', '')}-${String(shot.shot_number).padStart(3, '0')}`
   const images = (shot.references || []).filter((item) => item.type === 'image')
   const storyboard = images.find((item) => item.asset_key === boardKey) || images[0]
-  return { ...shot, references: storyboard ? [storyboard] : [] }
+  return { ...shot, references: storyboard ? [{ ...storyboard, order: 1 }] : [] }
 }
 
 function applyRunninghubVideoDefaults(providerArgs) {
