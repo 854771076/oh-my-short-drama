@@ -9,7 +9,7 @@ description: 统一路由短剧图片、视频和音频生成 Provider。用于�
 
 如果当前任务的 MCP 工具列表没有 `list_generation_providers`、`list_models`、`generate_image`、`submit_video`、`ensure_reference_urls`、`submit_episode_videos`、`await_episode_tasks`、`generate_audio`、`design_voice`、`clone_voice`、`list_voices`、`delete_voice` 或需要配乐时没有 `generate_music`，必须停止对应媒体生产并提示用户使用 `⌘Q` 完全退出 Codex 后重新打开；仅新建任务不会刷新桌面进程的插件 MCP 快照。禁止用占位文件、虚构成功响应或纯文本替代媒体结果。
 
-整集视频按批量流程执行：`ensure_reference_urls` 一次发布公开参考（一次四项确认）、`submit_episode_videos` 先 `confirmed:false` 出逐镜费用摘要、用户确认费用后 `confirmed:true` 并发提交整集、`await_episode_tasks` 服务端并发等待回写；不得逐镜循环确认或逐镜轮询。
+整集视频按批量流程执行：`ensure_reference_urls` 一次发布公开参考（一次四项确认）、`submit_episode_videos` 先 `confirmed:false` 出逐镜费用摘要，同一集同一选版和镜头范围只需一次费用确认后以 `confirmed:true` 并发提交整集，`await_episode_tasks` 服务端并发等待回写；不得逐镜循环确认或逐镜轮询。选版、模型、参数、镜头范围或费用范围变化时必须重新确认。
 
 付费前必须核对并记录：Provider、模型或工作流 ID、提示词版本、prompt_profile、input_mode、数量、尺寸/分辨率、时长、参考素材版本及其用途与顺序、声音策略和费用影响。项目 `automation_mode=true` 时可自动完成这些常规核对，但真实付费授权仍必须由用户明确给出，不能由 agent 代替；未授权时停在提交前，不产生 Provider 请求。所有图片、视频、音频调用必须传项目绝对路径 `project_root`、目标资产 key `target` 和 `prompt_document`：视频为 `{episode_key,version_id,shot_number}`；人物/场景/道具图为 `{kind:"asset-plan",episode_key,version_id,asset_key}`；分镜图为 `{kind:"storyboard",episode_key,version_id,shot_number}`；语音为 `{kind:"audio-plan",episode_key,version_id,line_index}`；音乐为 `{kind:"audio-plan",episode_key,version_id,track_key}`。只有不属于正式制作资产的 `other-*` 辅助图可传 `null`。视频还必须传 `prompt_version` 和结构化 `reference_manifest`，确认后才传 `confirmed: true`。
 
@@ -47,4 +47,4 @@ Provider 错误不触发静默切换；更换 Provider、模型、工作流或�
 - RunningHub 图片：`model=krea2-normal-v1`；`resolution ∈ {1K,2K}`；`aspect_ratio ∈ {1:1,16:9,9:16,3:4,4:3,2:3,3:2}`；当前普通工作流不接收参考图。
 - Comfly：`model=minimax-h3`；`input_mode=Ref2VA`；图片 `1..3` 或视频 `0..1`，两者互斥；音频固定 `0`；`duration=5..15` 的整数且不会静默取整；`ratio ∈ {16:9,9:16}`；`resolution ∈ {720p,1K,2K}`。
 
-整集图片优先使用 `submit_episode_images`：先以 `confirmed=false` 做全量门禁和费用预检，再以 `confirmed=true` 并发提交；单项失败不会阻塞其他已提交项，但预检失败时整批不产生 Provider 请求。可在本地先运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/generation/preflight.mjs" images <项目目录> <图片批量 JSON>`。
+整集图片优先使用 `submit_episode_images`：先以 `confirmed=false` 做全量门禁和费用预检，同一集同一资产计划范围只需一次费用确认，再以 `confirmed=true` 并发提交；单项失败不会阻塞其他已提交项，但预检失败时整批不产生 Provider 请求。资产计划、模型、参数、范围或费用变化时重新确认。可在本地先运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/generation/preflight.mjs" images <项目目录> <图片批量 JSON>`。
