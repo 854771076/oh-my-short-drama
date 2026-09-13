@@ -14,6 +14,7 @@ import { ANTI_GRID_CLAIM_ZH, ANTI_GRID_CLAIM_EN, hasAntiGridClaim } from './grid
 import { changedShotNumbers } from './shot-fingerprint.mjs'
 import { DEFAULT_WORKSPACE_ROOT, openStudio } from './studio.mjs'
 import { normalizeModelParameters, providerSetupCatalog } from './generation/providers.mjs'
+import { saveCustomArtStyle } from './art-styles.mjs'
 
 const root = process.argv[2] === 'init' ? resolve(DEFAULT_WORKSPACE_ROOT, process.argv[3] || 'short-drama') : resolve(process.argv[3] || process.cwd())
 const EPISODE_DOCUMENTS = new Set(['script-review', 'director-book', 'asset-plan', 'production-plan', 'storyboard', 'video-prompts', 'audio-plan'])
@@ -613,6 +614,7 @@ async function main() {
     const invalidationStage = keys.every((key) => key === 'providers') ? 'production-plan' : keys.every((key) => key === 'creative') && Object.keys(update.creative || {}).every((key) => key === 'art_style') ? 'asset-analysis' : 'analysis'
     await invalidateFrom(root, invalidationStage)
     if (artStyleChanged) await markVisualAssetsStale()
+    if (artStyleChanged && next.creative.art_style) await saveCustomArtStyle(next.creative.art_style, dirname(root))
     await writeJson(resolve(root, '.short-drama/project.json'), next)
     const skillRunsPath = resolve(root, '.short-drama/skill-runs.json')
     if (await exists(skillRunsPath)) {

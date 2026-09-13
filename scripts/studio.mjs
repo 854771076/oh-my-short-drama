@@ -12,6 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { normalizeModelParameters, providerSetupCatalog, testProviderConnection } from './generation/providers.mjs'
 import { saveCredential } from './generation/credentials.mjs'
+import { artStyleCatalog } from './art-styles.mjs'
 
 const execute = promisify(execFile)
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -246,7 +247,7 @@ async function configureProjectProviders(workspaceRoot, key, input) {
   const temporary = await mkdtemp(resolve(tmpdir(), 'short-drama-providers-'))
   try {
     const update = resolve(temporary, 'providers.json')
-    await writeFile(update, JSON.stringify({ providers }))
+    await writeFile(update, JSON.stringify({ providers, ...(input.creative?.art_style ? { creative: { art_style: input.creative.art_style } } : {}) }))
     await run('project-store.mjs', ['update-project', root, update])
   } finally { await rm(temporary, { recursive: true, force: true }) }
   return projectDetail(workspaceRoot, key)
@@ -373,6 +374,7 @@ export function createStudioServer({ workspaceRoot: rootArg, providerTester = te
         return json(response, 200, { workspace: { ...workspace, path: workspaceRoot }, projects: await listProjects(workspaceRoot), csrfToken })
       }
       if (request.method === 'GET' && url.pathname === '/api/v1/providers') return json(response, 200, { providers: providerSetupCatalog() })
+      if (request.method === 'GET' && url.pathname === '/api/v1/art-styles') return json(response, 200, { styles: artStyleCatalog(workspaceRoot) })
       if (request.method === 'POST' || request.method === 'DELETE') {
         if (request.headers['x-short-drama-csrf'] !== csrfToken) throw Object.assign(new Error('操作凭证无效，请刷新页面'), { status: 403 })
         if (request.method === 'DELETE') {

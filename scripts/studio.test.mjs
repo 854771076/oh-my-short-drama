@@ -60,6 +60,8 @@ test('Dashboard 通过本地 HTTP API 初始化工作区并创建项目', async 
     assert.equal(starrouter.configured, true)
     assert.ok(starrouter.models.image.some((item) => item.id === 'gpt-image-2'))
     assert.doesNotMatch(providerText, /studio-test-key/)
+    const artStyles = await fetch(`${base}/api/v1/art-styles`).then((response) => response.json())
+    assert.ok(artStyles.styles.some((style) => style.id === 'system-japanese-anime'))
 
     const credentialResponse = await fetch(`${base}/api/v1/providers/runninghub/credential`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'x-short-drama-csrf': bootstrap.csrfToken }, body: JSON.stringify({ credential: 'runninghub-test-key' }),
@@ -106,12 +108,15 @@ test('Dashboard 通过本地 HTTP API 初始化工作区并创建项目', async 
     assert.deepEqual(detail.assets, [])
 
     const providerHeaders = { 'content-type': 'application/json', 'x-short-drama-csrf': bootstrap.csrfToken }
+    const customArtStyle = { ...artStyles.styles.find((style) => style.id === 'system-japanese-anime'), id: 'custom-test', name: '自定义画风' }
     const providerSelection = await fetch(`${base}/api/v1/projects/demo-drama/providers`, {
-      method: 'POST', headers: providerHeaders, body: JSON.stringify({ providers: { image: { provider: 'starrouter', model_or_workflow: 'gpt-image-2' } } }),
+      method: 'POST', headers: providerHeaders, body: JSON.stringify({ providers: { image: { provider: 'starrouter', model_or_workflow: 'gpt-image-2' } }, creative: { art_style: customArtStyle } }),
     })
     const configuredProject = await providerSelection.json()
     assert.equal(providerSelection.status, 200, configuredProject.error)
     assert.equal(configuredProject.project.providers.image.provider, 'starrouter')
+    assert.equal(configuredProject.project.creative.art_style.id, 'custom-test')
+    assert.equal(JSON.parse(await readFile(resolve(workspace, 'art-styles.custom.json'), 'utf8'))[0].id, 'custom-test')
     assert.equal(configuredProject.project.providers.video.provider, null)
 
     const invalidProvider = await fetch(`${base}/api/v1/projects/demo-drama/providers`, {

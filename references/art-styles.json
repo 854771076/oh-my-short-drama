@@ -1,0 +1,543 @@
+[
+  {
+    "id": "0a1639b6-2dcd-4126-b3b8-9e331915f3b2",
+    "name": "日本新海诚风格",
+    "category": "2D动漫",
+    "description": "核心视觉特征为通透渐变天空、柔和丁达尔光影、高饱和冷暖平衡配色，搭配日式日常场景、樱花、水洼反光、漂浮微尘等细节，氛围感浪漫治愈；适用青春恋爱、校园日常、奇幻治愈类动画插画创作；应避免使用纯黑死灰、硬边阴影、过度对比度破坏通透感的误用。",
+    "prompt": "Makoto Shinkai style anime illustration, cinematic soft rendering, soft clean line art, highly transparent gradient sky, soft realistic god rays (Tyndall effect), high saturation but gentle fresh warm-cool color matching, intricate texture details, dynamic composition balancing character and natural scenery, reserved negative space for sky display, detailed Japanese daily scenes, falling cherry blossom petals, realistic puddle reflections, tiny floating dust particles, romantic healing atmosphere",
+    "visualBible": {
+      "version": 1,
+      "palette": {
+        "primary": [
+          "#60A5FA",
+          "#93C5FD",
+          "#BFDBFE",
+          "#BAE6FD"
+        ],
+        "secondary": [
+          "#FDE68A",
+          "#A7F3D0",
+          "#D1D5DB",
+          "#F5F5DC"
+        ],
+        "accent": [
+          "#F472B6",
+          "#FBBF24",
+          "#3B82F6",
+          "#EC4899"
+        ],
+        "neutral": [
+          "#F9FAFB",
+          "#F3F4F6",
+          "#9CA3AF",
+          "#4B5563"
+        ],
+        "scheme": "complementary"
+      },
+      "baseline": {
+        "saturation": "vivid",
+        "brightness": "high-key",
+        "contrast": "soft",
+        "temperature": "neutral"
+      },
+      "lighting": {
+        "key_direction": "侧上方45°自然日光/夕阳光，情绪节点使用顶光强化丁达尔效果",
+        "key_quality": "柔和散射质感，光影边缘带朦胧光晕，无硬阴影，阴影偏冷调且自带环境色反光",
+        "continuity": "全片天空色彩、太阳位置统一，丁达尔光方向始终匹配光源位置，水洼/玻璃反光完全对应天空与环境色彩，跨镜头色温偏差不超过500K"
+      },
+      "narrative_arc": [
+        {
+          "name": "开场",
+          "trigger": "交代故事日常背景，呈现主角上学、通勤等常规活动",
+          "color_shift": "冷调天蓝色占比60%，暖色阳光点缀占比≤15%，樱花粉占比≤10%",
+          "saturation": "基础饱和度+5%",
+          "brightness": "基础亮度+10%"
+        },
+        {
+          "name": "发展",
+          "trigger": "主角邂逅重要角色/事件，人物关系升温，产生暧昧情绪",
+          "color_shift": "冷暖色占比平衡，天蓝色占比40%，暖橙/樱花粉占比35%，环境色反光强度提升",
+          "saturation": "基础饱和度+10%",
+          "brightness": "基础亮度+5%"
+        },
+        {
+          "name": "转折/高潮",
+          "trigger": "主角遭遇冲突、离别、告白或奇幻事件爆发",
+          "color_shift": "冷暖强对比，大面积金橙夕阳光/粉紫晚霞覆盖场景，天蓝色占比降至20%，高光带柔和炫光",
+          "saturation": "基础饱和度+15%",
+          "brightness": "基础亮度+15%，局部高光允许柔和溢出"
+        },
+        {
+          "name": "收束",
+          "trigger": "事件解决，主角达成和解或约定，落点到治愈日常",
+          "color_shift": "回归冷暖平衡，天蓝色占比回升至35%，暖色占比30%，加入少量冷调灰过渡",
+          "saturation": "回落至基础饱和度",
+          "brightness": "回落至基础亮度+5%"
+        }
+      ],
+      "motion_language": {
+        "camera": "以固定机位、缓慢平移、慢推运镜为主，多使用大远景展现天空全景，中景交代人物与场景互动，特写聚焦水洼反光、樱花飘落、指尖触碰等光影细节",
+        "stillness": "静态镜头保留3-5秒时长，重点呈现光影流动、微尘飘动、樱花缓慢下落的静态细节，无多余动态干扰",
+        "impact": "高潮段落使用快速切镜搭配大范围摇镜，仅在告白、离别等核心情绪节点使用1-2秒特写定格突出张力",
+        "motion_blur": "仅在快速运镜、人物奔跑场景添加10%以下低强度水平动态模糊，其余场景无动态模糊，保留全部细节清晰度",
+        "slow_motion": "仅在樱花飘落、水滴落下、牵手对视等重要互动场景使用1.5-2倍慢动作，单段慢动作时长不超过3秒，禁止滥用"
+      },
+      "negative_constraints": [
+        "禁止使用纯黑、死灰色块，所有阴影需带环境色反光",
+        "禁止出现硬边锐利阴影，所有光影边缘需做柔和过渡处理",
+        "禁止过度调高对比度导致画面过曝或暗部细节丢失",
+        "禁止添加暗黑、惊悚、粗砺质感的元素，保持整体清新柔和调性",
+        "禁止跨镜头天空色彩、光影方向出现无逻辑漂移",
+        "禁止水洼、玻璃等反光材质缺失天空或环境的对应反射内容",
+        "禁止丁达尔光效过度浓烈导致画面发灰、通透感下降"
+      ]
+    },
+    "i18n": null,
+    "previewImageUrl": "images/art-style-preview-日本新海诚风格-1784648300890-5u40mz.jpg",
+    "sortOrder": 0
+  },
+  {
+    "id": "49287310-61c9-4a10-bad3-f98650916089",
+    "name": "3D精致国漫",
+    "category": "3D动漫",
+    "description": "核心视觉特征为高精度3D渲染结合中国传统美学，人物造型灵动精致、服饰纹样配饰细节考究，场景融入古风建筑、仙幻秘境等东方元素，色彩柔和饱满，光影氛围感强。适用题材为古风仙侠、神话传说、传统民俗相关的影视画面、角色立绘创作。禁止在现代、西式幻想等非国风题材中生硬套用，避免为追求特效忽略材质真实质感。",
+    "prompt": "3D exquisite Chinese animation style, high-precision 3D rendering with delicate texture, integrated traditional Chinese aesthetic features, vivid and delicate character modeling, meticulous details of clothing patterns and accessories, scenes integrated with ancient Chinese architecture, fairyland secret realm and other oriental elements, soft and full color matching Chinese aesthetic, prominent light and shadow atmosphere, cinematic level, soft circular catchlight in eyes to enhance vivid expression, suitable for ancient style Xianxia, myth legend, traditional folk theme works",
+    "visualBible": {
+      "version": 1,
+      "palette": {
+        "primary": [
+          "#1A535C",
+          "#A45D5D",
+          "#88AB8E",
+          "#2A3950",
+          "#B83B5E"
+        ],
+        "secondary": [
+          "#F7F3E9",
+          "#ADC4CE",
+          "#E8C4C4",
+          "#3A6351",
+          "#C69F73"
+        ],
+        "accent": [
+          "#D4AF37",
+          "#E63946",
+          "#2A9D8F",
+          "#264653",
+          "#F1FAEE"
+        ],
+        "neutral": [
+          "#E9E4D4",
+          "#333333",
+          "#F0F5F9",
+          "#4B5D67",
+          "#706256"
+        ],
+        "scheme": "custom"
+      },
+      "baseline": {
+        "saturation": "balanced",
+        "brightness": "balanced",
+        "contrast": "balanced",
+        "temperature": "warm"
+      },
+      "lighting": {
+        "key_direction": "主光多为45度侧上方打光，凸显人物面部轮廓与服饰织物纹理，仙幻场景可搭配顶光模拟天光效果",
+        "key_quality": "主光质感柔和不刺眼，边缘带轻微柔化过渡，避免过硬明暗切割，人物眼部固定保留柔和圆形眼神光",
+        "continuity": "同场景下主光色温、方向保持统一，不同时空场景可调整色温区分，但同叙事线内光线逻辑保持连贯"
+      },
+      "narrative_arc": [
+        {
+          "name": "叙事开场",
+          "trigger": "故事开篇交代世界观、角色出场时",
+          "color_shift": "主色偏向暖调赭石、豆绿，整体色彩柔和明亮",
+          "saturation": "降低10%，呈现平和舒适的观感",
+          "brightness": "提升5%，营造开阔的叙事氛围"
+        },
+        {
+          "name": "剧情发展",
+          "trigger": "角色历练、探索秘境、推进主线剧情时",
+          "color_shift": "主色融入霁蓝、石青等冷调色彩，色彩层次逐渐丰富",
+          "saturation": "提升10%，强化场景与角色的细节表现力",
+          "brightness": "保持基准值，根据具体场景微调"
+        },
+        {
+          "name": "转折/高潮",
+          "trigger": "出现大战、秘境突破、重大变故等强冲突剧情时",
+          "color_shift": "强调色中的鎏金、朱红占比提升，可加入少量高饱和对比色强化冲突感",
+          "saturation": "提升20%，营造激烈的情绪氛围",
+          "brightness": "正面向好剧情提升15%，负面变故剧情降低15%"
+        },
+        {
+          "name": "叙事收束",
+          "trigger": "剧情落幕、角色达成目标、故事告一段落时",
+          "color_shift": "回归主色暖调，大面积加入牙白、米灰等中性色过渡",
+          "saturation": "降低15%，呈现平和舒缓的观感",
+          "brightness": "提升10%，营造圆满温暖的收尾氛围"
+        }
+      ],
+      "motion_language": {
+        "camera": "运镜以平稳的推、拉、摇、移为主，角色立绘固定为平视/45度斜侧视角，仙幻大场景可搭配缓慢的航拍环绕运镜，避免过于晃动的手持运镜",
+        "stillness": "角色立绘、静态场景展示时保持画面稳定无抖动，人物动作幅度适中，突出造型与服饰细节",
+        "impact": "高冲突场景可使用快速推拉镜头、低角度仰拍强化冲击力，搭配光线频闪效果但控制频次避免视觉疲劳",
+        "motion_blur": "仅快速位移、打斗动作时添加低强度动态模糊，模糊幅度不超过画面的10%，避免模糊覆盖人物服饰与面部细节",
+        "slow_motion": "仅用于角色高光时刻、重要施法动作、情绪爆发节点，慢动作速率不低于0.3倍，保留完整的动作逻辑与细节"
+      },
+      "negative_constraints": [
+        "禁止出现塑料感、廉价感的3D渲染材质，保证服饰织物、金属配饰、建筑材质的真实质感",
+        "禁止过度堆砌炫光、粒子特效，避免特效掩盖人物与场景本身的细节",
+        "禁止出现违背中国传统美学的西式元素、现代元素乱入古风场景",
+        "禁止跨镜头出现人物服饰纹样、发色瞳色、场景配色的无逻辑漂移",
+        "禁止使用过于刺眼的高饱和荧光色，保持色彩符合国风审美",
+        "禁止生硬套用仙侠女子造型到不符合题材的普通民俗、现实向古风场景中",
+        "禁止人物眼部缺失眼神光，避免人物神态呆滞无神"
+      ]
+    },
+    "i18n": null,
+    "previewImageUrl": "images/art-style-preview-3D精致国漫-1784650253573-d9q17m.jpg",
+    "sortOrder": 0
+  },
+  {
+    "id": "system-american-comic",
+    "name": "漫画风",
+    "category": null,
+    "description": "日式动漫风格",
+    "prompt": "日式动漫风格",
+    "visualBible": {
+      "version": 1,
+      "palette": {
+        "primary": [
+          "天青蓝",
+          "樱花粉"
+        ],
+        "secondary": [
+          "米白"
+        ],
+        "accent": [
+          "暖金"
+        ],
+        "neutral": [
+          "墨灰"
+        ],
+        "scheme": "analogous"
+      },
+      "baseline": {
+        "saturation": "balanced",
+        "brightness": "high-key",
+        "contrast": "soft",
+        "temperature": "neutral"
+      },
+      "lighting": {
+        "key_direction": "柔和侧前光",
+        "key_quality": "干净柔光",
+        "continuity": "同场景保持光向与肤色稳定"
+      },
+      "narrative_arc": [
+        {
+          "name": "日常",
+          "trigger": "关系稳定",
+          "color_shift": "青粉平衡",
+          "saturation": "中等",
+          "brightness": "明亮"
+        },
+        {
+          "name": "冲突",
+          "trigger": "矛盾升级",
+          "color_shift": "冷蓝占比提高",
+          "saturation": "降低",
+          "brightness": "降低"
+        },
+        {
+          "name": "和解",
+          "trigger": "情绪释放",
+          "color_shift": "暖金回归",
+          "saturation": "提高",
+          "brightness": "提高"
+        }
+      ],
+      "motion_language": {
+        "camera": "以稳定构图和有动机的缓慢移动为主",
+        "stillness": "允许情绪停顿与静止镜头，不强制持续运动",
+        "impact": "冲击点仅使用短促微震与动作反应链",
+        "motion_blur": "仅作用于高速运动主体，保持背景和面部清晰",
+        "slow_motion": "仅用于关键情绪或动作峰值"
+      },
+      "negative_constraints": [
+        "避免过饱和与过度 HDR",
+        "避免无动机的色温跳变",
+        "避免塑料皮肤与油腻高光"
+      ]
+    },
+    "i18n": {
+      "en": {
+        "name": "Comic Style",
+        "description": "Japanese anime style"
+      },
+      "zh": {
+        "name": "漫画风",
+        "description": "日式动漫风格"
+      }
+    },
+    "previewImageUrl": null,
+    "sortOrder": 10
+  },
+  {
+    "id": "system-chinese-comic",
+    "name": "精致国漫",
+    "category": null,
+    "description": "现代高质量漫画风格，动漫风格，细节丰富精致，线条锐利干净，质感饱满，超清，干净的画面风格，2D风格，动漫风格。",
+    "prompt": "现代高质量漫画风格，动漫风格，细节丰富精致，线条锐利干净，质感饱满，超清，干净的画面风格，2D风格，动漫风格。",
+    "visualBible": {
+      "version": 1,
+      "palette": {
+        "primary": [
+          "朱砂红",
+          "黛青"
+        ],
+        "secondary": [
+          "宣纸白"
+        ],
+        "accent": [
+          "鎏金"
+        ],
+        "neutral": [
+          "玄黑"
+        ],
+        "scheme": "triadic"
+      },
+      "baseline": {
+        "saturation": "vivid",
+        "brightness": "balanced",
+        "contrast": "high",
+        "temperature": "warm"
+      },
+      "lighting": {
+        "key_direction": "戏剧性侧逆光",
+        "key_quality": "轮廓清晰的硬柔结合光",
+        "continuity": "保持主光方向，高潮只增强强度"
+      },
+      "narrative_arc": [
+        {
+          "name": "铺陈",
+          "trigger": "世界建立",
+          "color_shift": "黛青与宣纸白",
+          "saturation": "中等",
+          "brightness": "平衡"
+        },
+        {
+          "name": "对决",
+          "trigger": "核心冲突",
+          "color_shift": "朱砂与玄黑增强",
+          "saturation": "提高",
+          "brightness": "压暗"
+        },
+        {
+          "name": "凯旋",
+          "trigger": "目标达成",
+          "color_shift": "鎏金扩展",
+          "saturation": "保持",
+          "brightness": "提高"
+        }
+      ],
+      "motion_language": {
+        "camera": "以稳定构图和有动机的缓慢移动为主",
+        "stillness": "允许情绪停顿与静止镜头，不强制持续运动",
+        "impact": "冲击点仅使用短促微震与动作反应链",
+        "motion_blur": "仅作用于高速运动主体，保持背景和面部清晰",
+        "slow_motion": "仅用于关键情绪或动作峰值"
+      },
+      "negative_constraints": [
+        "避免过饱和与过度 HDR",
+        "避免无动机的色温跳变",
+        "避免塑料皮肤与油腻高光"
+      ]
+    },
+    "i18n": {
+      "en": {
+        "name": "Premium Chinese Comic",
+        "description": "Modern premium Chinese comic style, rich details, clean sharp line art, full texture, ultra-clear 2D anime aesthetics."
+      },
+      "zh": {
+        "name": "精致国漫",
+        "description": "现代高质量漫画风格，动漫风格，细节丰富精致，线条锐利干净，质感饱满，超清，干净的画面风格，2D风格，动漫风格。"
+      }
+    },
+    "previewImageUrl": null,
+    "sortOrder": 20
+  },
+  {
+    "id": "system-japanese-anime",
+    "name": "日系动漫风",
+    "category": null,
+    "description": "现代日系动漫风格，赛璐璐上色，清晰干净的线条，视觉小说CG感。高质量2D风格",
+    "prompt": "现代日系动漫风格，赛璐璐上色，清晰干净的线条，视觉小说CG感。高质量2D风格",
+    "visualBible": {
+      "version": 1,
+      "palette": {
+        "primary": [
+          "群青",
+          "浅紫"
+        ],
+        "secondary": [
+          "云白"
+        ],
+        "accent": [
+          "珊瑚橙"
+        ],
+        "neutral": [
+          "蓝灰"
+        ],
+        "scheme": "split-complementary"
+      },
+      "baseline": {
+        "saturation": "balanced",
+        "brightness": "balanced",
+        "contrast": "soft",
+        "temperature": "cool"
+      },
+      "lighting": {
+        "key_direction": "自然侧光",
+        "key_quality": "通透柔光与清晰眼神光",
+        "continuity": "昼夜变化服从剧情时间，人物肤色稳定"
+      },
+      "narrative_arc": [
+        {
+          "name": "平静",
+          "trigger": "日常段落",
+          "color_shift": "群青与浅紫",
+          "saturation": "中等",
+          "brightness": "明亮"
+        },
+        {
+          "name": "悬念",
+          "trigger": "信息隐藏",
+          "color_shift": "蓝灰加深",
+          "saturation": "降低",
+          "brightness": "降低"
+        },
+        {
+          "name": "告白",
+          "trigger": "情感确认",
+          "color_shift": "珊瑚橙进入",
+          "saturation": "提高",
+          "brightness": "提高"
+        }
+      ],
+      "motion_language": {
+        "camera": "以稳定构图和有动机的缓慢移动为主",
+        "stillness": "允许情绪停顿与静止镜头，不强制持续运动",
+        "impact": "冲击点仅使用短促微震与动作反应链",
+        "motion_blur": "仅作用于高速运动主体，保持背景和面部清晰",
+        "slow_motion": "仅用于关键情绪或动作峰值"
+      },
+      "negative_constraints": [
+        "避免过饱和与过度 HDR",
+        "避免无动机的色温跳变",
+        "避免塑料皮肤与油腻高光"
+      ]
+    },
+    "i18n": {
+      "en": {
+        "name": "Japanese Anime",
+        "description": "Modern Japanese anime style, cel shading, clean line art, visual-novel CG look, high-quality 2D style."
+      },
+      "zh": {
+        "name": "日系动漫风",
+        "description": "现代日系动漫风格，赛璐璐上色，清晰干净的线条，视觉小说CG感。高质量2D风格"
+      }
+    },
+    "previewImageUrl": null,
+    "sortOrder": 30
+  },
+  {
+    "id": "system-realistic",
+    "name": "真人风格",
+    "category": null,
+    "description": "真实电影级画面质感，真实现实场景，色彩饱满通透，画面干净精致，真实感",
+    "prompt": "真实电影级画面质感，真实现实场景，色彩饱满通透，画面干净精致，真实感",
+    "visualBible": {
+      "version": 1,
+      "palette": {
+        "primary": [
+          "深海蓝",
+          "炭黑"
+        ],
+        "secondary": [
+          "雾灰"
+        ],
+        "accent": [
+          "琥珀"
+        ],
+        "neutral": [
+          "肤色灰"
+        ],
+        "scheme": "complementary"
+      },
+      "baseline": {
+        "saturation": "muted",
+        "brightness": "low-key",
+        "contrast": "high",
+        "temperature": "cool"
+      },
+      "lighting": {
+        "key_direction": "有动机的侧光或侧逆光",
+        "key_quality": "自然柔光配克制阴影",
+        "continuity": "同场景锁定主光方向、曝光与白平衡"
+      },
+      "narrative_arc": [
+        {
+          "name": "建立",
+          "trigger": "人物与环境建立",
+          "color_shift": "冷中性基调",
+          "saturation": "克制",
+          "brightness": "平衡"
+        },
+        {
+          "name": "危机",
+          "trigger": "冲突升级",
+          "color_shift": "冷蓝加深、暖色退出",
+          "saturation": "降低",
+          "brightness": "降低"
+        },
+        {
+          "name": "转折",
+          "trigger": "真相或行动爆发",
+          "color_shift": "琥珀局部进入",
+          "saturation": "局部提高",
+          "brightness": "提高主体"
+        },
+        {
+          "name": "余韵",
+          "trigger": "冲突结束",
+          "color_shift": "冷暖重新平衡",
+          "saturation": "回落",
+          "brightness": "柔和"
+        }
+      ],
+      "motion_language": {
+        "camera": "以稳定构图和有动机的缓慢移动为主",
+        "stillness": "允许情绪停顿与静止镜头，不强制持续运动",
+        "impact": "冲击点仅使用短促微震与动作反应链",
+        "motion_blur": "仅作用于高速运动主体，保持背景和面部清晰",
+        "slow_motion": "仅用于关键情绪或动作峰值"
+      },
+      "negative_constraints": [
+        "避免过饱和与过度 HDR",
+        "避免无动机的色温跳变",
+        "避免塑料皮肤与油腻高光"
+      ]
+    },
+    "i18n": {
+      "en": {
+        "name": "Live Action",
+        "description": "Realistic cinematic look, real-world scene fidelity, rich transparent colors, clean and refined image quality."
+      },
+      "zh": {
+        "name": "真人风格",
+        "description": "真实电影级画面质感，真实现实场景，色彩饱满通透，画面干净精致，真实感"
+      }
+    },
+    "previewImageUrl": null,
+    "sortOrder": 40
+  }
+]
