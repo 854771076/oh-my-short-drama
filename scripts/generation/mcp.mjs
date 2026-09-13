@@ -402,10 +402,17 @@ async function ensureReferenceUrls(args) {
   const root = await realpath(resolve(projectRoot))
   const selection = JSON.parse(await readFile(resolve(root, 'episodes', episodeKey, 'video-prompts', 'selected.json'), 'utf8'))
   const document = JSON.parse(await readFile(resolve(root, selection.path), 'utf8'))
+  const assetsLedger = JSON.parse(await readFile(resolve(root, '.short-drama', 'assets.json'), 'utf8'))
   const unique = new Map()
   const skippedNonImage = []
   for (const shot of document.shots || []) {
     if (shot.provider === 'runninghub') continue
+    if (shot.provider === 'comfly') {
+      const boardKey = `board-${episodeKey.replace('-', '')}-${String(shot.shot_number).padStart(3, '0')}`
+      const board = assetsLedger.assets?.[boardKey]
+      if (board?.selectedVersionId) unique.set(`${boardKey}@${board.selectedVersionId}`, { asset_key: boardKey, version_id: board.selectedVersionId })
+      continue
+    }
     for (const reference of shot.references || []) {
       if (reference.type !== 'image') { skippedNonImage.push({ shot_number: shot.shot_number, asset_key: reference.asset_key, type: reference.type, reason: '批量发布仅支持图片；视频/音频参考请在单次 submit_video 中传已授权公网 URL' }); continue }
       unique.set(`${reference.asset_key}@${reference.version_id}`, { asset_key: reference.asset_key, version_id: reference.version_id })
