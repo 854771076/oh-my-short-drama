@@ -24,8 +24,11 @@ export function canonical(value) {
 
 export function canonicalPromptDocument(value, tool) {
   if (value === null || value === undefined) return null
-  const kind = value.kind || (tool === 'submit_video' ? 'video-prompts' : undefined)
-  return canonical({ ...value, ...(kind ? { kind } : {}) })
+  if (tool === 'submit_video' && value.kind === 'video-prompts') {
+    const { kind, ...reference } = value
+    return canonical(reference)
+  }
+  return canonical(value)
 }
 
 export function canonicalProvenanceParameters(request) {
@@ -202,6 +205,8 @@ async function main() {
   const [command, rootArg, ...args] = process.argv.slice(2)
   if (command === '--self-check') {
     if (fingerprint({ b: 2, a: 1 }) !== fingerprint({ a: 1, b: 2 })) throw new Error('指纹自检失败')
+    const videoPrompt = { episode_key: 'ep-001', version_id: 'v001', shot_number: 1 }
+    if (JSON.stringify(canonicalPromptDocument({ kind: 'video-prompts', ...videoPrompt }, 'submit_video')) !== JSON.stringify(canonical(videoPrompt)) || generationProvenance({ taskId: 'video-1', provider: 'comfly' }, { tool: 'submit_video', modelOrWorkflow: 'minimax-h3', promptDocument: videoPrompt, arguments: {} }).prompt_document.kind !== undefined) throw new Error('视频提示词引用规范化自检失败')
     try { rejectSecrets({ nested: { apiKey: 'x' } }); throw new Error('密钥自检失败') } catch (error) { if (!String(error.message).includes('禁止')) throw error }
     const task = { taskId: 'task-1', target: 'audio-ep001-a', type: 'audio', provider: 'starrouter' }
     const request = { tool: 'generate_audio', target: task.target, type: task.type, provider: task.provider, modelOrWorkflow: 'speech-2.8-hd', promptDocument: null, arguments: { speed: 1 } }
