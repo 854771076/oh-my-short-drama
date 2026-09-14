@@ -49,7 +49,10 @@ function shotNumbers(items) {
 
 function sameNumbers(a, b) { return JSON.stringify(shotNumbers(a)) === JSON.stringify(shotNumbers(b)) }
 function sameReferences(plan, prompt) {
-  return JSON.stringify((plan || []).map(({ key, version_id, role, order }) => ({ asset_key: key, version_id, role, order }))) === JSON.stringify((prompt || []).map(({ asset_key, version_id, role, order }) => ({ asset_key, version_id, role, order })))
+  // storyboard-frame 是 Provider 单槽合同的派生输入，不属于制作计划中的叙事资产。
+  const planned = (plan || []).map(({ key, version_id, role, order }) => ({ asset_key: key, version_id, role, order }))
+  const prompted = (prompt || []).filter((item) => !(item.role === 'storyboard-frame' && item.asset_key?.startsWith('other-'))).map(({ asset_key, version_id, role, order }) => ({ asset_key, version_id, role, order }))
+  return JSON.stringify(planned) === JSON.stringify(prompted)
 }
 function sameShotContract(plan, prompt) {
   return plan.provider === prompt.provider
@@ -293,6 +296,7 @@ export async function inspectStage(root, stage) {
 async function main() {
   if (process.argv.includes('--self-check')) {
     try { await inspectStage('.', 'bad'); throw new Error('阶段自检失败') } catch (error) { if (!String(error.message).includes('未知阶段')) throw error }
+    if (!sameReferences([{ key: 'char-a', version_id: 'v001', role: 'identity', order: 1 }], [{ asset_key: 'char-a', version_id: 'v001', role: 'identity', order: 1 }, { asset_key: 'other-shot-frame', version_id: 'v001', role: 'storyboard-frame', order: 2 }])) throw new Error('派生分镜帧一致性自检失败')
     return console.log('ok')
   }
   const [root, stage] = process.argv.slice(2)

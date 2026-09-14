@@ -17,7 +17,7 @@ description: 验收短剧分镜图和视频镜头。用于逐镜视觉、音频�
 
 visual 必须 passed；无声音或字幕时使用 not-applicable，不得伪造通过。P0/P1 只修复受影响镜头并重新验收；不得用字幕掩盖错误人声，用长叠化掩盖动作/轴线错误，或用外部 TTS 覆盖要求原生音频的镜头。四项通过且无 P0/P1 后才加入剪辑候选池。
 
-任务回写时脚本会对每条视频成片自动做宫格/分屏启发式检测（`media-tools.mjs detect-grid` 可手工复跑）：命中会给版本写入 `quality_flags:["grid_suspect"]`，检测环境异常写 `grid_check_failed`。该类版本无法直接通过验收：必须实际观看整段素材后二选一——确认是宫格/分屏/拼贴就把 `visual` 判为 `failed` 并按最小变量重生成（脚本只打标，绝不自动重生成）；确认是门框、地平线、桌面边缘等结构误报，才在验收 JSON 中写 `grid_check:{"status":"false-positive","observation":"具体可见证据"}` 放行。机器标记只是兜底，无标记不代表免审，每镜仍须人工确认画面是单一连续电影画面。
+任务回写时脚本会对每条视频成片自动做宫格/分屏启发式检测（`media-tools.mjs detect-grid` 可手工复跑）：高置信命中写 `grid_high_confidence` 并自动禁止批准，中置信命中写 `grid_suspect`，检测环境异常写 `grid_check_failed`。后两类必须实际观看整段素材后二选一——确认是宫格/分屏/拼贴就把 `visual` 判为 `failed` 并按最小变量重生成；确认是结构误报，才在验收 JSON 中写 `grid_check:{"status":"false-positive","observation":"具体可见证据"}` 放行。视频验收必须写 `watchedFull:true` 和 `watch_evidence:{duration_seconds,start,middle,end}`，并在 `continuity` 中逐项以 `status/observation` 记录 `identity`、`screen_direction`、`facing_and_gaze`、`entry_exit`、`end_state`；任一项 failed 都不能选版。
 
 每个缺陷先记录实际症状，再判断最可能的生成机制，并给出只改变一个变量的最小修复；无法从成片区分原因时明确标为待验证，不把猜测写成结论。重生成后对照旧版验证该症状是否消失；同一修复连续失败两次就停止盲重试，回到分镜、参考绑定、提示词或模型能力边界重新定位。
 

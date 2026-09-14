@@ -8,7 +8,9 @@ import { sameShotVersion } from './shot-fingerprint.mjs'
 
 const CHECKS = new Set(['passed', 'failed', 'not-applicable'])
 // 机器质量标记必须人工复核后才能放行；只能用带实际观察的误报判定覆盖。
-const BLOCKING_QUALITY_FLAGS = new Set(['grid_suspect', 'grid_check_failed'])
+const BLOCKING_QUALITY_FLAGS = new Set(['grid_suspect', 'grid_high_confidence', 'grid_check_failed'])
+const VIDEO_CONTINUITY_FIELDS = ['identity', 'screen_direction', 'facing_and_gaze', 'entry_exit', 'end_state']
+const hasConfirmedGrid = (flags) => flags.includes('grid_high_confidence')
 export const STORYBOARD_REVIEW_CRITERIA = [
   '空间关系与轴线', '时间与动作连续性', '物理与交互逻辑', '光线与色彩连续性',
   '人物身份与造型一致性', '场景与道具一致性', '构图与镜头语言', '叙事覆盖与阅读顺序',
@@ -24,7 +26,11 @@ function validate(record) {
   if (!Array.isArray(record.criteria) || record.criteria.length === 0) throw new Error('criteria[] 必填，必须逐项记录制作计划验收点的实际观察')
   for (const item of record.criteria) if (typeof item?.criterion !== 'string' || !item.criterion.trim() || !['passed', 'failed'].includes(item.status) || typeof item.observation !== 'string' || !item.observation.trim()) throw new Error('criteria[] 必须包含 criterion/status/observation')
   if (record.grid_check !== undefined && (record.grid_check?.status !== 'false-positive' || typeof record.grid_check.observation !== 'string' || !record.grid_check.observation.trim())) throw new Error('grid_check 必须是 {status:"false-positive", observation:"实际观看观察"}')
-  return record.visual === 'passed' && !['audio', 'transition', 'captions'].some((field) => record[field] === 'failed') && record.criteria.every((item) => item.status === 'passed') && !record.issues.some((issue) => issue.severity === 'P0' || issue.severity === 'P1')
+  if (record.continuity !== undefined) for (const field of VIDEO_CONTINUITY_FIELDS) {
+    const item = record.continuity?.[field]
+    if (!['passed', 'failed'].includes(item?.status) || typeof item.observation !== 'string' || !item.observation.trim()) throw new Error(`continuity.${field} 必须包含 status/observation`)
+  }
+  return record.visual === 'passed' && !['audio', 'transition', 'captions'].some((field) => record[field] === 'failed') && record.criteria.every((item) => item.status === 'passed') && (!record.continuity || VIDEO_CONTINUITY_FIELDS.every((field) => record.continuity[field].status === 'passed')) && !record.issues.some((issue) => issue.severity === 'P0' || issue.severity === 'P1')
 }
 
 async function read(root) {
@@ -46,6 +52,7 @@ async function main() {
     if (!validate({ assetKey: 'shot-1', versionId: 'v001', visual: 'passed', audio: 'not-applicable', transition: 'passed', captions: 'not-applicable', issues: [], criteria: [{ criterion: '主体清晰', status: 'passed', observation: '主体全程可辨认' }] })) throw new Error('验收自检失败')
     try { validate({ assetKey: 'shot-1', versionId: 'v001', visual: 'passed', audio: 'not-applicable', transition: 'passed', captions: 'not-applicable', issues: [], criteria: [{ criterion: '主体清晰', status: 'passed', observation: 'ok' }], grid_check: { status: 'ok' } }); throw new Error('grid_check 自检失败') }
     catch (error) { if (!String(error.message).includes('grid_check')) throw error }
+    if (!hasConfirmedGrid(['grid_high_confidence']) || hasConfirmedGrid(['grid_suspect'])) throw new Error('高置信宫格门禁自检失败')
     return console.log('ok')
   }
   if (!rootArg) throw new Error('必须提供项目目录')
@@ -61,6 +68,7 @@ async function main() {
     const version = asset.versions?.find((item) => item.id === record.versionId)
     if (!version || asset.staleVersionIds?.includes(record.versionId)) throw new Error('验收目标必须是未失效的候选资产版本')
     const blockingFlags = (version.quality_flags || []).filter((flag) => BLOCKING_QUALITY_FLAGS.has(flag))
+    if (hasConfirmedGrid(blockingFlags) && approved) throw new Error('机器在多数抽样帧中高置信命中宫格/分屏，当前版本不得以误报方式批准；请判 failed 并重生单一连续画面')
     if (blockingFlags.length && approved && record.grid_check?.status !== 'false-positive') throw new Error(`版本带有机器质量标记 ${blockingFlags.join('、')}：必须实际观看素材，确认为误报时在 grid_check 写明观察再通过；确认宫格请判 failed 并重生`)
     if (record.grid_check && !blockingFlags.length) throw new Error('版本没有待复核的机器质量标记，不得提交 grid_check')
     const local = resolve(root, version?.localPath || '')
@@ -83,6 +91,8 @@ async function main() {
       const required = plan.shots?.find((item) => item.shot_number === source.shot_number)?.review_checks || []
       const actual = record.criteria.map((item) => item.criterion)
       if (!required.length || JSON.stringify(actual) !== JSON.stringify(required)) throw new Error('criteria[] 必须按制作计划 review_checks 原顺序逐项覆盖')
+      if (record.watchedFull !== true || !record.watch_evidence || !Number.isFinite(record.watch_evidence.duration_seconds) || record.watch_evidence.duration_seconds <= 0 || ['start', 'middle', 'end'].some((field) => typeof record.watch_evidence[field] !== 'string' || !record.watch_evidence[field].trim())) throw new Error('视频验收必须完整观看，并在 watch_evidence 记录时长及首、中、尾实际观察')
+      if (!record.continuity || VIDEO_CONTINUITY_FIELDS.some((field) => !record.continuity[field])) throw new Error('视频验收必须逐项记录人物身份、运动方向、朝向与视线、出入画和尾帧状态')
     }
     const ledger = await read(root)
     const key = `${record.assetKey}@${record.versionId}`

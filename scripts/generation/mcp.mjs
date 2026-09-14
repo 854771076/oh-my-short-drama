@@ -238,7 +238,7 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
   }
   const manifest = Array.isArray(args.reference_manifest) ? args.reference_manifest : []
   const planShot = plan.shots?.find((item) => item.shot_number === promptDocument.shot_number)
-  // 整张多格分镜板允许直接作为语义参考输入（靠固定反宫格声明+分镜板条款约束模型），但不得放进首/尾帧像素槽位
+  // 多参考 Provider 可把整张分镜板当语义参考；Comfly 单参考模式在下方强制改用可追溯的单格裁图。
   const boardRefs = (planShot?.image_strategy?.panel_grid_size ?? 1) > 1
     ? manifest.filter((item) => item.type === 'image' && item.asset_key?.startsWith('board-'))
     : []
@@ -248,7 +248,7 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
     if (!hasPanelBoardClaim(args.prompt)) throw new Error('直接引用多格分镜板时，prompt 必须在固定反宫格声明之外原样包含分镜板时间顺序条款（见 panel_grid/panel_storyboard 视频模板）')
   }
   const expectedReferences = providerName === 'comfly'
-    ? [shot.references.find((item) => item.type === 'image' && item.asset_key === `board-${promptDocument.episode_key.replace('-', '')}-${String(promptDocument.shot_number).padStart(3, '0')}`) || (() => { const key = `board-${promptDocument.episode_key.replace('-', '')}-${String(promptDocument.shot_number).padStart(3, '0')}`; const asset = assets.assets?.[key]; return asset?.selectedVersionId ? { type: 'image', asset_key: key, version_id: asset.selectedVersionId, role: 'storyboard-reference' } : null })()].filter(Boolean).map((item) => ({ ...item, order: 1 }))
+    ? comflyStoryboardOnly(shot, promptDocument.episode_key, assets, planShot).references
     : shot.references
   if (manifest.length !== expectedReferences.length) throw new Error('实际参考素材与提示词文档数量不一致（Comfly 已按 Provider 合同仅保留分镜图）')
   for (const [index, reference] of expectedReferences.entries()) {
@@ -323,13 +323,25 @@ export function referenceInputs(providerName, shot, locate) {
   return { args, missing }
 }
 
-function comflyStoryboardOnly(shot, episodeKey, assetsLedger) {
+function comflyStoryboardOnly(shot, episodeKey, assetsLedger, planShot) {
   if (shot.provider !== 'comfly') return shot
   const boardKey = `board-${episodeKey.replace('-', '')}-${String(shot.shot_number).padStart(3, '0')}`
   const listed = (shot.references || []).find((item) => item.type === 'image' && item.asset_key === boardKey)
   const asset = assetsLedger.assets?.[boardKey]
   const storyboard = listed || (asset?.selectedVersionId ? { type: 'image', asset_key: boardKey, version_id: asset.selectedVersionId, role: 'storyboard-reference' } : null)
-  return { ...shot, references: storyboard ? [{ ...storyboard, order: 1 }] : [] }
+  if (!storyboard) return { ...shot, references: [] }
+  if ((planShot?.image_strategy?.panel_grid_size ?? 1) <= 1) return { ...shot, references: [{ ...storyboard, order: 1 }] }
+  const frame = (shot.references || []).find((item) => {
+    if (item.type !== 'image' || item.role !== 'storyboard-frame' || !item.asset_key?.startsWith('other-')) return false
+    const frameAsset = assetsLedger.assets?.[item.asset_key]
+    const version = frameAsset?.versions?.find((entry) => entry.id === item.version_id)
+    return frameAsset?.selectedVersionId === item.version_id
+      && version?.provenance?.origin === 'transformed'
+      && version.provenance.created_by === 'codex'
+      && version.provenance.source_assets?.some((source) => source.key === boardKey && source.version_id === storyboard.version_id)
+  })
+  if (!frame) throw new Error(`Comfly 只有一个参考图槽位，多格分镜板 ${boardKey}@${storyboard.version_id} 不得整张提交；先用 media-tools extract-grid-cell 裁出当前镜头单格，登记为 other-* transformed 资产并在提示词 references 中标记 role=storyboard-frame`)
+  return { ...shot, references: [{ ...frame, order: 1 }] }
 }
 
 function applyRunninghubVideoDefaults(providerArgs) {
@@ -350,11 +362,13 @@ async function planEpisodeVideos(projectRoot, episodeKey, shotNumbers = null) {
   if (wanted) for (const number of wanted) if (!(document.shots || []).some((shot) => shot.shot_number === number)) throw new Error(`提示词文档中不存在镜号：${number}`)
   const shots = (document.shots || []).filter((shot) => !wanted || wanted.has(shot.shot_number))
   const assetsLedger = JSON.parse(await readFile(resolve(root, '.short-drama', 'assets.json'), 'utf8'))
+  const planSelection = JSON.parse(await readFile(resolve(root, 'episodes', episodeKey, 'production-plan', 'selected.json'), 'utf8'))
+  const productionPlan = JSON.parse(await readFile(resolve(root, planSelection.path), 'utf8'))
   const receipts = await listReferenceUploads(root, { state: 'active' })
   const plans = []
   for (const shot of shots) {
     const target = shotTarget(episodeKey, shot.shot_number)
-    const effectiveShot = comflyStoryboardOnly(shot, episodeKey, assetsLedger)
+    const effectiveShot = comflyStoryboardOnly(shot, episodeKey, assetsLedger, productionPlan.shots?.find((item) => item.shot_number === shot.shot_number))
     const promptDocument = { episode_key: episodeKey, version_id: selection.versionId, shot_number: shot.shot_number }
     const base = { shot_number: shot.shot_number, target, provider: shot.provider, model: shot.model_or_workflow }
     try {
@@ -397,20 +411,15 @@ function planSummary(plan) {
   }
 }
 
-async function ensureReferenceUrls(args) {
-  const { project_root: projectRoot, episode_key: episodeKey, ...publishInput } = args
-  const root = await realpath(resolve(projectRoot))
-  const selection = JSON.parse(await readFile(resolve(root, 'episodes', episodeKey, 'video-prompts', 'selected.json'), 'utf8'))
-  const document = JSON.parse(await readFile(resolve(root, selection.path), 'utf8'))
-  const assetsLedger = JSON.parse(await readFile(resolve(root, '.short-drama', 'assets.json'), 'utf8'))
+function publishableImageReferences(document, episodeKey, assetsLedger, productionPlan) {
   const unique = new Map()
   const skippedNonImage = []
   for (const shot of document.shots || []) {
     if (shot.provider === 'runninghub') continue
     if (shot.provider === 'comfly') {
-      const boardKey = `board-${episodeKey.replace('-', '')}-${String(shot.shot_number).padStart(3, '0')}`
-      const board = assetsLedger.assets?.[boardKey]
-      if (board?.selectedVersionId) unique.set(`${boardKey}@${board.selectedVersionId}`, { asset_key: boardKey, version_id: board.selectedVersionId })
+      // Comfly 只有一个参考槽；预发布必须复用正式提交的派生清单，避免整板上传与实际单格输入分叉。
+      const effective = comflyStoryboardOnly(shot, episodeKey, assetsLedger, productionPlan.shots?.find((item) => item.shot_number === shot.shot_number))
+      for (const reference of effective.references || []) unique.set(`${reference.asset_key}@${reference.version_id}`, { asset_key: reference.asset_key, version_id: reference.version_id })
       continue
     }
     for (const reference of shot.references || []) {
@@ -418,7 +427,19 @@ async function ensureReferenceUrls(args) {
       unique.set(`${reference.asset_key}@${reference.version_id}`, { asset_key: reference.asset_key, version_id: reference.version_id })
     }
   }
-  const results = await Promise.all([...unique.values()].map(async (input) => {
+  return { references: [...unique.values()], skippedNonImage }
+}
+
+async function ensureReferenceUrls(args) {
+  const { project_root: projectRoot, episode_key: episodeKey, ...publishInput } = args
+  const root = await realpath(resolve(projectRoot))
+  const selection = JSON.parse(await readFile(resolve(root, 'episodes', episodeKey, 'video-prompts', 'selected.json'), 'utf8'))
+  const document = JSON.parse(await readFile(resolve(root, selection.path), 'utf8'))
+  const planSelection = JSON.parse(await readFile(resolve(root, 'episodes', episodeKey, 'production-plan', 'selected.json'), 'utf8'))
+  const productionPlan = JSON.parse(await readFile(resolve(root, planSelection.path), 'utf8'))
+  const assetsLedger = JSON.parse(await readFile(resolve(root, '.short-drama', 'assets.json'), 'utf8'))
+  const { references, skippedNonImage } = publishableImageReferences(document, episodeKey, assetsLedger, productionPlan)
+  const results = await Promise.all(references.map(async (input) => {
     try {
       const receipt = await publishReferenceImage(root, { ...publishInput, ...input })
       return { ok: true, ...input, url: receipt.url, reused: receipt.reused === true, expires_at: receipt.expires_at }
@@ -433,10 +454,10 @@ async function submitEpisodeVideos(args) {
   const { project_root: projectRoot, episode_key: episodeKey, shot_numbers: shotNumbers, confirmed } = args
   if (typeof confirmed !== 'boolean') throw new Error('confirmed 必须是布尔值：false 仅出费用摘要，true 在用户确认费用后并发提交')
   const plan = await planEpisodeVideos(projectRoot, episodeKey, shotNumbers || null)
+  if (plan.plans.length && !plan.plans.some((item) => !item.ok)) await enforceGenerationStage(projectRoot, 'submit_video', plan.plans[0].target)
   if (!confirmed) return { phase: 'plan', ready: !plan.plans.some((item) => !item.ok), ...planSummary(plan) }
   const errors = plan.plans.filter((item) => !item.ok)
   if (errors.length || !plan.plans.length) throw new Error(`整集校验未通过，未提交任何镜头：\n${errors.map((item) => `第${item.shot_number}镜：${item.error}`).join('\n')}`)
-  await enforceGenerationStage(projectRoot, 'submit_video', plan.plans[0].target)
   const limit = plan.plans.some((item) => item.provider === 'comfly') ? 4 : plan.plans.length
   const outcomes = await mapWithConcurrency(plan.plans, limit, async (item) => {
     const result = await submitVideoOnce(projectRoot, item.target, item.promptDocument, item.providerArgs)
@@ -535,6 +556,12 @@ function selfCheck() {
   if (out.args.frame_url || out.args.reference_image_urls.length !== 2) throw new Error('Seedance 全参考映射自检失败')
   out = referenceInputs('comfly', { ...h3('Ref2VA', refs(['image', 'image'])), provider: 'comfly' }, urlLocate)
   if (out.args.reference_image_urls?.length !== 2 || out.args.metadata) throw new Error('Comfly 参考映射自检失败')
+  const board = { type: 'image', order: 1, asset_key: 'board-ep001-001', version_id: 'v001', role: 'storyboard-reference' }
+  const frame = { type: 'image', order: 2, asset_key: 'other-ep001-001-frame', version_id: 'v001', role: 'storyboard-frame' }
+  const ledger = { assets: { 'board-ep001-001': { selectedVersionId: 'v001' }, 'other-ep001-001-frame': { selectedVersionId: 'v001', versions: [{ id: 'v001', provenance: { origin: 'transformed', created_by: 'codex', source_assets: [{ key: 'board-ep001-001', version_id: 'v001' }] } }] } } }
+  if (comflyStoryboardOnly({ provider: 'comfly', shot_number: 1, references: [board, frame] }, 'ep-001', ledger, { image_strategy: { panel_grid_size: 4 } }).references[0].asset_key !== frame.asset_key) throw new Error('Comfly 单格参考选择自检失败')
+  try { comflyStoryboardOnly({ provider: 'comfly', shot_number: 1, references: [board] }, 'ep-001', ledger, { image_strategy: { panel_grid_size: 4 } }); throw new Error('Comfly 多格分镜拦截自检失败') } catch (error) { if (!String(error.message).includes('不得整张提交')) throw error }
+  if (publishableImageReferences({ shots: [{ provider: 'comfly', shot_number: 1, references: [board, frame] }] }, 'ep-001', ledger, { shots: [{ shot_number: 1, image_strategy: { panel_grid_size: 4 } }] }).references[0].asset_key !== frame.asset_key) throw new Error('Comfly 预发布未复用单格派生清单')
   out = referenceInputs('runninghub', { provider: 'runninghub', model_or_workflow: 'minimax-h3-reference-to-video', prompt_profile: 'h3', input_mode: 'Ref2VA', prompt: 'P', references: refs(['image', 'video', 'audio']) }, () => '/assets/x.png')
   if (out.args.reference_image_paths.length !== 1 || out.args.reference_video_paths.length !== 1 || out.args.reference_audio_paths.length !== 1) throw new Error('RunningHub H3 本地参考映射自检失败')
   out = referenceInputs('runninghub', { provider: 'runninghub', model_or_workflow: 'workflow-x', prompt: 'P', references: refs(['image', 'video']) }, () => '/assets/x.png')

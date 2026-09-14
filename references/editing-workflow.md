@@ -36,7 +36,7 @@
 - 动画使用 `useCurrentFrame()` 与 `interpolate()`；禁止 CSS transition、CSS animation 和 Tailwind 动画类。
 - 片段用 `<Sequence>` 表达帧起止，时间线参数集中由 `timeline.json` 驱动，不能把素材路径和切点散落在组件中。
 - 先启动 `npx remotion studio --no-open` 预览，再输出低码率审片版；问题清零后运行 `npx remotion render` 生成交付版。
-- 完整观看并听完最终文件，用 `node scripts/editing-store.mjs put-review <项目> <episode-key> <审片.json>` 保存 narrative、visual、audio、transitions、captions、technical 六项结论，再用 `node scripts/editing-store.mjs manifest <项目> <episode-key> <成片> <SRT> <ASS>` 生成带哈希的不可覆盖 manifest。每集 `delivery/<episode-key>/` 至少包含批准版视频、SRT、ASS、manifest、逐镜版本清单和验收记录，不包含缓存或未批准候选。
+- 完整观看并听完最终文件，先把 `node scripts/media-tools.mjs qc <成片>` 的完整 JSON 原样写入审片记录 `qc`，再用 `node scripts/editing-store.mjs put-review <项目> <episode-key> <审片.json>` 保存六项结论。QC 硬检音视频流、黑帧、长静音、长冻结、BT.709、响度和真峰值；批准记录必须 `qc.passed=true`。最后用 `node scripts/editing-store.mjs manifest <项目> <episode-key> <成片> <SRT> <ASS>` 生成不可覆盖 manifest；脚本核对 QC 成片哈希、分辨率和时长。后续审计发现 P0/P1 时必须再次 `put-review` 写入失败结论，使旧 manifest 因 review 哈希变化而失效。
 
 最小时间线骨架：
 

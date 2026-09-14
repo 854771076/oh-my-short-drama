@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { mkdir } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { basename, dirname, extname, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { detectMedia } from './grid-detect.mjs'
@@ -41,10 +43,59 @@ function qualityEvents(stderr) {
   return stderr.split(/\r?\n/).map((line) => line.trim()).filter((line) => /(?:black_(?:start|end|duration)|silence_(?:start|end|duration)|freeze_(?:start|end|duration)|I:\s*-?\d|Peak:\s*-?\d)/.test(line))
 }
 
+async function sha256(path) {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(path)) hash.update(chunk)
+  return hash.digest('hex')
+}
+
+function lastNumber(text, pattern) {
+  return [...text.matchAll(pattern)].at(-1)?.[1]
+}
+
+export async function inspectMediaQuality(value) {
+  const input = resolve(value)
+  const probe = JSON.parse(run('ffprobe', ['-v', 'error', '-show_format', '-show_streams', '-of', 'json', input], true))
+  const video = probe.streams?.find((stream) => stream.codec_type === 'video')
+  const audio = probe.streams?.find((stream) => stream.codec_type === 'audio')
+  const filters = []
+  if (video) filters.push('-vf', 'blackdetect=d=0.04:pix_th=0.10,freezedetect=n=-50dB:d=2')
+  if (audio) filters.push('-af', 'silencedetect=n=-35dB:d=2,ebur128=peak=true')
+  if (!filters.length) throw new Error('媒体不包含可检查的音视频流')
+  const result = spawnSync('ffmpeg', ['-nostdin', '-hide_banner', '-i', input, ...filters, '-f', 'null', '-'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  if (result.error) throw result.error
+  if (result.status !== 0) throw new Error(`ffmpeg 质量检查失败：${result.stderr || result.status}`)
+  const stderr = result.stderr || ''
+  const durations = (name) => [...stderr.matchAll(new RegExp(`${name}_duration:\\s*([0-9.]+)`, 'g'))].map((match) => Number(match[1]))
+  const metrics = {
+    max_black_seconds: Math.max(0, ...durations('black')),
+    max_silence_seconds: Math.max(0, ...durations('silence')),
+    max_freeze_seconds: Math.max(0, ...durations('freeze')),
+    integrated_lufs: Number(lastNumber(stderr, /I:\s*(-?[0-9.]+)\s*LUFS/g)),
+    true_peak_dbfs: Number(lastNumber(stderr, /Peak:\s*(-?[0-9.]+)\s*dBFS/g)),
+  }
+  const blockers = []
+  if (!video) blockers.push('missing_video')
+  if (!audio) blockers.push('missing_audio')
+  if (metrics.max_black_seconds >= 0.04) blockers.push('black_frame')
+  if (metrics.max_silence_seconds > 5) blockers.push('long_silence')
+  if (metrics.max_freeze_seconds > 3) blockers.push('long_freeze')
+  if (video && [video.color_space, video.color_transfer, video.color_primaries].some((item) => item !== 'bt709')) blockers.push('color_metadata')
+  if (audio && (!Number.isFinite(metrics.integrated_lufs) || metrics.integrated_lufs < -18 || metrics.integrated_lufs > -12)) blockers.push('loudness')
+  if (audio && (!Number.isFinite(metrics.true_peak_dbfs) || metrics.true_peak_dbfs > -1)) blockers.push('true_peak')
+  return {
+    version: 1,
+    video_sha256: await sha256(input),
+    duration_ms: Math.round(Number(probe.format?.duration || 0) * 1000),
+    video: video ? { width: video.width, height: video.height, color_space: video.color_space || null, color_transfer: video.color_transfer || null, color_primaries: video.color_primaries || null } : null,
+    audio: Boolean(audio), metrics, blockers, passed: blockers.length === 0,
+  }
+}
+
 async function main() {
   const [command, ...args] = process.argv.slice(2)
   if (command === '--self-check') {
-    if (positive('2', '列数') !== 2 || gridLayout(4, 2) !== '0_0|w0_0|0_h0|w0_h0' || JSON.stringify(gridCellCrop(1200, 1000, 2, 2, 4, 80)) !== '[600,400,600,400]' || qualityEvents('[blackdetect] black_start:0 black_end:1').length !== 1) throw new Error('自检失败')
+    if (positive('2', '列数') !== 2 || gridLayout(4, 2) !== '0_0|w0_0|0_h0|w0_h0' || JSON.stringify(gridCellCrop(1200, 1000, 2, 2, 4, 80)) !== '[600,400,600,400]' || qualityEvents('[blackdetect] black_start:0 black_end:1').length !== 1 || lastNumber('I: -16.0 LUFS', /I:\s*(-?[0-9.]+)\s*LUFS/g) !== '-16.0') throw new Error('自检失败')
     return console.log('ok')
   }
   if (command === 'probe') {
@@ -53,16 +104,7 @@ async function main() {
   }
   if (command === 'qc') {
     if (!args[0]) throw new Error('用法：qc <媒体文件>')
-    const input = resolve(args[0])
-    const probe = JSON.parse(run('ffprobe', ['-v', 'error', '-show_format', '-show_streams', '-of', 'json', input], true))
-    const filters = []
-    if (probe.streams?.some((stream) => stream.codec_type === 'video')) filters.push('-vf', 'blackdetect=d=0.2:pix_th=0.10,freezedetect=n=-50dB:d=2')
-    if (probe.streams?.some((stream) => stream.codec_type === 'audio')) filters.push('-af', 'silencedetect=n=-50dB:d=2,ebur128=peak=true')
-    if (!filters.length) throw new Error('媒体不包含可检查的音视频流')
-    const result = spawnSync('ffmpeg', ['-nostdin', '-hide_banner', '-i', input, ...filters, '-f', 'null', '-'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-    if (result.error) throw result.error
-    if (result.status !== 0) throw new Error(`ffmpeg 质量检查失败：${result.stderr || result.status}`)
-    return console.log(JSON.stringify({ probe, events: qualityEvents(result.stderr || '') }, null, 2))
+    return console.log(JSON.stringify(await inspectMediaQuality(args[0]), null, 2))
   }
   if (command === 'extract-frame') {
     const [input, output, position = 'first'] = args
@@ -139,4 +181,4 @@ async function main() {
   throw new Error('用法：media-tools.mjs probe|qc|extract-frame|crop|split-grid|extract-grid-cell|compose-grid|detect-grid ...')
 }
 
-main().catch((error) => { console.error(error.message); process.exitCode = 1 })
+if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { console.error(error.message); process.exitCode = 1 })

@@ -51,7 +51,25 @@ export function validateReview(review, episode) {
   for (const issue of review.issues) if (!['P0', 'P1', 'P2'].includes(issue?.severity) || typeof issue.message !== 'string' || !issue.message) throw new Error('审片 issue 必须包含有效 severity/message')
   const approved = checks.every((key) => review[key] === 'passed') && review.issues.every((issue) => !['P0', 'P1'].includes(issue?.severity))
   if (review.approved !== approved) throw new Error(`approved 必须为 ${approved}`)
+  if (approved) {
+    const qc = review.qc
+    if (qc?.version !== 1 || qc.passed !== true || !Array.isArray(qc.blockers) || qc.blockers.length || !/^[0-9a-f]{64}$/.test(qc.video_sha256 || '') || !Number.isInteger(qc.duration_ms) || qc.duration_ms <= 0 || !Number.isInteger(qc.video?.width) || !Number.isInteger(qc.video?.height) || qc.audio !== true) throw new Error('批准审片必须绑定同一成片的已通过 media-tools qc 报告')
+  }
   return review
+}
+
+function uncoveredRanges(tracks, duration) {
+  const merged = tracks.map((track) => [track.timeline_start_ms, track.timeline_end_ms]).sort((a, b) => a[0] - b[0]).reduce((out, range) => {
+    const last = out.at(-1)
+    if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1])
+    else out.push([...range])
+    return out
+  }, [])
+  const gaps = []
+  let cursor = 0
+  for (const [start, end] of merged) { if (start > cursor) gaps.push([cursor, start]); cursor = Math.max(cursor, end) }
+  if (cursor < duration) gaps.push([cursor, duration])
+  return gaps
 }
 
 export async function validateTimeline(root, timeline) {
@@ -73,6 +91,8 @@ export async function validateTimeline(root, timeline) {
     keys.add(segment.shot_key)
     for (const field of ['source_in_ms', 'source_out_ms', 'timeline_start_ms', 'timeline_end_ms']) if (!Number.isInteger(segment[field]) || segment[field] < 0) throw new Error(`${segment.shot_key}.${field} 必须是非负整数`)
     if (segment.source_out_ms <= segment.source_in_ms || segment.timeline_end_ms <= segment.timeline_start_ms || segment.timeline_start_ms < previousEnd) throw new Error(`${segment.shot_key} 时间范围无效或与前镜重叠`)
+    const playbackRate = (segment.source_out_ms - segment.source_in_ms) / (segment.timeline_end_ms - segment.timeline_start_ms)
+    if (Math.abs(playbackRate - 1) > 0.1 && (segment.retime_exception?.confirmed !== true || typeof segment.retime_exception.reason !== 'string' || !segment.retime_exception.reason.trim())) throw new Error(`${segment.shot_key} 播放速率为 ${playbackRate.toFixed(3)}，超过 ±10% 必须记录已确认的 retime_exception.reason`)
     const transition = typeof segment.transition === 'string' ? { type: segment.transition, duration_frames: 0 } : segment.transition
     if (!transition || !TRANSITIONS.has(transition.type) || !Number.isInteger(transition.duration_frames) || transition.duration_frames < 0 || transition.duration_frames > timeline.fps) throw new Error(`${segment.shot_key}.transition 无效`)
     if (['none', 'hard-cut', 'action-cut', 'eyeline-cut', 'composition-match', 'j-cut', 'l-cut'].includes(transition.type) && transition.duration_frames !== 0) throw new Error(`${segment.shot_key} 当前转场类型不得设置持续帧`)
@@ -94,6 +114,14 @@ export async function validateTimeline(root, timeline) {
     if ('show_speaker' in subtitle && typeof subtitle.show_speaker !== 'boolean') throw new Error('字幕 show_speaker 必须是布尔值（默认 false，电影式隐藏）')
     if ('speakers' in subtitle && (!Array.isArray(subtitle.speakers) || subtitle.speakers.length < 1 || subtitle.speakers.length > 2 || subtitle.speakers.some((name) => typeof name !== 'string' || !name.trim()))) throw new Error('字幕 speakers 必须是 1–2 个非空字符串（双人对白）')
   }
+  if (timeline.subtitles.length) {
+    const source = timeline.subtitle_source
+    if (!['asr', 'manual-transcription'].includes(source?.method) || source.reviewed !== true || !Array.isArray(source.source_assets) || !source.source_assets.length) throw new Error('存在字幕时必须记录来自实际音轨的 subtitle_source，并完成人工复核')
+    for (const reference of source.source_assets) {
+      const asset = assets.assets?.[reference?.asset_key]
+      if (!['audio', 'video'].includes(asset?.type) || asset.selectedVersionId !== reference.version_id) throw new Error('subtitle_source 必须绑定 selected 的实际音频或原生声轨')
+    }
+  }
   for (const track of audioTracks) {
     for (const field of ['asset_key', 'version_id', 'role']) if (typeof track[field] !== 'string' || !track[field]) throw new Error(`audio_track.${field} 必填`)
     if (!AUDIO_ROLES.has(track.role) || !/^v\d{3}$/.test(track.version_id)) throw new Error(`${track.asset_key} 音轨角色或版本无效`)
@@ -108,11 +136,23 @@ export async function validateTimeline(root, timeline) {
     if (!Array.isArray(envelope) || envelope.some((point) => !Number.isInteger(point?.time_ms) || point.time_ms < track.timeline_start_ms || point.time_ms > track.timeline_end_ms || typeof point.gain_db !== 'number')) throw new Error(`${track.asset_key}.volume_envelope 无效`)
     await existingInside(root, version.localPath)
   }
+  for (const segment of segments) {
+    const hasSpeech = audioTracks.some((track) => ['dialogue', 'voiceover'].includes(track.role) && track.timeline_start_ms < segment.timeline_end_ms && track.timeline_end_ms > segment.timeline_start_ms)
+    if (hasSpeech && !['native', 'lip-synced', 'offscreen', 'no-visible-speech'].includes(segment.dialogue_sync)) throw new Error(`${segment.shot_key} 有对白覆盖，必须明确 dialogue_sync 证据`)
+  }
+  const longGaps = uncoveredRanges(audioTracks, previousEnd).filter(([start, end]) => end - start > 5000)
+  const silenceExceptions = timeline.silence_exceptions || []
+  if (!Array.isArray(silenceExceptions) || longGaps.some(([start, end]) => !silenceExceptions.some((item) => item?.confirmed === true && item.start_ms <= start && item.end_ms >= end && typeof item.reason === 'string' && item.reason.trim()))) throw new Error(`时间线存在超过 5 秒的无音轨区间：${longGaps.map(([start, end]) => `${start}-${end}ms`).join('、')}；必须补声音或记录 silence_exceptions`)
+  if (audioTracks.some((track) => ['dialogue', 'voiceover'].includes(track.role)) && !audioTracks.some((track) => ['ambient', 'bgm', 'sfx', 'native'].includes(track.role)) && (timeline.sound_design_exception?.confirmed !== true || typeof timeline.sound_design_exception.reason !== 'string' || !timeline.sound_design_exception.reason.trim())) throw new Error('对白成片缺少环境、音乐、音效或原生声轨，必须补声音设计或记录 sound_design_exception')
   for (const label of labels) if (!['character', 'scene', 'title', 'chapter', 'credit'].includes(label?.type) || typeof label.text !== 'string' || !label.text || !Number.isInteger(label.startMs) || !Number.isInteger(label.endMs) || label.startMs < 0 || label.endMs <= label.startMs || label.endMs > previousEnd) throw new Error('角标/标题时间或内容无效')
   for (const graphic of graphics) if (!['phone-call', 'countdown', 'message'].includes(graphic?.type) || typeof graphic.title !== 'string' || typeof graphic.text !== 'string' || !graphic.text.trim() || !Number.isInteger(graphic.startMs) || !Number.isInteger(graphic.endMs) || graphic.startMs < 0 || graphic.endMs <= graphic.startMs || graphic.endMs > previousEnd) throw new Error('剧情图形层时间或内容无效')
   if (audioTracks.length) {
     if (!timeline.mix || typeof timeline.mix.target_lufs !== 'number' || timeline.mix.target_lufs < -24 || timeline.mix.target_lufs > -8 || typeof timeline.mix.true_peak_dbtp !== 'number' || timeline.mix.true_peak_dbtp > -1) throw new Error('存在音轨时必须设置合理的 mix.target_lufs 与 true_peak_dbtp')
   }
+  const project = JSON.parse(await readFile(resolve(root, '.short-drama', 'project.json'), 'utf8'))
+  const episode = JSON.parse(await readFile(resolve(root, 'episodes', timeline.episode_key, 'episode.json'), 'utf8'))
+  const targetMs = Number(episode.target_duration_seconds || project.format?.episode_duration_seconds || 0) * 1000
+  if (targetMs && Math.abs(previousEnd - targetMs) / targetMs > 0.15 && (timeline.duration_exception?.user_confirmed !== true || typeof timeline.duration_exception.reason !== 'string' || !timeline.duration_exception.reason.trim())) throw new Error(`成片时长 ${previousEnd}ms 超出目标 ${targetMs}ms 的 ±15%，必须记录用户确认的 duration_exception.reason`)
   return { ...timeline, version: 1, segments, audio_tracks: audioTracks, labels, graphics, mix: timeline.mix || null }
 }
 
@@ -151,7 +191,7 @@ export async function validateManifest(root, manifest, episode) {
 async function main() {
   const [command, rootArg, ...args] = process.argv.slice(2)
   if (command === '--self-check') {
-    validateReview({ episode_key: 'ep-001', watchedFull: true, narrative: 'passed', visual: 'passed', audio: 'passed', transitions: 'passed', captions: 'passed', technical: 'passed', observations: { narrative: '故事完整', visual: '画面清晰', audio: '对白清楚', transitions: '切点自然', captions: '字幕准确', technical: '参数合格' }, issues: [], approved: true })
+    validateReview({ episode_key: 'ep-001', watchedFull: true, narrative: 'passed', visual: 'passed', audio: 'passed', transitions: 'passed', captions: 'passed', technical: 'passed', observations: { narrative: '故事完整', visual: '画面清晰', audio: '对白清楚', transitions: '切点自然', captions: '字幕准确', technical: '参数合格' }, issues: [], approved: true, qc: { version: 1, passed: true, blockers: [], video_sha256: 'a'.repeat(64), duration_ms: 1000, video: { width: 1920, height: 1080 }, audio: true } })
     return console.log('ok')
   }
   if (!rootArg) throw new Error('必须提供项目目录')
@@ -193,6 +233,9 @@ async function main() {
     const files = { video: await fileRecord(root, video, `delivery/${episode}`) }
     files.srt = await fileRecord(root, srt, `delivery/${episode}`)
     files.ass = await fileRecord(root, ass, `delivery/${episode}`)
+    if (review.qc.video_sha256 !== files.video.sha256) throw new Error('审片 QC 与当前交付成片哈希不一致，必须对当前文件重新执行 QC 和完整审片')
+    if (review.qc.video.width !== timeline.width || review.qc.video.height !== timeline.height) throw new Error('审片 QC 分辨率与时间线输出分辨率不一致')
+    if (Math.abs(review.qc.duration_ms - timeline.segments.at(-1).timeline_end_ms) > 1000 / timeline.fps) throw new Error('审片 QC 时长与时间线不一致')
     const inputs = {
       timeline: await fileRecord(root, timelinePath(root, episode), `editing/${episode}`),
       review: await fileRecord(root, reviewPath, `editing/${episode}`),

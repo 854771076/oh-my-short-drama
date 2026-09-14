@@ -61,7 +61,7 @@ export async function syncTaskResult(rootArg, taskId, result) {
       if (task.type === 'video') {
         let flags = []
         let report = null
-        try { report = detectMedia(resolve(root, registered.localPath)); if (report.detected) flags = ['grid_suspect'] }
+        try { report = detectMedia(resolve(root, registered.localPath)); if (report.detected) flags = [report.confidence === 'high' ? 'grid_high_confidence' : 'grid_suspect'] }
         catch { flags = ['grid_check_failed'] }
         quality.push({ version_id: versionId, flags, ...(report ? { grid_report: report } : {}) })
         if (flags.length) {

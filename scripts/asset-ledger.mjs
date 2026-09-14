@@ -19,7 +19,7 @@ const PROVENANCE_CREATORS = new Set(['user', 'codex', 'provider'])
 const CONTENT_EXTENSIONS = { 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/flac': '.flac', 'audio/x-flac': '.flac', 'audio/L16': '.pcm', 'audio/pcm': '.pcm', 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'video/mp4': '.mp4', 'video/webm': '.webm' }
 const TYPE_EXTENSIONS = { image: new Set(['.gif', '.jpeg', '.jpg', '.png', '.webp']), video: new Set(['.mp4', '.webm']), audio: new Set(['.flac', '.mp3', '.pcm', '.wav']) }
 const MUTATING = new Set(['put', 'add-version', 'revert', 'flag-version', 'restore'])
-export const QUALITY_FLAGS = new Set(['grid_suspect', 'grid_check_failed'])
+export const QUALITY_FLAGS = new Set(['grid_suspect', 'grid_high_confidence', 'grid_check_failed'])
 
 export function normalizeQualityFlags(value) {
   if (!Array.isArray(value) || value.some((flag) => typeof flag !== 'string' || !QUALITY_FLAGS.has(flag))) throw new Error(`quality_flags 只允许：${[...QUALITY_FLAGS].join('、')}`)

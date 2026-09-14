@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { createHash } from 'node:crypto'
 import { call as callGeneration, tools as generationTools } from './generation/mcp.mjs'
 import { selfCheck as checkComfly } from './generation/comfly.mjs'
 import { selfCheck as checkRunningHub } from './generation/runninghub.mjs'
@@ -523,7 +524,8 @@ async function main() {
     run('task-ledger.mjs', 'update', root, 'task-c', 'completed', 'v001')
 
     for (const shotNumber of [1, 2]) {
-      const shotReview = { assetKey: `shot-ep001-${String(shotNumber).padStart(3, '0')}`, versionId: 'v001', visual: 'passed', audio: 'not-applicable', transition: 'passed', captions: 'not-applicable', issues: [], criteria: [{ criterion: 'visual', status: 'passed', observation: '主体与动作符合计划' }] }
+      const continuity = Object.fromEntries(['identity', 'screen_direction', 'facing_and_gaze', 'entry_exit', 'end_state'].map((field) => [field, { status: 'passed', observation: `${field} 与前后镜合同一致` }]))
+      const shotReview = { assetKey: `shot-ep001-${String(shotNumber).padStart(3, '0')}`, versionId: 'v001', watchedFull: true, watch_evidence: { duration_seconds: 5, start: '主体进入动作', middle: '动作连续', end: '尾帧状态稳定' }, continuity, visual: 'passed', audio: 'not-applicable', transition: 'passed', captions: 'not-applicable', issues: [], criteria: [{ criterion: 'visual', status: 'passed', observation: '主体与动作符合计划' }] }
       run('review-ledger.mjs', 'put', root, await json(root, `shot-review-${shotNumber}.json`, shotReview))
       const selectedAfterReview = JSON.parse(run('asset-ledger.mjs', 'list', root, shotReview.assetKey)).selectedVersionId
       if (selectedAfterReview !== shotReview.versionId) throw new Error('候选验收通过后未自动选版')
@@ -535,15 +537,18 @@ async function main() {
     const timeline = {
       episode_key: 'ep-001', fps: 24, width: 1080, height: 1920,
       segments: [
-        { shot_key: 'shot-ep001-001', asset_key: 'shot-ep001-001', version_id: 'v001', source_in_ms: 0, source_out_ms: 1000, timeline_start_ms: 0, timeline_end_ms: 1000, transition: { type: 'none', duration_frames: 0 } },
+        { shot_key: 'shot-ep001-001', asset_key: 'shot-ep001-001', version_id: 'v001', source_in_ms: 0, source_out_ms: 1000, timeline_start_ms: 0, timeline_end_ms: 1000, dialogue_sync: 'offscreen', transition: { type: 'none', duration_frames: 0 } },
         { shot_key: 'shot-ep001-002', asset_key: 'shot-ep001-002', version_id: 'v001', source_in_ms: 0, source_out_ms: 1000, timeline_start_ms: 1000, timeline_end_ms: 2000, transition: { type: 'hard-cut', duration_frames: 0 } },
       ],
       audio_tracks: [{ asset_key: 'audio-ep001-a', version_id: 'v001', role: 'dialogue', source_in_ms: 0, source_out_ms: 1000, timeline_start_ms: 0, timeline_end_ms: 1000, volume_envelope: [{ time_ms: 0, gain_db: 0 }, { time_ms: 1000, gain_db: 0 }] }],
       subtitles: [{ text: '别绕弯子。', startMs: 0, endMs: 900, timestampMs: 0, confidence: 1, speaker: 'A' }],
+      subtitle_source: { method: 'manual-transcription', reviewed: true, source_assets: [{ asset_key: 'audio-ep001-a', version_id: 'v001' }] },
+      sound_design_exception: { confirmed: true, reason: '集成夹具仅验证对白合同' },
+      duration_exception: { user_confirmed: true, reason: '集成夹具使用两秒时间线' },
       labels: [], mix: { target_lufs: -15, true_peak_dbtp: -1 },
     }
     run('editing-store.mjs', 'put-timeline', root, await json(root, 'timeline-incomplete.json', { ...timeline, segments: timeline.segments.slice(0, 1) }))
-    const editReview = { episode_key: 'ep-001', watchedFull: true, narrative: 'passed', visual: 'passed', audio: 'passed', transitions: 'passed', captions: 'passed', technical: 'passed', observations: { narrative: '故事完整', visual: '画面清晰', audio: '对白清楚', transitions: '切点自然', captions: '字幕准确', technical: '参数合格' }, issues: [], approved: true }
+    const editReview = { episode_key: 'ep-001', watchedFull: true, narrative: 'passed', visual: 'passed', audio: 'passed', transitions: 'passed', captions: 'passed', technical: 'passed', observations: { narrative: '故事完整', visual: '画面清晰', audio: '对白清楚', transitions: '切点自然', captions: '字幕准确', technical: '参数合格' }, issues: [], approved: true, qc: { version: 1, passed: true, blockers: [], video_sha256: createHash('sha256').update('final').digest('hex'), duration_ms: 2000, video: { width: 1080, height: 1920 }, audio: true } }
     const failedEditReview = { ...editReview, audio: 'failed', issues: [{ severity: 'P1', message: '对白不可辨' }], approved: false }
     run('editing-store.mjs', 'put-review', root, 'ep-001', await json(root, 'editing-review-failed.json', failedEditReview))
     const rejectedManifest = spawnSync(process.execPath, [resolve(plugin, 'scripts/editing-store.mjs'), 'manifest', root, 'ep-001', 'delivery/ep-001/final.mp4', 'delivery/ep-001/final.srt', 'delivery/ep-001/final.ass'], { encoding: 'utf8' })
@@ -605,9 +610,9 @@ async function main() {
     run('asset-ledger.mjs', 'import', root, 'shot-ep002-001', resolve(root, 'shot-2.mp4'), 'v001', '-', shot2Provenance)
     run('asset-ledger.mjs', 'select', root, 'shot-ep002-001', 'v001')
     run('review-ledger.mjs', 'put', root, await json(root, 'shot-2-review.json', { assetKey: 'shot-ep002-001', versionId: 'v001', visual: 'passed', audio: 'not-applicable', transition: 'passed', captions: 'not-applicable', issues: [], criteria: [{ criterion: 'visual', status: 'passed', observation: '主体与动作符合计划' }] }))
-    const timeline2 = { episode_key: 'ep-002', fps: 24, width: 1080, height: 1920, segments: [{ shot_key: 'shot-ep002-001', asset_key: 'shot-ep002-001', version_id: 'v001', source_in_ms: 0, source_out_ms: 1000, timeline_start_ms: 0, timeline_end_ms: 1000, transition: { type: 'none', duration_frames: 0 } }], audio_tracks: [], subtitles: [], labels: [], mix: null }
+    const timeline2 = { episode_key: 'ep-002', fps: 24, width: 1080, height: 1920, duration_exception: { user_confirmed: true, reason: '集成夹具使用一秒时间线' }, segments: [{ shot_key: 'shot-ep002-001', asset_key: 'shot-ep002-001', version_id: 'v001', source_in_ms: 0, source_out_ms: 1000, timeline_start_ms: 0, timeline_end_ms: 1000, transition: { type: 'none', duration_frames: 0 } }], audio_tracks: [], subtitles: [], labels: [], mix: null }
     run('editing-store.mjs', 'put-timeline', root, await json(root, 'timeline-2.json', timeline2))
-    const editReview2 = { ...editReview, episode_key: 'ep-002' }
+    const editReview2 = { ...editReview, episode_key: 'ep-002', qc: { ...editReview.qc, video_sha256: createHash('sha256').update('final-2').digest('hex'), duration_ms: 1000 } }
     run('editing-store.mjs', 'put-review', root, 'ep-002', await json(root, 'editing-review-2.json', editReview2))
     for (const [name, content] of [['final.mp4', 'final-2'], ['final.srt', 'subtitle-2'], ['final.ass', 'subtitle-2']]) await writeFile(resolve(root, 'delivery/ep-002', name), content)
     run('editing-store.mjs', 'manifest', root, 'ep-002', 'delivery/ep-002/final.mp4', 'delivery/ep-002/final.srt', 'delivery/ep-002/final.ass')
