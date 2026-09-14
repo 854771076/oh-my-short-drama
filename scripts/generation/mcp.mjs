@@ -153,7 +153,7 @@ export const tools = [
   ['submit_episode_videos', '整集批量提交视频：先以 confirmed=false 取得逐镜费用摘要与校验结果；用户确认后 confirmed=true 一次性并发提交整集，单镜失败不阻塞其他镜头。', {
     project_root: { type: 'string' }, episode_key: { type: 'string', pattern: '^ep-\\d{3}$' }, shot_numbers: { type: 'array', items: { type: 'integer', minimum: 1 } }, confirmed: { type: 'boolean', description: 'false 仅返回费用摘要不提交；true 在用户看过摘要并确认费用后并发提交。' },
   }, ['project_root', 'episode_key', 'confirmed']],
-  ['await_episode_tasks', '在 MCP 超时预算内并发轮询整集在途视频任务；完成即自动下载登记并回写（含宫格检测标记），失败不自动重试；超时返回仍在途清单。', {
+  ['await_episode_tasks', '在 MCP 超时预算内并发轮询整集在途视频任务；pending 会刷新本地状态与时间，完成即自动下载登记并回写（含宫格检测标记），失败不自动重试；超时返回仍在途清单，全托管模式应立即续调。', {
     project_root: { type: 'string' }, episode_key: { type: 'string', pattern: '^ep-\\d{3}$' }, timeout_seconds: { type: 'integer', minimum: 10, maximum: 540 }, poll_interval_seconds: { type: 'integer', minimum: 3, maximum: 30 },
   }, ['project_root', 'episode_key']],
 ].map(([name, description, properties, required]) => ({
@@ -465,23 +465,25 @@ async function awaitEpisodeTasks(args) {
   let rounds = 0
   const deadline = Date.now() + timeout * 1000
   while (pending.size && Date.now() < deadline) {
-    await sleep(interval)
     rounds += 1
     const entries = [...pending.values()]
     const outcomes = await Promise.allSettled(entries.map(async (task) => {
       const remote = await adapter(task.provider).task({ task_id: task.taskId })
-      if (remote.status === 'pending') return null
       return syncTaskResult(projectRoot, task.taskId, remote)
     }))
     for (const [index, outcome] of outcomes.entries()) {
       const task = entries[index]
       if (outcome.status === 'rejected') continue // 轮询瞬断不判失败，下一轮继续
       const result = outcome.value
-      if (!result) continue
+      if (result.status === 'pending') {
+        pending.set(task.taskId, result.local_task)
+        continue
+      }
       pending.delete(task.taskId)
       if (result.status === 'completed') completed.push({ shot_number: Number(task.target.slice(-3)), target: task.target, task_id: task.taskId, version_ids: result.output_version_ids || [], quality: result.output_quality || [] })
       else failed.push({ shot_number: Number(task.target.slice(-3)), target: task.target, task_id: task.taskId, error: result.error || null })
     }
+    if (pending.size && Date.now() < deadline) await sleep(interval)
   }
   return {
     episode_key: episodeKey, rounds, deadline_reached: pending.size > 0,

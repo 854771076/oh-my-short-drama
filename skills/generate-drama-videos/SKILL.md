@@ -11,7 +11,7 @@ description: 通过用户选择的生成 Provider 提交并查询短剧视频镜
 
 1. **一次发布参考图**：需要公网 URL 的 Provider（StarRouter、Comfly）先调用一次 `ensure_reference_urls`（`project_root`、`episode_key`、service、expires_in、usage_scope 加四个确认布尔值）。调用前把将要公开的素材清单（资产 key@版本、用途、有效期、non-commercial/commercial-authorized）给用户看一次；有效收据自动复用、不重复上传。RunningHub 直接上传本地文件，不发布。视频/音频参考不在批量发布范围，对应镜头改用单次 `submit_video` 传已授权公网 URL。
 2. **一次费用确认**：调用 `submit_episode_videos`，先 `confirmed:false`。MCP 返回逐镜费用摘要（镜号、Provider、模型、时长、分辨率/画幅、参考数、总时长）和逐镜校验错误。把摘要原样给用户，确认费用后再以 `confirmed:true` 提交；MCP 在同一次调用内并发提交全部通过校验的镜头，单镜失败（权限、余额、审核、schema、在途冲突）只记入 failed，不阻塞其他镜头，也不自动重试或换模型。
-3. **一次整集等待**：调用 `await_episode_tasks`（可选 `timeout_seconds`，默认 480、上限 540）。MCP 在服务端并发轮询全部在途镜头，completed 自动下载登记候选并回写（含成片宫格检测标记），failed 原样返回错误，超时返回 pending 清单；之后用同一参数再调一次即可继续等待，不要逐镜 `get_generation_task`（仅限单镜恢复）。
+3. **一次整集等待**：调用 `await_episode_tasks`（可选 `timeout_seconds`，默认 480、上限 540）。MCP 在服务端并发轮询全部在途镜头，pending 会刷新本地任务状态与时间，completed 自动下载登记候选并回写（含成片宫格检测标记），failed 原样返回错误，超时返回 pending 清单；`automation_mode=true` 时立即用同一参数续调直到整集终态，不得因单次 MCP 超时停止或再次询问用户；关闭全托管时才返回等待状态。不要逐镜 `get_generation_task`（仅限单镜恢复）。
 
 只有单镜重生成或修复失败镜头时才使用单次 `submit_video`（传 `project_root`、目标视频资产 key 和 `{episode_key,version_id,shot_number}`）；它与批量调用共用同一套校验、快照、预登记和宫格输入扫描路径。
 
