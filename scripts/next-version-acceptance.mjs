@@ -51,9 +51,11 @@ async function verifySeedVrEvidence() {
     const task = Object.values(tasks.tasks || {}).find((item) => item.taskId === version.provenance.task_id || item.providerTaskId === version.provenance.task_id)
     const local = resolve(project, version.localPath || '')
     if (local !== project && !local.startsWith(`${project}${sep}`)) continue
-    if (review?.review_type !== 'media-operation' || review.operation !== 'video-upscale' || review.approved !== true || review.watched_full !== true || review.asset_sha256 !== version.sha256 || review.qc?.passed !== true) continue
+    // 兼容旧审核记录保存在 QC 中的哈希；新记录同时写入顶层 asset_sha256。
+    const reviewedSha256 = review?.asset_sha256 || review?.qc?.video_sha256
+    if (review?.review_type !== 'media-operation' || review.operation !== 'video-upscale' || review.approved !== true || review.watched_full !== true || reviewedSha256 !== version.sha256 || review.qc?.passed !== true) continue
     if (!version.provenance.source_assets?.length || !version.provenance.parameters?.output_processing?.provider_output?.sha256) continue
-    if (task && task.status !== 'completed') continue
+    if (!task || task.status !== 'completed') continue
     await access(local)
     if (await sha256(local) !== version.sha256) continue
     return { passed: true, asset_key: asset.key, version_id: version.id, sha256: version.sha256, task_id: version.provenance.task_id }
@@ -80,4 +82,3 @@ async function run() {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) run().catch((error) => { console.error(error.message); process.exitCode = 1 })
-

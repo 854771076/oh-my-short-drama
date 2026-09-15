@@ -146,7 +146,8 @@ export async function putMediaOperationReview(rootArg, input) {
     const ledger = await read(root)
     const key = `${record.asset_key}@${record.version_id}`
     const previous = ledger.reviews[key]
-    const saved = { ...record, review_type: 'media-operation', reviewedAt: new Date().toISOString() }
+    // 顶层哈希让发布验收无需理解各媒体操作的 QC 内部结构，也能确认审核记录绑定当前候选文件。
+    const saved = { ...record, asset_sha256: version.sha256, review_type: 'media-operation', reviewedAt: new Date().toISOString() }
     ledger.reviews[key] = saved
     await save(root, ledger)
     if (record.approved) try { await selectAssetVersion(root, record.asset_key, record.version_id) }

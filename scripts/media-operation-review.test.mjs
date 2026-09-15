@@ -80,6 +80,7 @@ test('批准媒体操作后才选择候选版本', async () => {
     assert.equal((await selectedAssetVersion(root, key)).version.id, 'v002')
     const ledger = JSON.parse(await readFile(resolve(root, '.short-drama/shot-reviews.json'), 'utf8'))
     assert.equal(ledger.reviews[`${key}@v002`].review_type, 'media-operation')
+    assert.equal(ledger.reviews[`${key}@v002`].asset_sha256, qc(outputContents).video_sha256)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
