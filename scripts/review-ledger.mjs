@@ -7,6 +7,7 @@ import { selectAssetVersion, selectedAssetVersion } from './asset-ledger.mjs'
 import { sameShotVersion } from './shot-fingerprint.mjs'
 import { fileSha256, probePrevizMedia, validatePrevizContract, validatePrevizMedia } from './previz-contract.mjs'
 import { validateMediaOperationReview } from './media-operation-review.mjs'
+import { validateNativeAudioReview } from './native-audio-audit.mjs'
 
 const CHECKS = new Set(['passed', 'failed', 'not-applicable'])
 // 机器质量标记必须人工复核后才能放行；只能用带实际观察的误报判定覆盖。
@@ -193,6 +194,15 @@ async function main() {
       if (!required.length || JSON.stringify(actual) !== JSON.stringify(required)) throw new Error('criteria[] 必须按制作计划 review_checks 原顺序逐项覆盖')
       if (record.watchedFull !== true || !record.watch_evidence || !Number.isFinite(record.watch_evidence.duration_seconds) || record.watch_evidence.duration_seconds <= 0 || ['start', 'middle', 'end'].some((field) => typeof record.watch_evidence[field] !== 'string' || !record.watch_evidence[field].trim())) throw new Error('视频验收必须完整观看，并在 watch_evidence 记录时长及首、中、尾实际观察')
       if (!record.continuity || VIDEO_CONTINUITY_FIELDS.some((field) => !record.continuity[field])) throw new Error('视频验收必须逐项记录人物身份、运动方向、朝向与视线、出入画和尾帧状态')
+      const nativeAudio = prompt.audio_policy?.mode === 'native' || prompt.audio_policy?.lines?.some((line) => line.delivery_mode === 'native')
+      if (nativeAudio) {
+        let audioReview = null
+        try { audioReview = JSON.parse(await readFile(resolve(root, '.short-drama', 'audio-audits', `${record.assetKey}@${record.versionId}.json`), 'utf8')) }
+        catch (error) { if (error?.code !== 'ENOENT') throw error }
+        if (!audioReview) throw new Error('原生音频镜头缺少七维专项审核')
+        validateNativeAudioReview(audioReview)
+        if (audioReview.approved !== true || audioReview.sha256 !== version.sha256 || audioReview.episode_key !== source.episode_key || audioReview.shot_number !== source.shot_number) throw new Error('原生音频七维专项审核未批准或与当前视频不一致')
+      }
     }
     const ledger = await read(root)
     const key = `${record.assetKey}@${record.versionId}`
