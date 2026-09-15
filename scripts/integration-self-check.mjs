@@ -26,6 +26,11 @@ function run(script, ...args) {
   return result.stdout
 }
 
+function runTest(path) {
+  const result = spawnSync(process.execPath, ['--test', resolve(plugin, path)], { encoding: 'utf8' })
+  if (result.status !== 0) throw new Error(`${path} 失败：${result.stderr || result.stdout}`)
+}
+
 function runAsync(script, ...args) {
   return new Promise((done, fail) => {
     const child = spawn(process.execPath, [resolve(plugin, 'scripts', script), ...args], { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -231,6 +236,7 @@ async function checkBailianVoiceLifecycle() {
 
 async function main() {
   if (!process.argv.includes('--self-check')) throw new Error('仅支持 --self-check')
+  runTest('scripts/media-pipeline.integration.test.mjs')
   const imageSchema = generationTools.find((tool) => tool.name === 'generate_image')?.inputSchema?.properties
   if (!imageSchema?.reference_paths || imageSchema.reference_image_paths || JSON.stringify(imageSchema.reference_manifest?.items?.required) !== JSON.stringify(['type', 'order', 'asset_key', 'version_id', 'role'])) throw new Error('图片生成 MCP Schema 与运行时参考素材合同不一致')
   for (const name of ['transcribe_audio', 'translate_audio']) if (!generationTools.find((tool) => tool.name === name)?.inputSchema?.properties?.file_path) throw new Error(`${name} MCP Schema 缺失`)
