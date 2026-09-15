@@ -3,11 +3,12 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { validateAudienceAppeal } from './character-appeal.mjs'
 
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const vocabulary = JSON.parse(await readFile(resolve(pluginRoot, 'references/controlled-vocabulary.json'), 'utf8'))
 const profileRules = vocabulary.characterProfile
-const NEW_FIELDS = ['name', 'aliases', 'introduction', 'gender', 'age_range', 'role_level', 'archetype', 'personality_tags', 'era_period', 'social_class', 'occupation', 'costume_tier', 'suggested_colors', 'primary_identifier', 'visual_keywords', 'performance_bible', 'voice_identity', 'expected_appearances']
+const NEW_FIELDS = ['name', 'aliases', 'introduction', 'gender', 'age_range', 'role_level', 'archetype', 'personality_tags', 'era_period', 'social_class', 'occupation', 'costume_tier', 'suggested_colors', 'primary_identifier', 'visual_keywords', 'performance_bible', 'voice_identity', 'audience_appeal', 'expected_appearances']
 const PERFORMANCE_FIELDS = ['center_of_gravity', 'gait', 'habitual_actions', 'eyeline_behavior', 'blink_rhythm', 'stress_response', 'forbidden_performance']
 const VOICE_FIELDS = ['pitch', 'timbre', 'accent', 'pace', 'delivery']
 const UPDATE_FIELDS = ['name', 'updated_introduction', 'updated_aliases']
@@ -54,6 +55,7 @@ function validateNew(character, index) {
   textList(character.performance_bible.forbidden_performance, `${label}.performance_bible.forbidden_performance`, { max: 8 })
   exactFields(character.voice_identity, VOICE_FIELDS, `${label}.voice_identity`)
   for (const field of VOICE_FIELDS) text(character.voice_identity[field], `${label}.voice_identity.${field}`)
+  validateAudienceAppeal(character.audience_appeal, character)
   if (!Array.isArray(character.expected_appearances) || character.expected_appearances.length === 0) throw new Error(`${label}.expected_appearances 至少一项`)
   const ids = new Set()
   for (const [appearanceIndex, appearance] of character.expected_appearances.entries()) {
