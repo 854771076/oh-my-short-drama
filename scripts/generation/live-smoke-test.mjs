@@ -1,8 +1,33 @@
 #!/usr/bin/env node
 import { mkdir, writeFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { extname, resolve } from 'node:path'
 import { starrouter } from './starrouter.mjs'
+import { call } from './mcp.mjs'
+import { selectedAssetVersion } from '../asset-ledger.mjs'
+import { probeMedia } from '../media-tools.mjs'
 
+export async function seedVrSmoke({ root: rootArg, assetKey, versionId, confirmed = false }) {
+  const root = resolve(rootArg)
+  const selected = await selectedAssetVersion(root, assetKey)
+  if (selected.version.id !== versionId || selected.asset.type !== 'video') throw new Error('SeedVR2.5 冒烟输入必须是当前 selected 视频版本')
+  const media = probeMedia(selected.path)
+  const request = { project_root: root, target: assetKey, operation: 'video-upscale', provider: 'runninghub', model: 'seedvr2.5-video-upscale', source: { asset_key: assetKey, version_id: versionId }, parameters: {}, confirmed: false }
+  const preview = await call('submit_media_operation', request)
+  const summary = {
+    ...preview,
+    source_file: selected.path,
+    source_sha256: selected.version.sha256,
+    source_media: { duration_ms: media.duration_ms, width: media.width, height: media.height, fps: media.fps, audio: media.has_audio },
+    upload: { required: true, occurs_only_after_confirmation: true },
+    output_expectation: { larger_resolution: true, unchanged_duration_and_fps: true, preserve_source_audio: true, requires_full_review_before_selection: true },
+    cost_estimate: { available: false, reason: 'RunningHub 工作流接口未提供免提交价格估算' },
+  }
+  if (!confirmed) return summary
+  return { ...summary, submission: await call('submit_media_operation', { ...request, confirmed: true }) }
+}
+
+async function runStarRouterSmoke() {
 const outputArg = process.argv.indexOf('--output')
 const output = outputArg >= 0 ? resolve(process.argv[outputArg + 1] || '') : ''
 if (!process.argv.includes('--confirmed') || !output) throw new Error('用法：live-smoke-test.mjs --confirmed --output <目录>')
@@ -97,3 +122,16 @@ report.summary = Object.fromEntries(['passed', 'failed', 'timeout'].map((status)
 await writeFile(resolve(output, 'report.json'), `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' })
 console.log(JSON.stringify({ output, summary: report.summary }))
 if (report.summary.failed || report.summary.timeout) process.exitCode = 1
+}
+
+async function main() {
+  const [provider, model, root, assetKey, versionId] = process.argv.slice(2)
+  if (provider === 'runninghub' && model === 'seedvr2.5-video-upscale') {
+    if (!root || !assetKey || !versionId) throw new Error('用法：live-smoke-test.mjs runninghub seedvr2.5-video-upscale <项目目录> <资产 key> <版本 id> [--confirmed]')
+    console.log(JSON.stringify(await seedVrSmoke({ root, assetKey, versionId, confirmed: process.argv.includes('--confirmed') }), null, 2))
+    return
+  }
+  await runStarRouterSmoke()
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) main().catch((error) => { console.error(error.message); process.exitCode = 1 })

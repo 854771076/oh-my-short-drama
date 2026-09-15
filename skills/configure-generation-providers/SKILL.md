@@ -17,9 +17,11 @@ description: 配置并验证本地短剧插件的生成 Provider。用于选择�
   - video：`MiniMax-H3`、`MiniMax-H3-Max`、`dreamina-seedance-2-0-fast-260128`、`dreamina-seedance-2-0-260128`、`doubao-seedance-2-0-260128`、`doubao-seedance-2-0-fast-260128`、`doubao-seedance-1-5-pro-251215`、`doubao-seedance-1-0-pro-250528`、`doubao-seedance-1-0-pro-fast-251015`。
   - audio：`speech-2.8-hd`、`speech-2.8-turbo`、`qwen3-tts-vc-realtime-2025-11-27`、`qwen3-tts-vc-realtime`、`pawsense-audio`、`tts-1`；`suno_music` 用于 OP、ED、BGM、音乐短视频。
   - asr：`qwen3-asr-flash`、`whisper-1`，用于项目音频转写/翻译和原生对白审计；可用 `STARROUTER_ASR_MODELS` 扩展目录、`STARROUTER_ASR_MODEL` 指定默认审计模型。
-- RunningHub：环境变量 `RUNNINGHUB_API_KEY`，可选基址和通用图片/视频/音频工作流 ID；内置图片 `krea2-normal-v1`，可用 `RUNNINGHUB_KREA2_WORKFLOW_ID` 覆盖；内置 H3 可用 `RUNNINGHUB_H3_WORKFLOW_ID` 覆盖平台工作流 ID。协议见 [RunningHub 合同](../../references/runninghub-provider.md)。
+- RunningHub：环境变量 `RUNNINGHUB_API_KEY`，可选基址和通用图片/视频/音频工作流 ID；内置图片 `krea2-normal-v1`，可用 `RUNNINGHUB_KREA2_WORKFLOW_ID` 覆盖；内置 H3 可用 `RUNNINGHUB_H3_WORKFLOW_ID` 覆盖平台工作流 ID。视频变换目录固定提供 `seedvr2.5-video-upscale`，绑定工作流 `2099866760106491906` 的官方真实节点映射，不读取自定义超分工作流变量，也不列入普通视频生成目录。协议见 [RunningHub 合同](../../references/runninghub-provider.md)。
 - Comfly：`COMFLY_TOKEN`、可选 `COMFLY_BASE_URL` 和 `COMFLY_APP_ID`；当前模型固定为 `minimax-h3`。协议见 [Comfly 合同](../../references/comfly-provider.md)。
 
 凭据不得写入项目文件、参数或聊天。环境变量覆盖的模型目录属于动态扩展，不会自动获得参数兼容性保证；先调用 `list_models` 探活并核对远端目录。401/403 归为认证，429 归为限流。不要用付费任务代替连接检查。新增 Provider 只注册生成适配器并补最小自检，不修改短剧创作 Skill。
 
 用户明确授权逐模型付费验收后，可运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/generation/live-smoke-test.mjs" --confirmed --output <本地目录>`。脚本对内置的 1 个图片、9 个视频和 2 个语音模型各调用一次，轮询视频到终态，下载全部结果并写 `report.json`；没有 `--confirmed` 或输出目录时拒绝执行。
+
+SeedVR2.5 超分必须先对当前 selected 视频执行不付费摘要：`node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/generation/live-smoke-test.mjs" runninghub seedvr2.5-video-upscale <项目目录> <资产 key> <版本 id>`。把摘要中的 SHA-256、时长、分辨率、帧率、音轨、工作流 `2099866760106491906`、节点 `25.video`、上传事实和可用价格信息逐项展示给用户；只有用户针对这一个资产明确确认后才追加 `--confirmed`。确认不可沿用到换资产、换版本、重试或再次付费。
