@@ -88,6 +88,7 @@ Output schema example (field names must be preserved):
 ]
 
 Rules:
+0. Treat `identity_binding` as version and `appearance_id` validation metadata only; never expose it as visible text. Copy the visible `identity_constraints` — `grooming_and_makeup`, `costume_signature`, and every `memory_anchors` item — into each visible character description without inventing, dropping, or rewriting anchors. Keep one appearance consistent across shots unless an evidence-backed continuity change explicitly authorizes it.
 1. Keep panel order unchanged.
 2. Keep source_text semantically aligned with input; do not rewrite story meaning.
 3. video_prompt should be motion-ready and concrete. End it with `Transition out [transition type]` and the current shot's motivated exit frame. Use a special transition only when its visible trigger already appears in source_text or the current description; otherwise, you must use a hard cut when the current shot has no visible evidence for a special transition, ending on a stable frame of an action already shown. Never foreshadow, add, or generate the next shot's story action.

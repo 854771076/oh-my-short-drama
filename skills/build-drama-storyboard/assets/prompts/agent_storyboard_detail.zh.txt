@@ -43,6 +43,11 @@
 - 旁白或内心独白按画外音处理，不触发画内角色说话口型。
 - 同镜多人对白仅在 Provider 明确支持、说话时段不重叠且每张可见嘴部状态可写清时使用；否则拆镜或采用 post-dub。
 
+【人物视觉身份】
+
+- 角色参考中的 `identity_binding` 只用于校验档案版本和 `appearance_id`，不得输出到可见描述；把 `identity_constraints` 的 `grooming_and_makeup`、`costume_signature` 与全部 `memory_anchors` 原样落实到每个可见角色。
+- 同一 `appearance_id` 的妆发、服装标识和记忆锚点必须跨镜一致；不得根据姓名、职业或画面自行增加、删减或改写 `memory_anchors`。只有连续性计划中带明确剧情证据的允许变化才能换装或换造型。
+
 【输入】
 
 分镜规划：

@@ -1,9 +1,52 @@
 import { readFile, realpath } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { validateTemporaryReferenceUrl } from './media-hosting/publish.mjs'
 import { selectedAssetVersion } from './asset-ledger.mjs'
+import { assertCharacterReadyForVisuals } from './character-appeal.mjs'
 
 const compact = (values) => (values || []).filter((value) => typeof value === 'string' && value.trim())
+
+function exactFields(value, fields, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} 必须是对象`)
+  if (JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...fields].sort())) throw new Error(`${label} 字段必须且只能是：${fields.join(', ')}`)
+}
+
+function exactText(value, label) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} 必须是非空字符串`)
+}
+
+export async function resolveCharacterProfile(rootArg, reference) {
+  exactFields(reference?.identity_binding, ['profile_name', 'profile_sha256', 'appearance_id'], 'identity_binding')
+  const binding = reference.identity_binding
+  exactText(binding.profile_name, 'identity_binding.profile_name')
+  if (!/^[a-f0-9]{64}$/.test(binding.profile_sha256)) throw new Error('identity_binding.profile_sha256 必须是 SHA-256')
+  if (!Number.isInteger(binding.appearance_id) || binding.appearance_id < 1) throw new Error('identity_binding.appearance_id 必须是正整数')
+
+  const root = await realpath(resolve(rootArg))
+  const bytes = await readFile(resolve(root, 'assets/characters/profiles.json'))
+  const actualSha = createHash('sha256').update(bytes).digest('hex')
+  if (actualSha !== binding.profile_sha256) throw new Error('人物档案 SHA-256 与 identity_binding 不一致')
+  const store = JSON.parse(bytes.toString('utf8'))
+  if (!Array.isArray(store.characters)) throw new Error('人物档案 characters 必须是数组')
+  const matches = store.characters.filter((character) => character?.name === binding.profile_name)
+  if (matches.length !== 1) throw new Error(`人物档案必须精确匹配唯一 profile_name：${binding.profile_name}`)
+  const profile = matches[0]
+  if (!profile.expected_appearances?.some((appearance) => appearance?.id === binding.appearance_id)) throw new Error(`人物档案不存在 appearance_id=${binding.appearance_id}`)
+  return profile
+}
+
+export async function validateCharacterIdentityBinding(rootArg, reference) {
+  const profile = await resolveCharacterProfile(rootArg, reference)
+  exactFields(reference?.identity_constraints, ['age_class', 'grooming_and_makeup', 'costume_signature', 'memory_anchors'], 'identity_constraints')
+  const constraints = reference.identity_constraints
+  const appeal = assertCharacterReadyForVisuals(profile)
+  if (constraints.age_class !== appeal.age_class) throw new Error('角色身份年龄分级与人物档案不一致')
+  if (constraints.grooming_and_makeup !== appeal.grooming_and_makeup) throw new Error('角色身份妆造与人物档案不一致')
+  if (constraints.costume_signature !== appeal.costume_signature) throw new Error('角色身份服装标识与人物档案不一致')
+  if (JSON.stringify(constraints.memory_anchors) !== JSON.stringify(appeal.memory_anchors)) throw new Error('角色身份记忆锚点与人物档案不一致')
+  return { profile_name: profile.name, appearance_id: reference.identity_binding.appearance_id, ...structuredClone(constraints) }
+}
 
 function inputs(provider, args) {
   if (provider === 'runninghub') {
@@ -64,6 +107,7 @@ export async function validateVideoReferenceBindings(rootArg, provider, args, ma
   }
   const ledger = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
   for (const [index, reference] of manifest.entries()) {
+    if (reference?.asset_key?.startsWith('char-')) await validateCharacterIdentityBinding(root, reference)
     const asset = ledger.assets?.[reference.asset_key]
     const version = asset?.versions?.find((item) => item.id === reference.version_id)
     if (!version || requireSelected && (asset.staleVersionIds?.includes(reference.version_id) || asset.selectedVersionId !== reference.version_id)) throw new Error(`参考素材不是${requireSelected ? '当前 selected 且未失效的' : '已登记的'}版本：${reference.asset_key}@${reference.version_id}`)

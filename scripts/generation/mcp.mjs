@@ -86,6 +86,16 @@ const referenceManifestItem = {
     purpose: { type: 'string' },
     duration_seconds: { type: 'number', exclusiveMinimum: 0 },
     real_person_face: { type: 'boolean' },
+    identity_binding: {
+      type: 'object',
+      properties: { profile_name: { type: 'string', minLength: 1 }, profile_sha256: { type: 'string', pattern: '^[a-f0-9]{64}$' }, appearance_id: { type: 'integer', minimum: 1 } },
+      required: ['profile_name', 'profile_sha256', 'appearance_id'], additionalProperties: false,
+    },
+    identity_constraints: {
+      type: 'object',
+      properties: { age_class: { type: 'string', enum: ['adult', 'child', 'not-applicable'] }, grooming_and_makeup: { type: 'string' }, costume_signature: { type: 'string' }, memory_anchors: { type: 'array', minItems: 1, maxItems: 3, items: { type: 'string', minLength: 1 } } },
+      required: ['age_class', 'grooming_and_makeup', 'costume_signature', 'memory_anchors'], additionalProperties: false,
+    },
   },
   required: ['type', 'order', 'asset_key', 'version_id', 'role'],
   additionalProperties: false,

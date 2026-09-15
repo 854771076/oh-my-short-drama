@@ -3,7 +3,8 @@ const SOURCE_VERSION_FIELDS = ['storyboard', 'director-book', 'production-plan']
 const SCENE_FIELDS = ['scene_key', 'coordinate_mode', 'axis_id', 'axis_description', 'camera_side', 'anchors', 'lighting_anchor']
 const SHOT_FIELDS = ['shot_number', 'scene_key', 'camera_setup_id', 'start_state', 'end_state', 'transition_link', 'inherited_fields', 'allowed_changes', 'evidence']
 const STATE_FIELDS = ['actors', 'props', 'axis_id', 'camera_side', 'lighting_anchor']
-const ACTOR_FIELDS = ['actor_key', 'zone', 'depth', 'facing', 'eyeline_target', 'screen_direction', 'entry_edge', 'exit_edge', 'posture', 'held_props']
+const ACTOR_FIELDS = ['actor_key', 'zone', 'depth', 'facing', 'eyeline_target', 'screen_direction', 'entry_edge', 'exit_edge', 'posture', 'held_props', 'visual_identity']
+const VISUAL_IDENTITY_FIELDS = ['appearance_id', 'memory_anchors', 'costume_signature']
 const PROP_FIELDS = ['prop_key', 'zone', 'depth', 'state', 'held_by']
 const LINK_FIELDS = ['mode', 'source_shot_number', 'source_camera_setup_id', 'enabled', 'reason', 'required_provider_capability']
 const POSITION_FIELDS = ['zone', 'depth', 'facing', 'eyeline_target', 'screen_direction', 'entry_edge', 'exit_edge', 'posture', 'held_props']
@@ -35,6 +36,10 @@ function validateActor(actor, label) {
   text(actor.entry_edge, `${label}.entry_edge`, true)
   text(actor.exit_edge, `${label}.exit_edge`, true)
   textList(actor.held_props, `${label}.held_props`)
+  exactFields(actor.visual_identity, VISUAL_IDENTITY_FIELDS, `${label}.visual_identity`)
+  if (!Number.isInteger(actor.visual_identity.appearance_id) || actor.visual_identity.appearance_id < 1) throw new Error(`${label}.visual_identity.appearance_id 必须是正整数`)
+  textList(actor.visual_identity.memory_anchors, `${label}.visual_identity.memory_anchors`, { min: 1 })
+  text(actor.visual_identity.costume_signature, `${label}.visual_identity.costume_signature`)
 }
 
 function validateProp(prop, label) {
@@ -99,6 +104,10 @@ export function compareAdjacentStates(previous, current) {
       const path = `actors.${actorKey}.${field}`
       if (JSON.stringify(before[field]) !== JSON.stringify(after[field]) && !differenceAllowed(allowed, path)) add(path)
     }
+    for (const field of VISUAL_IDENTITY_FIELDS) {
+      const path = `actors.${actorKey}.visual_identity.${field}`
+      if (JSON.stringify(before.visual_identity[field]) !== JSON.stringify(after.visual_identity[field]) && !differenceAllowed(allowed, path)) add(path)
+    }
   }
 
   const beforeProps = new Map(beforeState.props.map((prop) => [prop.prop_key, prop]))
@@ -119,6 +128,10 @@ export function recommendTailLink(previous, current) {
   if (previous.scene_key !== current.scene_key) reasons.push('scene_changed')
   if (previous.camera_setup_id !== current.camera_setup_id) reasons.push('camera_changed')
   if (previous.end_state.axis_id !== current.start_state.axis_id || previous.end_state.camera_side !== current.start_state.camera_side) reasons.push('axis_changed')
+  const beforeActors = new Map(previous.end_state.actors.map((actor) => [actor.actor_key, actor]))
+  for (const actor of current.start_state.actors) {
+    if (beforeActors.has(actor.actor_key) && JSON.stringify(beforeActors.get(actor.actor_key).visual_identity) !== JSON.stringify(actor.visual_identity)) reasons.push(`actors.${actor.actor_key}.visual_identity`)
+  }
   reasons.push(...compareAdjacentStates(previous, current).map((item) => item.field))
   return { recommended: reasons.length === 0, reasons: [...new Set(reasons)] }
 }
@@ -166,6 +179,7 @@ export function validateContinuityPlan(document, episodeKey) {
     textList(shot.inherited_fields, `${label}.inherited_fields`)
     textList(shot.allowed_changes, `${label}.allowed_changes`)
     textList(shot.evidence, `${label}.evidence`, { min: 1 })
+    if (shot.allowed_changes.some((path) => /\.visual_identity(?:\.|$)/.test(path)) && !shot.evidence.some((item) => /(?:换装|妆造|发型|年龄变化|伪装|appearance|costume|identity)/i.test(item))) throw new Error(`${label} 人物妆造变化必须有明确剧情证据`)
 
     if (previous) {
       const issues = compareAdjacentStates(previous, shot)

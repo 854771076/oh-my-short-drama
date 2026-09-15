@@ -290,6 +290,14 @@ async function main() {
     await writeFile(media, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'))
     run('asset-ledger.mjs', 'import', root, 'char-a', media, 'v001', '-')
     run('asset-ledger.mjs', 'select', root, 'char-a', 'v001')
+    await mkdir(resolve(root, 'assets/characters'), { recursive: true })
+    const integrationCharacter = { name: 'A', aliases: [], introduction: '测试人物', gender: 'unknown', age_range: '成年', role_level: 'A', archetype: '推动者', personality_tags: ['克制', '果断'], era_period: '现代', social_class: '普通', occupation: '测试职业', costume_tier: 2, suggested_colors: ['黑', '灰'], primary_identifier: '利落短发', visual_keywords: ['克制'], performance_bible: { center_of_gravity: '稳定', gait: '利落', habitual_actions: [], eyeline_behavior: '直视', blink_rhythm: '平稳', stress_response: '停顿', forbidden_performance: [] }, voice_identity: { pitch: '中', timbre: '清晰', accent: '普通话', pace: '中速', delivery: '克制' }, audience_appeal: { age_class: 'adult', appeal_mode: 'adult-charisma', screen_presence: '克制而利落', grooming_and_makeup: '利落短发与干净修容', costume_signature: '深色外套与哑光领扣', memory_anchors: ['利落短发', '哑光领扣'], prohibited_treatment: [] }, expected_appearances: [{ id: 1, change_reason: '基础造型' }] }
+    const characterProfileBytes = Buffer.from(`${JSON.stringify({ version: 1, characters: [integrationCharacter] }, null, 2)}\n`)
+    await writeFile(resolve(root, 'assets/characters/profiles.json'), characterProfileBytes)
+    const identity = {
+      identity_binding: { profile_name: 'A', profile_sha256: createHash('sha256').update(characterProfileBytes).digest('hex'), appearance_id: 1 },
+      identity_constraints: { age_class: 'adult', grooming_and_makeup: '利落短发与干净修容', costume_signature: '深色外套与哑光领扣', memory_anchors: ['利落短发', '哑光领扣'] },
+    }
     const publishInput = { service: 'litterbox', asset_key: 'char-a', version_id: 'v001', expires_in: '1h', usage_scope: 'non-commercial', confirmed: true, rights_confirmed: true, public_exposure_confirmed: true, usage_terms_confirmed: true }
     try { await publishReferenceImage(root, { ...publishInput, confirmed: false }, async () => new Response('https://litter.catbox.moe/test.png')); throw new Error('未确认公开上传仍被执行') } catch (error) { if (!String(error.message).includes('confirmed=true')) throw error }
     const uploadReceipt = await publishReferenceImage(root, publishInput, async (url, options) => {
@@ -300,9 +308,9 @@ async function main() {
     const reused = await publishReferenceImage(root, publishInput, async () => { throw new Error('有效收据不应重复上传') })
     if (!reused.reused || reused.id !== uploadReceipt.id || (await listReferenceUploads(root, { state: 'active' })).length !== 1) throw new Error('Litterbox 收据复用或查询失败')
     await validateTemporaryReferenceUrl(root, uploadReceipt.url, { asset_key: 'char-a', version_id: 'v001' })
-    const referenceManifest = [{ type: 'image', order: 1, asset_key: 'char-a', version_id: 'v001', role: 'first_frame' }]
+    const referenceManifest = [{ type: 'image', order: 1, asset_key: 'char-a', version_id: 'v001', role: 'first_frame', ...identity }]
     try { await validateTemporaryReferenceUrl(root, uploadReceipt.url, { asset_key: 'char-a', version_id: 'v001' }, Date.parse(uploadReceipt.expires_at)); throw new Error('到期收据仍被接受') } catch (error) { if (!String(error.message).includes('校验时间点有效')) throw error }
-    const repeatedManifest = [1, 2].map((order) => ({ type: 'image', order, asset_key: 'char-a', version_id: 'v001', role: 'reference_image' }))
+    const repeatedManifest = [1, 2].map((order) => ({ type: 'image', order, asset_key: 'char-a', version_id: 'v001', role: 'reference_image', ...identity }))
     await validateVideoReferenceBindings(root, 'starrouter', { prompt_profile: 'seedance2', reference_image_urls: [uploadReceipt.url, uploadReceipt.url] }, repeatedManifest)
     const selectedPath = resolve(root, JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8')).assets['char-a'].versions[0].localPath)
     await validateVideoReferenceBindings(root, 'runninghub', { model: 'minimax-h3-reference-to-video', reference_image_paths: [selectedPath] }, [referenceManifest[0]])
@@ -383,8 +391,8 @@ async function main() {
     run('project-store.mjs', 'put-document', root, 'art-style', await json(root, 'art-style.json', { mode: 'confirmed-default', style: currentStyle, decision_reason: '确认使用项目默认真人风格', approved: true }))
     const planAsProfile = spawnSync(process.execPath, [resolve(plugin, 'scripts/skill-runs.mjs'), 'record', root, 'asset-analysis', 'generate-character-profiles', 'episodes/ep-001/asset-plan/v001.json'], { encoding: 'utf8' })
     if (planAsProfile.status === 0 || !planAsProfile.stderr.includes('证据类型无效')) throw new Error('资产计划被错误接受为人物档案证据')
-    const characterProfile = { new_characters: [{ name: 'A', aliases: [], introduction: '测试人物', gender: 'unknown', age_range: '成年', role_level: 'A', archetype: '推动者', personality_tags: ['克制', '果断'], era_period: '现代', social_class: '普通', occupation: '测试职业', costume_tier: 2, suggested_colors: ['黑', '灰'], primary_identifier: '利落短发', visual_keywords: ['克制'], performance_bible: { center_of_gravity: '稳定', gait: '利落', habitual_actions: [], eyeline_behavior: '直视', blink_rhythm: '平稳', stress_response: '停顿', forbidden_performance: [] }, voice_identity: { pitch: '中', timbre: '清晰', accent: '普通话', pace: '中速', delivery: '克制' }, expected_appearances: [{ id: 1, change_reason: '基础造型' }] }], updated_characters: [] }
-    run('character-profiles.mjs', 'apply', root, await json(root, 'character-profile.json', characterProfile))
+    const characterProfile = { new_characters: [integrationCharacter], updated_characters: [] }
+    run('character-profiles.mjs', 'validate', root, await json(root, 'character-profile.json', characterProfile))
     await recordSkills(root, 'asset-analysis', 'episodes/ep-001/asset-plan/v001.json')
     run('workflow.mjs', 'advance', root, 'asset-generation')
     try {

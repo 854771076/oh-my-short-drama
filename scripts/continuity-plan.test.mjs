@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { compareAdjacentStates, recommendTailLink, validateContinuityPlan } from './continuity-plan.mjs'
 
-const actor = (zone, heldProps = []) => ({
+const actor = (zone, heldProps = [], visualIdentity = {}) => ({
   actor_key: 'char-a',
   zone,
   depth: 'mid',
@@ -13,6 +13,12 @@ const actor = (zone, heldProps = []) => ({
   exit_edge: null,
   posture: 'standing',
   held_props: heldProps,
+  visual_identity: {
+    appearance_id: 1,
+    memory_anchors: ['银色领针', '高马尾'],
+    costume_signature: '墨黑短风衣与银色领针',
+    ...visualIdentity,
+  },
 })
 
 function shot(number, start, end, options = {}) {
@@ -63,6 +69,24 @@ test('无证据持物跳变会阻塞，显式允许变化可以放行', () => {
   assert.match(compareAdjacentStates(previous, current)[0].field, /held_props/)
   current.allowed_changes = ['actors.char-a.held_props']
   assert.deepEqual(compareAdjacentStates(previous, current), [])
+})
+
+test('人物视觉身份变化会阻塞连续性，且不能用尾帧继承掩盖', () => {
+  const previous = shot(1, actor('left'), actor('center'))
+  const current = shot(2, actor('center', [], { costume_signature: '白色礼服' }), actor('right', [], { costume_signature: '白色礼服' }))
+  assert.match(compareAdjacentStates(previous, current)[0].field, /visual_identity/)
+  assert.equal(recommendTailLink(previous, current).recommended, false)
+})
+
+test('人物妆造变化必须由显式允许路径和剧情证据共同支持', () => {
+  const previous = shot(1, actor('left'), actor('center'))
+  const current = shot(2, actor('center', [], { costume_signature: '白色礼服' }), actor('right', [], { costume_signature: '白色礼服' }), {
+    allowedChanges: ['actors.char-a.visual_identity.costume_signature'],
+  })
+  current.transition_link = { mode: 'independent', source_shot_number: null, source_camera_setup_id: null, enabled: false, reason: '剧情换装', required_provider_capability: null }
+  assert.throws(() => validateContinuityPlan(documentWith([previous, current]), 'ep-001'), /妆造变化.*证据/)
+  current.evidence.push('script:宴会前明确换装')
+  assert.doesNotThrow(() => validateContinuityPlan(documentWith([previous, current]), 'ep-001'))
 })
 
 test('合法连续性计划通过严格校验', () => {
