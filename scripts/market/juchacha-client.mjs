@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-export const rankingDefinitions = Object.freeze({
+const definitions = {
   hot: { title: '热力榜', dateEndpoint: '/playlet/getHotRankingDate', listEndpoint: '/playlet/listHotRanking', params: {} },
   motion: { title: '动态漫榜', dateEndpoint: '/playlet/motionComicDate', listEndpoint: '/playlet/motionComic', params: { rankType: 1 } },
   'motion-ai': { title: '真人AI榜', dateEndpoint: '/playlet/motionComicDate', listEndpoint: '/playlet/motionComic', params: { rankType: 2 } },
@@ -9,7 +9,14 @@ export const rankingDefinitions = Object.freeze({
   kuaishou: { title: '快手热播榜', dateEndpoint: '/playlet/getKuaishouNativePlayCountDate', listEndpoint: '/playlet/selectKuaishouNativePlayletPlayCountListByDate', params: {} },
   hongguo: { title: '红果榜', dateEndpoint: '/playlet/listHongGuoRankingDate', listEndpoint: '/playlet/listHongGuoRanking', params: {} },
   income: { title: '短剧收入榜', dateEndpoint: null, listEndpoint: '/playlet/getPlayletRevenueRankData', params: {} },
-})
+}
+
+for (const definition of Object.values(definitions)) {
+  Object.freeze(definition.params)
+  Object.freeze(definition)
+}
+
+export const rankingDefinitions = Object.freeze(definitions)
 
 const PERIOD_KEYS = ['day', 'week', 'month']
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
@@ -125,7 +132,7 @@ export function createJuchachaClient({
   }
 
   async function fetchLatestDay(definition) {
-    const payload = await request(definition.dateEndpoint, {}, 'date')
+    const payload = await request(definition.dateEndpoint, definition.params, 'date')
     const content = payload.content
     const day = typeof content === 'string' ? content : content.day
     if (typeof day !== 'string' || !DATE_PATTERN.test(day)) {
