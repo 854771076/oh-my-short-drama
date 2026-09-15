@@ -16,9 +16,10 @@ const TITLE_ROOTS = Object.freeze([
   ['喜剧', ['喜剧']],
 ])
 
-const SOURCE_TOPIC_LABELS = new Set([
-  ...TITLE_ROOTS.flatMap(([, roots]) => roots.map((root) => compactLabel(root))),
-  '都市日常',
+const SOURCE_TOPIC_ROOTS = Object.freeze([
+  ...TITLE_ROOTS.flatMap(([, roots]) => roots),
+  '都市', '职场', '爱情', '情感', '霸总', '甜宠', '家庭', '婆媳', '伦理',
+  '系统', '异能', '丧尸', '搞笑',
 ])
 
 const NON_TOPIC_TAGS = new Set([
@@ -147,6 +148,11 @@ function cleanListToken(value) {
   return text
 }
 
+function isSourceTopicTag(tag) {
+  const label = compactLabel(tag)
+  return SOURCE_TOPIC_ROOTS.some((root) => label.includes(compactLabel(root)))
+}
+
 export function parseList(value) {
   if (value === null || value === undefined) return []
   if (typeof value === 'string') {
@@ -230,7 +236,7 @@ export function normalizeRankingItem(rankingType, item, context = {}) {
   const uniqueTags = [...new Set(tags)]
   const sourceTopics = uniqueTags.filter((tag) => {
     const label = compactLabel(tag)
-    return SOURCE_TOPIC_LABELS.has(label)
+    return isSourceTopicTag(tag)
       && !AUDIENCE_LABELS.has(label)
       && !ERA_LABELS.has(label)
       && !NON_TOPIC_TAGS.has(label)

@@ -55,6 +55,16 @@ test('状态和形式标签不是题材证据，未知标签不会伪装成 sour
   assert.deepEqual(observation.provenance.evidence.rawTags, ['真人', '短剧', '已完结', '神秘标签'])
 })
 
+test('来源细分题材按受控语义词根保留原标签', () => {
+  const observation = normalizeRankingItem('hot', {
+    title: '一部普通作品',
+    tags: ['都市职场', '婆媳伦理', '古装爱情'],
+  })
+
+  assert.deepEqual(observation.topics, ['都市职场', '婆媳伦理', '古装爱情'])
+  assert.equal(observation.provenance.topicSource, 'source-tag')
+})
+
 test('标题词根只推断受控题材，不从题材推断受众和时代', () => {
   const observation = normalizeRankingItem('hot', {
     name: '重生后我成了霸总的白月光',
