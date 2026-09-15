@@ -66,6 +66,7 @@ export async function validateGenerationDocumentReference(root, type, target, re
     if (reference.track_key) {
       const track = document.approved === true && !document.unresolved?.length && document.music_tracks?.find((item) => item.key === reference.track_key)
       if (!track) throw new Error('audio-plan 音乐曲目不存在、未批准或仍有未决项')
+      if (track.source_mode !== 'generated') throw new Error('catalog 授权曲目不得调用 generate_music 重复生成')
       for (const [field, actual] of Object.entries({ prompt: args.prompt, title: args.title, tags: args.tags, lyrics: args.lyrics || '', make_instrumental: args.make_instrumental === true, provider, model })) {
         if ((track[field] ?? '') !== actual) throw new Error(`音乐参数与 audio-plan ${field} 不一致`)
       }

@@ -4,8 +4,33 @@ const FALLBACK = new Set(['none', 'post-dub', 'cinematic-tts', 'sound-design'])
 export const NATIVE_AUDIO_FAILURE_REASONS = Object.freeze(['provider-no-native-audio', 'voice-identity-drift', 'speech-intelligibility-failed', 'narration-performance-failed', 'audio-sync-failed', 'native-ambience-failed'])
 const FAILURE_REASONS = new Set(NATIVE_AUDIO_FAILURE_REASONS)
 const PERFORMANCE_FIELDS = ['tone_arc', 'emotion_beats', 'pace', 'breath_and_pause', 'distance_and_space']
+const MUSIC_PURPOSES = new Set(['op', 'ed', 'bgm', 'music-video'])
 
 const assetReference = (value) => value && typeof value.asset_key === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.asset_key) && /^v\d{3}$/.test(value.version_id || '')
+
+function exactKeys(value, expected, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...expected].sort())) throw new Error(`${label} 字段无效`)
+}
+
+export function validateMusicTrack(track, index = 0) {
+  const label = `audio-plan music_tracks[${index}]`
+  if (!/^(?:op|ed|bgm|music-video)(?:-[a-z0-9]+)*$/.test(track?.key || '') || !MUSIC_PURPOSES.has(track.purpose) || !Array.isArray(track.matched_shots) || track.matched_shots.some((shot) => !Number.isInteger(shot) || shot <= 0)) throw new Error(`${label} key/purpose/matched_shots 无效`)
+  if (track.source_mode === 'generated') {
+    exactKeys(track, ['key', 'purpose', 'title', 'source_mode', 'prompt', 'tags', 'lyrics', 'make_instrumental', 'provider', 'model', 'matched_shots'], label)
+    for (const field of ['title', 'prompt', 'tags', 'provider', 'model']) if (typeof track[field] !== 'string' || !track[field].trim()) throw new Error(`${label}.${field} 必填`)
+    if (typeof track.lyrics !== 'string' || typeof track.make_instrumental !== 'boolean' || track.make_instrumental && track.lyrics.trim()) throw new Error(`${label} 生成曲目内容无效`)
+    return track
+  }
+  if (track.source_mode === 'catalog') {
+    exactKeys(track, ['key', 'purpose', 'title', 'source_mode', 'source_asset', 'license_receipt', 'intended_use', 'matched_shots'], label)
+    if (typeof track.title !== 'string' || !track.title.trim() || !assetReference(track.source_asset)) throw new Error(`${label} catalog 曲目必须绑定标题和资产`)
+    if (!/^music-license-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(track.license_receipt || '')) throw new Error(`${label} catalog 曲目必须绑定许可证收据`)
+    const use = track.intended_use
+    if (!use || typeof use !== 'object' || Array.isArray(use) || Object.keys(use).some((key) => !['commercial', 'paid_ad', 'client_project', 'broadcast', 'platform'].includes(key)) || ['commercial', 'paid_ad', 'client_project', 'broadcast'].some((key) => typeof use[key] !== 'boolean') || use.platform !== undefined && (typeof use.platform !== 'string' || !use.platform.trim())) throw new Error(`${label} intended_use 无效`)
+    return track
+  }
+  throw new Error(`${label}.source_mode 必须为 generated 或 catalog`)
+}
 
 export function validateAudioStrategy(strategy) {
   if (strategy?.mode !== 'native-first' || strategy.provider_selection !== 'prefer-native' || strategy.fallback_allowed !== true) throw new Error('audio_strategy 必须启用 native-first、prefer-native 与受控兜底')
@@ -41,6 +66,10 @@ export function validateAudioPlan(document, episodeKey) {
   validateAudioStrategy(document.audio_strategy)
   if (!Array.isArray(document.lines)) throw new Error('audio-plan lines[] 必填')
   document.lines.forEach(validateAudioLine)
+  if (document.music_tracks !== undefined) {
+    if (!Array.isArray(document.music_tracks)) throw new Error('audio-plan music_tracks[] 必须是数组')
+    document.music_tracks.forEach(validateMusicTrack)
+  }
   if (!Array.isArray(document.unresolved) || typeof document.approved !== 'boolean') throw new Error('audio-plan unresolved/approved 无效')
   if (document.approved && document.unresolved.length) throw new Error('audio-plan 存在未决项时不得批准')
   return structuredClone(document)
@@ -61,7 +90,8 @@ export function migrateLegacyAudioLine(input) {
 
 export function migrateLegacyAudioPlan(input) {
   const document = structuredClone(input || {})
-  if (document.audio_strategy) return { document, unresolved: [] }
+  const migratedTracks = document.music_tracks?.map((track) => track.source_mode ? track : { ...track, source_mode: 'generated' })
+  if (document.audio_strategy) return { document: { ...document, ...(migratedTracks ? { music_tracks: migratedTracks } : {}) }, unresolved: [] }
   const migrated = (document.lines || []).map(migrateLegacyAudioLine)
   const unresolved = [...(document.unresolved || []), ...migrated.flatMap((item) => item.unresolved)]
   return {
@@ -69,10 +99,10 @@ export function migrateLegacyAudioPlan(input) {
       ...document,
       audio_strategy: { mode: 'native-first', provider_selection: 'prefer-native', fallback_allowed: true, fallback_reasons: [...NATIVE_AUDIO_FAILURE_REASONS] },
       lines: migrated.map((item) => item.line),
+      ...(migratedTracks ? { music_tracks: migratedTracks } : {}),
       unresolved,
       approved: false,
     },
     unresolved,
   }
 }
-

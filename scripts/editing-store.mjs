@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { dirname, relative, resolve, sep } from 'node:path'
 import { withFileLock } from './file-lock.mjs'
 import { invalidateFrom } from './invalidate-workflow.mjs'
+import { getMusicLicense, validateMusicUse } from './music-license-ledger.mjs'
 
 const TRANSITIONS = new Set(['none', 'hard-cut', 'action-cut', 'eyeline-cut', 'composition-match', 'j-cut', 'l-cut', 'occlusion', 'fade', 'dissolve'])
 const AUDIO_ROLES = new Set(['dialogue', 'voiceover', 'ambient', 'bgm', 'sfx', 'native'])
@@ -87,6 +88,27 @@ function sourcePromptDocument(assets, assetKey, version, seen = new Set()) {
   return null
 }
 
+async function validateCatalogMusicTrack(root, timeline, track, version, segments) {
+  const receiptKey = version.provenance?.parameters?.music_license_receipt
+  const reference = track.audio_plan
+  if (!reference && !receiptKey) return
+  if (!reference || reference.episode_key !== timeline.episode_key || !/^v\d{3}$/.test(reference.version_id || '') || typeof reference.track_key !== 'string' || Object.keys(reference).sort().join() !== 'episode_key,track_key,version_id') throw new Error(`${track.asset_key} 授权音乐必须绑定 selected audio-plan 曲目`)
+  const selection = JSON.parse(await readFile(resolve(root, 'episodes', timeline.episode_key, 'audio-plan', 'selected.json'), 'utf8'))
+  if (selection.versionId !== reference.version_id) throw new Error(`${track.asset_key} 授权音乐必须引用当前 selected audio-plan`)
+  const plan = JSON.parse(await readFile(resolve(root, selection.path), 'utf8'))
+  const planned = plan.approved === true && !plan.unresolved?.length && plan.music_tracks?.find((item) => item.key === reference.track_key)
+  if (!planned) throw new Error(`${track.asset_key} 配乐计划不存在、未批准或仍有未决项`)
+  if (planned.source_mode !== 'catalog') {
+    if (receiptKey) throw new Error(`${track.asset_key} 许可证资产不能绑定 generated 配乐计划`)
+    return
+  }
+  if (!receiptKey) throw new Error(`${track.asset_key} catalog 配乐资产缺少许可证 provenance`)
+  if (planned.source_asset?.asset_key !== track.asset_key || planned.source_asset?.version_id !== track.version_id || planned.license_receipt !== receiptKey) throw new Error(`${track.asset_key} 配乐资产或许可证与 audio-plan 不一致`)
+  const coveredShots = segments.filter((segment) => segment.timeline_start_ms < track.timeline_end_ms && segment.timeline_end_ms > track.timeline_start_ms).map((segment) => Number(segment.shot_key.slice(-3)))
+  if (coveredShots.some((shot) => !planned.matched_shots.includes(shot))) throw new Error(`${track.asset_key} 使用区间超出 audio-plan matched_shots`)
+  validateMusicUse(await getMusicLicense(root, receiptKey), planned.intended_use)
+}
+
 export async function validateTimeline(root, timeline) {
   for (const field of ['fps', 'width', 'height']) if (!Number.isInteger(timeline[field]) || timeline[field] <= 0) throw new Error(`${field} 必须是正整数`)
   if (!EPISODE.test(timeline.episode_key) || !Array.isArray(timeline.segments) || timeline.segments.length === 0 || !Array.isArray(timeline.subtitles)) throw new Error('timeline episode_key、segments[]、subtitles[] 必填')
@@ -155,6 +177,7 @@ export async function validateTimeline(root, timeline) {
     const envelope = track.volume_envelope || []
     if (!Array.isArray(envelope) || envelope.some((point) => !Number.isInteger(point?.time_ms) || point.time_ms < track.timeline_start_ms || point.time_ms > track.timeline_end_ms || typeof point.gain_db !== 'number')) throw new Error(`${track.asset_key}.volume_envelope 无效`)
     await existingInside(root, version.localPath)
+    await validateCatalogMusicTrack(root, timeline, track, version, segments)
   }
   for (const segment of segments) {
     const hasSpeech = audioTracks.some((track) => ['dialogue', 'voiceover'].includes(track.role) && track.timeline_start_ms < segment.timeline_end_ms && track.timeline_end_ms > segment.timeline_start_ms)
