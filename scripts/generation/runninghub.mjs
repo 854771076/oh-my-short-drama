@@ -10,8 +10,11 @@ const H3_TEMPLATE = JSON.parse(await readFile(new URL('./minimax-h3-workflow.jso
 const KREA2_MODEL = 'krea2-normal-v1'
 const KREA2_WORKFLOW_ID = process.env.RUNNINGHUB_KREA2_WORKFLOW_ID || '2096515700701929473'
 const KREA2_TEMPLATE = JSON.parse(await readFile(new URL('./krea2-normal-v1-workflow.json', import.meta.url), 'utf8'))
+const SEEDVR25_MODEL = 'seedvr2.5-video-upscale'
+const SEEDVR25_WORKFLOW_ID = '2099866760106491906'
+const SEEDVR25_MAPPING = JSON.parse(await readFile(new URL('./seedvr2.5-video-upscale.mapping.json', import.meta.url), 'utf8'))
 const TRANSFORM_WORKFLOW_ENVS = { 'lip-sync': 'RUNNINGHUB_LIP_SYNC_WORKFLOW_ID', 'video-inpaint': 'RUNNINGHUB_VIDEO_INPAINT_WORKFLOW_ID', 'video-upscale': 'RUNNINGHUB_VIDEO_UPSCALE_WORKFLOW_ID' }
-const transformWorkflow = (operation) => process.env[TRANSFORM_WORKFLOW_ENVS[operation]] || null
+const transformWorkflow = (operation) => operation === 'video-upscale' ? SEEDVR25_WORKFLOW_ID : process.env[TRANSFORM_WORKFLOW_ENVS[operation]] || null
 const transformWorkflows = () => Object.fromEntries(Object.keys(TRANSFORM_WORKFLOW_ENVS).map((operation) => [operation, transformWorkflow(operation)]))
 const KREA2_DIMENSIONS = {
   '1K': { '1:1': [1024, 1024], '16:9': [1024, 576], '9:16': [576, 1024], '3:4': [768, 1024], '4:3': [1024, 768], '2:3': [680, 1024], '3:2': [1024, 680] },
@@ -213,6 +216,22 @@ async function submit(input, modality) {
   return { task_id: taskId, provider: 'runninghub', media_type: modality, status: 'submitted' }
 }
 
+export async function submitSeedVr25(input) {
+  confirm(input)
+  if (input.operation !== 'video-upscale' || input.model !== SEEDVR25_MODEL) throw new Error('SeedVR2.5 只支持 video-upscale')
+  if (input.workflow_id && String(input.workflow_id) !== SEEDVR25_WORKFLOW_ID) throw new Error('SeedVR2.5 必须使用固定工作流 2099866760106491906')
+  if (!input.source_video_path?.trim()) throw new Error('SeedVR2.5 source_video_path 必填')
+  const fileName = await upload(input.source_video_path)
+  const nodeInfoList = [{ nodeId: SEEDVR25_MAPPING.video_input.node_id, fieldName: SEEDVR25_MAPPING.video_input.field_name, fieldValue: fileName }]
+  const payload = await request('/task/openapi/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey: apiKey(), workflowId: SEEDVR25_WORKFLOW_ID, nodeInfoList, addMetadata: false }),
+  })
+  if (Number(payload.code) !== 0 || !payload?.data?.taskId) throw new Error(`RUNNINGHUB_SEEDVR25_SUBMIT_FAILED: ${String(payload.msg || payload.code)}`)
+  return { task_id: payload.data.taskId, provider: 'runninghub', media_type: 'video', model: SEEDVR25_MODEL, workflow_id: SEEDVR25_WORKFLOW_ID, status: 'submitted' }
+}
+
 function outputUrls(data, found = []) {
   if (!data || typeof data !== 'object') return found
   for (const name of ['url', 'fileUrl', 'videoUrl', 'video_url', 'downloadUrl', 'download_url']) {
@@ -238,7 +257,7 @@ function taskResult(payload) {
 
 export const runninghub = {
   label: 'RunningHub', credentialEnv: 'RUNNINGHUB_API_KEY',
-  catalog: { image: [...new Set([KREA2_MODEL, process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID].filter(Boolean))], video: [H3_MODEL, process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID].filter(Boolean), audio: [process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID].filter(Boolean), get transform() { return Object.values(transformWorkflows()).filter(Boolean) } },
+  catalog: { image: [...new Set([KREA2_MODEL, process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID].filter(Boolean))], video: [H3_MODEL, process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID].filter(Boolean), audio: [process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID].filter(Boolean), get transform() { return [SEEDVR25_MODEL, ...Object.entries(transformWorkflows()).filter(([operation, workflow]) => operation !== 'video-upscale' && workflow).map(([, workflow]) => workflow)] } },
   capabilities: { text: false, image: true, video: true, audio: true, 'video.native-audio': true, get 'transform.lip-sync'() { return Boolean(transformWorkflow('lip-sync')) }, get 'transform.video-inpaint'() { return Boolean(transformWorkflow('video-inpaint')) }, get 'transform.video-upscale'() { return Boolean(transformWorkflow('video-upscale')) } },
   async models() {
     return { provider: 'runninghub', image_models: [KREA2_MODEL], video_models: [H3_MODEL], workflows: { image: process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID || null, krea2_image: KREA2_WORKFLOW_ID, video: process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID || null, h3_video: H3_WORKFLOW_ID, audio: process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID || null, transforms: transformWorkflows() } }
@@ -263,6 +282,10 @@ export const runninghub = {
   },
   async transform(input) {
     confirm(input)
+    if (input.operation === 'video-upscale') {
+      if (input.model !== SEEDVR25_MODEL) throw new Error(`RunningHub video-upscale 必须使用 ${SEEDVR25_MODEL}`)
+      return withSubmissionSlot(apiKey(), () => submitSeedVr25(input))
+    }
     const workflowId = transformWorkflow(input.operation)
     if (!workflowId) throw new Error(`RunningHub 未配置 ${input.operation} 变换工作流`)
     if (input.workflow_id && input.workflow_id !== workflowId) throw new Error(`RunningHub ${input.operation} 必须使用已配置工作流`)
@@ -289,6 +312,7 @@ export async function selfCheck() {
   try { validateH3References({ input_mode: 'I2VA', reference_manifest: [] }, [['images', []], ['videos', []], ['audios', []]]); throw new Error('RunningHub H3 模式自检失败') } catch (error) { if (!String(error.message).includes('I2VA')) throw error }
   if (H3_TEMPLATE['31']?.class_type !== 'MiniMaxH3ReferenceToVideo') throw new Error('RunningHub H3 内置工作流无效')
   if (KREA2_TEMPLATE['5']?.class_type !== 'CLIPTextEncode' || KREA2_DIMENSIONS['2K']['9:16'].join('x') !== '1152x2048') throw new Error('RunningHub Krea2 内置工作流无效')
+  if (SEEDVR25_MAPPING.workflow_id !== SEEDVR25_WORKFLOW_ID || SEEDVR25_MAPPING.video_input?.node_id !== '25' || SEEDVR25_MAPPING.video_output?.node_id !== '27') throw new Error('RunningHub SeedVR2.5 内置映射无效')
   let active = 0, maximum = 0
   await Promise.all([1, 2, 3, 4].map(() => withSubmissionSlot('self-check-a', async () => {
     active += 1

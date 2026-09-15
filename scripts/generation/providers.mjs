@@ -97,6 +97,7 @@ const parameterCatalog = {
       { key: 'resolution', label: '分辨率', type: 'select', options: ['480p', '720p', '1K', '2K'], default: '1K' },
       { key: 'ratio', label: '画幅', type: 'select', options: ['16:9', '9:16'], default: '9:16' },
     ],
+    'seedvr2.5-video-upscale': [],
   },
   comfly: {
     'minimax-h3': [
@@ -162,7 +163,7 @@ export function providerSetupCatalog() {
   return Object.entries(adapters).map(([key, value]) => ({
     key, label: value.label || key, configured: value.configured ? value.configured() : Boolean(credential(value.credentialEnv)), credentialEnv: value.credentialEnv,
     capabilities: value.capabilities,
-    models: Object.fromEntries(['image', 'video', 'audio', 'music', 'asr'].map((type) => [type, (value.catalog?.[type] || []).map((id) => ({ id, promptProfile: type === 'video' ? isH3Model(key, id) ? 'h3' : /seedance-2-0/.test(id) ? 'seedance2' : 'generic' : null, parameters: parameterCatalog[key]?.[id] || [] }))])),
+    models: Object.fromEntries(['image', 'video', 'audio', 'music', 'asr', 'transform'].map((type) => [type, (value.catalog?.[type] || []).map((id) => ({ id, promptProfile: type === 'video' ? isH3Model(key, id) ? 'h3' : /seedance-2-0/.test(id) ? 'seedance2' : 'generic' : null, parameters: parameterCatalog[key]?.[id] || [] }))])),
   }))
 }
 
