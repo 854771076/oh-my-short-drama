@@ -45,6 +45,9 @@ function graphCandidates(value, found = []) {
 }
 
 function exportedGraph(document) {
+  if (typeof document?.data?.prompt === 'string') {
+    try { document = { ...document, data: { ...document.data, prompt: JSON.parse(document.data.prompt) } } } catch { throw new Error('工作流接口的 data.prompt 字段不是有效 JSON') }
+  }
   if (typeof document?.workflow === 'string') {
     try { document = { ...document, workflow: JSON.parse(document.workflow) } } catch { throw new Error('工作流导出的 workflow 字段不是有效 JSON') }
   }

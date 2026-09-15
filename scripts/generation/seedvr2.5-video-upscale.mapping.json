@@ -1,0 +1,14 @@
+{
+  "workflow_id": "2099866760106491906",
+  "video_input": {
+    "node_id": "25",
+    "field_name": "video"
+  },
+  "video_output": {
+    "node_id": "27",
+    "class_type": "VHS_VideoCombine"
+  },
+  "optional_parameters": {},
+  "source_export_sha256": "e0741688de8ab41b4ca7ad415a3b1fce6bd473ea63238bfef3c76f7d53553e2b",
+  "source_exported_at": "2026-09-15T20:13:31.367Z"
+}
