@@ -232,3 +232,18 @@ test('深冻结的非空输入可分析且保持不变', () => {
   assert.doesNotThrow(() => analyzeMarket(input))
   assert.deepEqual(input, before)
 })
+
+test('snapshotIds 首项始终作为当前快照回填各类当前证据', () => {
+  const currentSnapshot = '20260916-current'
+  const report = analyzeMarket({
+    items: [{ key: 'a', playletId: 1, title: '新剧', topics: ['题材'], rankingType: 'hot', ranking: 1, isNew: true }],
+    previousItems: [{ key: 'old', rankingType: 'hot' }],
+    successfulRankingTypes: ['hot'],
+    snapshotIds: [currentSnapshot, '20260915-history'],
+    filters: fixedFilters,
+  })
+  assert.equal(report.snapshot_ids[0], '20260915-history')
+  assert.equal(report.evidence[0].snapshot_id, currentSnapshot)
+  assert.equal(report.platform_matrix[0].evidence[0].snapshot_id, currentSnapshot)
+  assert.equal(report.new_title_watch[0].evidence[0].snapshot_id, currentSnapshot)
+})

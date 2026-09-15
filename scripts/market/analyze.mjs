@@ -338,7 +338,10 @@ export function analyzeMarket({ items, successfulRankingTypes, snapshotIds, prev
   const filteredItems = sourceItems.filter((item) => isRecord(item) && matchesFilter(item, filters))
   const filteredPreviousItems = sourcePreviousItems.filter((item) => isRecord(item) && matchesFilter(item, filters))
   const successful = uniqueStrings(successfulRankingTypes).sort(compareText)
-  const ids = uniqueStrings(snapshotIds).sort(compareText)
+  const suppliedSnapshotIds = uniqueStrings(snapshotIds)
+  // 入参首项是当前快照，排序仅服务于报告集合和稳定哈希；当前 observation 的证据不能改指向历史快照。
+  const currentSnapshotId = suppliedSnapshotIds[0] ?? null
+  const ids = [...suppliedSnapshotIds].sort(compareText)
   const generatedAt = deterministicGeneratedAt(filteredItems, filters)
   const metrics = topicMetrics(filteredItems, successful)
   // 采集口径属于快照元数据，筛选只改变分析样本，不能反推并缩窄历史成功榜单集合。
@@ -349,7 +352,7 @@ export function analyzeMarket({ items, successfulRankingTypes, snapshotIds, prev
     : { comparable: false, trend: null }
   const failed = ALL_RANKING_TYPES.filter((type) => !successful.includes(type))
   const evidence = dedupeObservations(filteredItems)
-    .map(({ item, key }) => evidenceReference(item, key, ids[0] ?? null))
+    .map(({ item, key }) => evidenceReference(item, key, currentSnapshotId))
     .sort(evidenceSort)
   const limitations = ['数据仅覆盖公开 Top 30 榜单样本，不能代表全量市场。']
   if (ids.length <= 1) limitations.push('单次快照仅反映采集时点，不应直接视为趋势。')
@@ -374,9 +377,9 @@ export function analyzeMarket({ items, successfulRankingTypes, snapshotIds, prev
       trend: comparison.trend,
     },
     topic_metrics: metrics,
-    platform_matrix: platformMatrix(filteredItems, ids[0] ?? null),
+    platform_matrix: platformMatrix(filteredItems, currentSnapshotId),
     company_concentration: companyConcentration(filteredItems),
-    new_title_watch: newTitleWatch(filteredItems, ids[0] ?? null),
+    new_title_watch: newTitleWatch(filteredItems, currentSnapshotId),
     evidence,
     limitations,
   }
