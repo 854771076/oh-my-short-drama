@@ -21,7 +21,7 @@ description: 设计并在本地管理短剧声音资产。用于角色声音分�
 
 音频通过 `drama-generation-service` 交给用户确认的 Provider。百炼路径使用 `generate_audio`（provider=bailian，model 与 audio-plan 绑定一致），推荐 `cosyvoice-v3.5-plus`；voice 必须传 `design_voice`/`clone_voice` 返回的自定义音色 ID，v3.5-plus/flash 拒绝预置音色；instruction 仅 v3.5-plus/flash 与 v3-flash 接受（加权长度 ≤100），语言 hint 必须在目标模型矩阵内；长文本自动按标点分段并合并为 wav（选 mp3/pcm/opus 时按帧流拼接），逐句结果仍登记到 `assets/audio/`。逐句调用传 `{kind:"audio-plan",episode_key,version_id,line_index}`；入口会核对当前选版、批准状态、逐字台词以及角色—Provider—模型—voice 绑定。StarRouter 可使用 `speech-2.8-hd`、`speech-2.8-turbo`、Qwen3 TTS、PawSense 或 `tts-1` 同步生成，必须提供已确认的台词、模型对应 voice、语速和输出格式；RunningHub 可使用用户音频工作流。每条结果必须解码、复制或下载到本地 `assets/audio/` 后登记选版并保存同一行引用和输入指纹，失败只重做受影响语句。
 
-OP、ED、BGM 或音乐短视频配乐写入可选 `music_tracks`，每项包含 `key`、`purpose`、`title`、`prompt`、`tags`、`lyrics`、`make_instrumental`、`provider`、`model`、`matched_shots`。StarRouter `suno_music` 调用 `generate_music` 并传 `{kind:"audio-plan",episode_key,version_id,track_key}`；结果仍保存为 `assets/audio/` 音频资产。
+OP、ED、BGM 或音乐短视频配乐写入可选 `music_tracks`。生成配乐设 `source_mode=generated`，保留 `prompt`、`tags`、`lyrics`、`make_instrumental`、`provider`、`model` 与 `matched_shots`；StarRouter `suno_music` 走 `music.generate` 能力并调用 `generate_music`。曲库配乐设 `source_mode=catalog`，只保存 `source_asset`、`license_receipt`、`intended_use` 和 `matched_shots`，不得再调用生成接口。按剧情功能、节奏、对白密度和时长调用 `search_music_catalog`，用户在官方页面试听、下载并核对当次许可证后，才用 `register_licensed_music` 登记真实音频与不可变收据。详细站点边界见 [授权音乐目录](../../references/music-catalog-providers.md)。
 
 所有已批准且互不依赖的语音行与音乐轨必须全量提交 `generate_audio`、`generate_music`；RunningHub 同一 API Key 最多 2 路并发，其余请求由适配器排队，其他 Provider 由上游网关排队；每项继续使用独立目标、请求快照和任务记录，单项失败不取消同批其他音频。
 

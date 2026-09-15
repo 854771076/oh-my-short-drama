@@ -230,6 +230,14 @@ for (const token of ['MUSETALK_ROOT', 'MUSETALK_PYTHON', 'MUSETALK_ENTRYPOINT', 
 const audioFlowDocs = await Promise.all(['skills/design-drama-audio/SKILL.md', 'skills/edit-drama-timeline/SKILL.md', 'skills/drama-generation-service/SKILL.md', 'skills/write-drama-video-prompts/SKILL.md', 'references/feature-completeness.md', 'references/pipeline.md', 'references/usage-guide.md'].map((path) => readFile(resolve(root, path), 'utf8')))
 const audioFlowGuide = audioFlowDocs.join('\n')
 for (const token of ['native-first', 'video.native-audio', 'cinematic-tts', 'native_audio_exception', 'MUSETALK_ROOT', 'transform.lip-sync', 'BGM 始终走独立', 'speech_intelligibility', 'speaker_identity', 'narration_performance', 'ambience_action_sync', 'lip_sync', 'technical_audio', 'undeclared_music']) if (!audioFlowGuide.includes(token)) failures.push(`声音流程文档缺少：${token}`)
+const musicCatalog = `${await readFile(resolve(root, 'scripts/music-catalog/providers.mjs'), 'utf8')}\n${await readFile(resolve(root, 'scripts/music-catalog/external-sites.mjs'), 'utf8')}`
+const musicLicense = await readFile(resolve(root, 'scripts/music-license-ledger.mjs'), 'utf8')
+for (const token of ['local-licensed', 'pixabay', 'youtube-audio-library', 'uppbeat']) if (!musicCatalog.includes(token)) failures.push(`授权音乐目录缺少：${token}`)
+for (const token of ['content_id_risk', 'allowed_uses', 'proof_path', 'validateMusicUse']) if (!musicLicense.includes(token)) failures.push(`音乐许可证合同缺少：${token}`)
+const musicGuidePath = resolve(root, 'references/music-catalog-providers.md')
+let musicGuide = ''
+try { musicGuide = await readFile(musicGuidePath, 'utf8') } catch { failures.push('缺少授权音乐目录说明：references/music-catalog-providers.md') }
+for (const token of ['music.generate', 'music.catalog', 'local-licensed', 'pixabay', 'youtube-audio-library', 'uppbeat', 'content_id_risk', 'license_receipt', 'register_licensed_music', '普通 YouTube 视频', '未授权商业热曲']) if (!musicGuide.includes(token)) failures.push(`授权音乐说明缺少：${token}`)
 const litterbox = await readFile(resolve(root, 'scripts/media-hosting/litterbox.mjs'), 'utf8')
 const mediaPublish = await readFile(resolve(root, 'scripts/media-hosting/publish.mjs'), 'utf8')
 for (const token of ['https://litterbox.catbox.moe/resources/internals/api.php', "'1h', '12h', '24h', '72h'", 'litter.catbox.moe', 'redirect: \'error\'']) if (!litterbox.includes(token)) failures.push(`Litterbox 适配器合同缺少：${token}`)

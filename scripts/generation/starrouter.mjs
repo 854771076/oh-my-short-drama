@@ -411,7 +411,7 @@ function findMusicUrls(value, found = []) {
 export const starrouter = {
   label: 'StarRouter', credentialEnv: 'STARROUTER_API_KEY',
   catalog: { image: IMAGE_MODELS, video: VIDEO_MODELS, audio: AUDIO_MODELS, music: MUSIC_MODELS, asr: ASR_MODELS },
-  capabilities: { text: false, image: true, video: true, audio: true, music: true, transcription: true, translation: true, 'video.native-audio': true, 'transform.lip-sync': false, 'transform.video-inpaint': false, 'transform.video-upscale': false },
+  capabilities: { text: false, image: true, video: true, audio: true, music: true, 'music.generate': true, transcription: true, translation: true, 'video.native-audio': true, 'transform.lip-sync': false, 'transform.video-inpaint': false, 'transform.video-upscale': false },
   async models() {
     const data = await request('/v1/models', { timeout: 20_000 })
     return { catalog: starrouter.catalog, remote: data.data || [] }

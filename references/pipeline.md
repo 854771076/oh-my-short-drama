@@ -49,6 +49,8 @@
 
 声音采用 `native-first`：先选同时满足画面引用和 `video.native-audio` 的 Provider，原生生成对白、电影感旁白、环境声和动作声；BGM 始终走独立配乐与许可证流程。每个原生声候选必须完成 `speech_intelligibility`、`speaker_identity`、`narration_performance`、`ambience_action_sync`、`lip_sync`、`technical_audio`、`undeclared_music` 七维审核。失败时把受控 reason、证据、精确区间和混音来源写入 `native_audio_exception`，只替换失败段。只有可见且使用 selected 独立音频的对白才能按需调用 `transform.lip-sync`；本地 MuseTalk 需用户配置 `MUSETALK_ROOT`，输出经专项审核通过后才能进入时间线。
 
+配乐分为 `music.generate` 与 `music.catalog`。生成曲保持现有 `generate_music` 流程；目录曲只返回本地已授权结果或 Pixabay、YouTube Audio Library、Uppbeat 官方搜索页，不自动登录或下载。用户试听并取得文件与许可证证据后，`register_licensed_music` 先写不可变收据，再登记未选音频候选。audio-plan 绑定精确资产、`license_receipt` 与项目用途，时间线再次验证选版和 allowed uses；普通视频页面、无同步权与母带权凭证的热曲不能进入资产库。
+
 剧本阶段的 `short-drama` 必须绑定实际分集剧本版本；人物分析必须绑定 `assets/characters/profiles.json`。新项目默认 `storyboard.preferred_medium=blender`，制作计划仍逐镜选择：复杂空间、多人调度、动作接触、轴线风险和连续运镜优先白模；静态特写、细腻表演和画风确认使用图片。旧计划缺少 `storyboard_strategy` 时按图片分镜兼容。
 
 图片分镜镜头要求对应 `board-epNNN-NNN` 已生成、选版并通过八维审计。白模分镜镜头先由 `direct-blender-previz` 写入 `episodes/<episode>/previz/shot-NNN-vNNN.json` 导演合同，再由 `generate-blender-previz` 渲染为 `other-previz-epNNN-NNN`，登记、完整观看、按七项 100 分合同验收并选版；总分低于 85 或任一单项低于 70% 时不得提交正式视频。两类分镜都不能替代正式视频所需的人物、场景和道具资产。

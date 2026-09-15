@@ -29,7 +29,7 @@ export function compileMusicSearch(input = {}) {
 }
 
 export function listMusicCatalogs() {
-  return Object.entries(MUSIC_CATALOGS).map(([key, value]) => ({ key, label: value.label, mode: value.mode, requires_login: value.requires_login, attribution_varies: value.attribution_varies, license_review_required: true }))
+  return Object.entries(MUSIC_CATALOGS).map(([key, value]) => ({ key, label: value.label, capability: value.capability, mode: value.mode, requires_login: value.requires_login, attribution_varies: value.attribution_varies, license_review_required: true }))
 }
 
 async function listLicensedLocalTracks(projectRoot, input) {
