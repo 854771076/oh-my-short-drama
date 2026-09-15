@@ -30,14 +30,13 @@ test('百分位稳健处理全零、并列、单项及非法数值', () => {
   assert.deepEqual(percentileRanks([1, 3, 3, null, NaN, Infinity]), [0, 0.75, 0.75, null, null, null])
 })
 
-test('重复 observation 不重复供给，标题推断会降低置信度', () => {
+test('重复 observation 不重复供给且持久度截尾归一化', () => {
   const items = [
     { key: 'same', title: '推理谜案', topics: ['悬疑探案'], rankingType: 'hot', ranking: 1, heatValue: 100, growthValue: 10, isNew: true, persistenceDays: 60, provenance: { topicSource: 'title-keyword' } },
     { key: 'same', title: '推理谜案', topics: ['悬疑探案'], rankingType: 'douyin', ranking: 2, heatValue: 300, growthValue: 30, isNew: true, persistenceDays: 60, provenance: { topicSource: 'title-keyword' } },
   ]
   const metric = topicMetrics(items, ['hot', 'douyin'])[0]
   assert.equal(metric.supply_count, 1)
-  assert.equal(metric.confidence, 'low')
   assert.equal(metric.persistence_strength, 1)
 })
 
@@ -49,7 +48,7 @@ test('跨平台同剧在平台矩阵中合并且证据只保留引用', () => {
   assert.equal(matrix.length, 1)
   assert.deepEqual(matrix[0].ranking_types, ['douyin', 'hot'])
   assert.equal(matrix[0].platform_coverage, 2)
-  assert.deepEqual(matrix[0].evidence[0], { snapshot_id: 's1', ranking_type: 'douyin', playlet_id: 9, key: 'a' })
+  assert.deepEqual(matrix[0].evidence[0], { snapshot_id: 's1', ranking_type: 'douyin', playlet_id: 9, key: 'playlet-id:9' })
 })
 
 test('公司集中度以有归属去重作品为分母，空分母为零', () => {
@@ -103,4 +102,70 @@ test('新剧观察稳定排序且机会分位于零到一百', () => {
   })
   assert.deepEqual(report.new_title_watch.map((item) => item.key), ['a', 'b'])
   assert.ok(report.topic_metrics.every((item) => item.opportunity_score >= 0 && item.opportunity_score <= 100))
+})
+
+test('没有历史成功榜单口径时，不会把当前集合复用为趋势口径', () => {
+  const report = analyzeMarket({
+    items: [{ key: 'now', rankingType: 'hot' }],
+    successfulRankingTypes: ['hot'],
+    snapshotIds: ['now', 'before'],
+    previousItems: [{ key: 'before', rankingType: 'douyin' }],
+    filters: fixedFilters,
+  })
+  assert.equal(report.summary.trend, null)
+  assert.match(report.limitations.join(' '), /不可比/)
+})
+
+test('两个 snapshot id 但没有两份实际内容时明确标记趋势不可用', () => {
+  const report = analyzeMarket({
+    items: [{ key: 'now', rankingType: 'hot' }],
+    successfulRankingTypes: ['hot'],
+    snapshotIds: ['now', 'before'],
+    filters: fixedFilters,
+  })
+  assert.equal(report.summary.trend, null)
+  assert.match(report.limitations.join(' '), /趋势不可用/)
+})
+
+test('快照成功榜单集合忽略输入顺序，并要求两边都有实际 observation', () => {
+  const sameCoverage = compareSnapshots(
+    { items: [{ key: 'a', rankingType: 'hot' }], successfulRankingTypes: ['hot', 'douyin'] },
+    { items: [{ key: 'b', rankingType: 'douyin' }], successfulRankingTypes: ['douyin', 'hot'] },
+  )
+  assert.equal(sameCoverage.comparable, true)
+  assert.notEqual(sameCoverage.trend, null)
+  assert.equal(compareSnapshots({ items: [], successfulRankingTypes: ['hot'] }, { items: [{ key: 'b', rankingType: 'hot' }], successfulRankingTypes: ['hot'] }).trend, null)
+})
+
+test('报告的平台矩阵用快照 id 回填无 observation 快照字段的证据', () => {
+  const report = analyzeMarket({
+    items: [{ key: 'a', playletId: 1, rankingType: 'hot', ranking: 1 }],
+    successfulRankingTypes: ['hot'],
+    snapshotIds: ['snapshot-current'],
+    filters: fixedFilters,
+  })
+  assert.equal(report.platform_matrix[0].evidence[0].snapshot_id, 'snapshot-current')
+})
+
+test('同一 playletId 即使 key 不同也只计一部供给、平台作品和公司归属', () => {
+  const items = [
+    { key: 'different-a', playletId: 7, topics: ['题材'], rankingType: 'hot', ranking: 1, companies: ['甲'] },
+    { key: 'different-b', playletId: 7, topics: ['题材'], rankingType: 'douyin', ranking: 2, companies: ['甲'] },
+  ]
+  assert.equal(topicMetrics(items, ['hot', 'douyin'])[0].supply_count, 1)
+  assert.equal(platformMatrix(items).length, 1)
+  assert.equal(companyConcentration(items).total_with_company, 1)
+})
+
+test('来源标签在相同样本量和平台覆盖下比标题推断有更高置信度', () => {
+  const makeItems = (topicSource) => Array.from({ length: 5 }, (_, index) => ({
+    key: `${topicSource}-${index}`,
+    topics: ['题材'],
+    rankingType: index % 2 === 0 ? 'hot' : 'douyin',
+    provenance: { topicSource },
+  }))
+  const sourceTag = topicMetrics(makeItems('source-tag'), ['hot', 'douyin'])[0]
+  const titleKeyword = topicMetrics(makeItems('title-keyword'), ['hot', 'douyin'])[0]
+  assert.equal(sourceTag.confidence, 'high')
+  assert.equal(titleKeyword.confidence, 'low')
 })

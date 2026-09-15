@@ -34,9 +34,10 @@ function topicsOf(item) {
 }
 
 function keyOf(item, index = 0) {
+  // 平台会为同一 playletId 生成不同的观测 key；分析层优先使用稳定的作品 ID，避免把同剧重复计入供给或公司份额。
+  if (item?.playletId !== null && item?.playletId !== undefined && typeof item.playletId !== 'object' && String(item.playletId)) return `playlet-id:${item.playletId}`
   if (typeof item?.key === 'string' && item.key) return item.key
   if (typeof item?.key === 'number' && Number.isFinite(item.key)) return String(item.key)
-  if (item?.playletId !== null && item?.playletId !== undefined && String(item.playletId)) return `playlet-id:${item.playletId}`
   return `observation:${index}`
 }
 
@@ -236,7 +237,7 @@ export function topicMetrics(items, successfulRankingTypes) {
   }).sort((left, right) => right.opportunity_score - left.opportunity_score || compareText(left.topic, right.topic))
 }
 
-export function platformMatrix(items) {
+export function platformMatrix(items, fallbackSnapshotId = null) {
   const grouped = new Map()
   for (const entry of dedupeObservations(items)) {
     if (!grouped.has(entry.key)) grouped.set(entry.key, [])
@@ -253,7 +254,7 @@ export function platformMatrix(items) {
       ranking_types: rankings.map(({ ranking_type }) => ranking_type),
       platform_coverage: rankings.length,
       rankings,
-      evidence: entries.map(({ item }) => evidenceReference(item, key)).sort(evidenceSort),
+      evidence: entries.map(({ item }) => evidenceReference(item, key, fallbackSnapshotId)).sort(evidenceSort),
     }
   }).sort((left, right) => right.platform_coverage - left.platform_coverage || compareText(left.key, right.key))
 }
@@ -276,7 +277,7 @@ export function companyConcentration(items) {
 }
 
 function snapshotShape(snapshot) {
-  if (Array.isArray(snapshot)) return { items: snapshot, successfulRankingTypes: uniqueStrings(snapshot.map((item) => item?.rankingType)) }
+  if (Array.isArray(snapshot)) return { items: snapshot, successfulRankingTypes: uniqueStrings(snapshot.map((item) => item?.rankingType)).sort(compareText) }
   const source = isRecord(snapshot) ? snapshot : {}
   const items = Array.isArray(source.items) ? source.items : []
   const successful = source.successfulRankingTypes ?? source.coverage?.successful_ranking_types ?? items.map((item) => item?.rankingType)
@@ -286,7 +287,9 @@ function snapshotShape(snapshot) {
 export function compareSnapshots(current, previous) {
   const currentSnapshot = snapshotShape(current)
   const previousSnapshot = snapshotShape(previous)
-  const comparable = currentSnapshot.successfulRankingTypes.length > 0
+  const comparable = currentSnapshot.items.length > 0
+    && previousSnapshot.items.length > 0
+    && currentSnapshot.successfulRankingTypes.length > 0
     && JSON.stringify(currentSnapshot.successfulRankingTypes) === JSON.stringify(previousSnapshot.successfulRankingTypes)
   if (!comparable) return { comparable: false, trend: null }
   const currentKeys = new Set(dedupeObservations(currentSnapshot.items).map(({ key }) => key))
@@ -331,18 +334,21 @@ export function analyzeMarket({ items, successfulRankingTypes, snapshotIds, prev
   const ids = uniqueStrings(snapshotIds)
   const generatedAt = deterministicGeneratedAt(filteredItems, filters)
   const metrics = topicMetrics(filteredItems, successful)
-  const previousSuccessful = filters?.previousSuccessfulRankingTypes ?? successful
-  const comparison = filteredPreviousItems.length === 0
-    ? { comparable: false, trend: null }
-    : compareSnapshots({ items: filteredItems, successfulRankingTypes: successful }, { items: filteredPreviousItems, successfulRankingTypes: previousSuccessful })
+  // 历史成功榜单未知时，只能从历史 observation 推导，绝不能复用当前集合伪造可比性。
+  const previousSuccessful = filters?.previousSuccessfulRankingTypes ?? uniqueStrings(filteredPreviousItems.map((item) => item.rankingType))
+  const hasTwoContentSnapshots = ids.length >= 2 && filteredItems.length > 0 && filteredPreviousItems.length > 0
+  const comparison = hasTwoContentSnapshots
+    ? compareSnapshots({ items: filteredItems, successfulRankingTypes: successful }, { items: filteredPreviousItems, successfulRankingTypes: previousSuccessful })
+    : { comparable: false, trend: null }
   const failed = ALL_RANKING_TYPES.filter((type) => !successful.includes(type))
   const evidence = dedupeObservations(filteredItems)
     .map(({ item, key }) => evidenceReference(item, key, ids[0] ?? null))
     .sort(evidenceSort)
   const limitations = ['数据仅覆盖公开 Top 30 榜单样本，不能代表全量市场。']
-  if (ids.length <= 1 && filteredPreviousItems.length === 0) limitations.push('单次快照仅反映采集时点，不应直接视为趋势。')
+  if (ids.length <= 1) limitations.push('单次快照仅反映采集时点，不应直接视为趋势。')
+  if (!hasTwoContentSnapshots) limitations.push('趋势不可用：缺少两个同口径且有实际内容的快照。')
   if (failed.length > 0) limitations.push(`榜单覆盖受限：${failed.join('、')} 未成功采集。`)
-  if (filteredPreviousItems.length > 0 && !comparison.comparable) limitations.push('历史快照成功榜单集合不同，结果不可比，未生成趋势。')
+  if (hasTwoContentSnapshots && !comparison.comparable) limitations.push('历史快照成功榜单集合不同，结果不可比，未生成趋势。')
   return {
     schema_version: 'market-report.v1',
     report_id: deterministicReportId(ids, generatedAt, dedupeObservations(filteredItems)),
@@ -362,7 +368,7 @@ export function analyzeMarket({ items, successfulRankingTypes, snapshotIds, prev
       trend: comparison.trend,
     },
     topic_metrics: metrics,
-    platform_matrix: platformMatrix(filteredItems),
+    platform_matrix: platformMatrix(filteredItems, ids[0] ?? null),
     company_concentration: companyConcentration(filteredItems),
     new_title_watch: newTitleWatch(filteredItems, ids[0] ?? null),
     evidence,
