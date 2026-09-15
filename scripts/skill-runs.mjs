@@ -26,6 +26,8 @@ const evidencePatterns = {
   'edit-drama-timeline': /editing\/ep-\d{3}\/(?:timeline|review)\.json$/,
   'edit-deliver-drama': /delivery\/ep-\d{3}\/manifest\.json$/,
   'design-drama-audio': /episodes\/ep-\d{3}\/audio-plan\/v\d{3}\.json$/,
+  'direct-blender-previz': /episodes\/ep-\d{3}\/previz\/shot-\d{3}-v\d{3}\.json$/,
+  'generate-blender-previz': /assets\/other\/other-previz-ep\d{3}-\d{3}\/v\d{3}\.mp4$/,
 }
 const episodeEvidence = {
   'short-drama': (episode) => new RegExp(`^episodes/${episode}/scripts/v\\d{3}\\.(?:json|md|txt)$`),
@@ -123,6 +125,11 @@ export async function requiredSkills(root, stage) {
       const marker = JSON.parse(await readFile(markerPath, 'utf8'))
       const plan = JSON.parse(await readFile(resolve(root, marker.path), 'utf8'))
       for (const shot of plan.shots || []) {
+        if ((shot.storyboard_strategy?.mode || 'image') === 'image') required.add('generate-storyboard-images')
+        if (shot.previz_strategy?.mode === 'blender') {
+          required.add('direct-blender-previz')
+          required.add('generate-blender-previz')
+        }
         const mode = typeof shot.audio_strategy === 'string' ? shot.audio_strategy : shot.audio_strategy?.mode
         if (!isH3Model(shot.provider, shot.model_or_workflow) || mode !== 'native') needsIndependentAudio = true
       }

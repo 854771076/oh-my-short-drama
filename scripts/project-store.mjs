@@ -14,6 +14,7 @@ import { ANTI_GRID_CLAIM_ZH, ANTI_GRID_CLAIM_EN, hasAntiGridClaim } from './grid
 import { changedShotNumbers } from './shot-fingerprint.mjs'
 import { DEFAULT_WORKSPACE_ROOT, openStudio } from './studio.mjs'
 import { normalizeModelParameters, providerSetupCatalog } from './generation/providers.mjs'
+import { supportsPrevizMotionReference, validateMotionReferenceBinding } from './previz-contract.mjs'
 import { saveCustomArtStyle } from './art-styles.mjs'
 
 const root = process.argv[2] === 'init' ? resolve(DEFAULT_WORKSPACE_ROOT, process.argv[3] || 'short-drama') : resolve(process.argv[3] || process.cwd())
@@ -23,6 +24,7 @@ const PROMPT_PROFILES = new Set(['seedance2', 'h3', 'generic'])
 const H3_MODES = new Set(['T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA'])
 const ASPECT_RATIOS = new Set(['9:16', '16:9', '1:1', '4:3', '3:4', '21:9'])
 const STORYBOARD_TYPES = new Set(['single', 'storyboard', 'shot-board'])
+const STORYBOARD_MEDIA = new Set(['image', 'blender'])
 const ADAPTATION_MODES = new Set(['original', 'faithful_adaptation', 'authorized_adaptation'])
 
 async function exists(path) { try { await access(path); return true } catch { return false } }
@@ -83,7 +85,7 @@ function projectDefaults(key, title) {
     format: { aspect_ratio: null, resolution: null, fps: null, episode_count: null, episode_duration_seconds: null },
     languages: { output: null, spoken: null, subtitle: null },
     creative: { adaptation_mode: null, genre: null, tone: null, rating: null, art_style: defaultArtStyle() },
-    storyboard: { type: 'shot-board', default_panel_grid_size: 4 },
+    storyboard: { type: 'shot-board', default_panel_grid_size: 4, preferred_medium: 'blender' },
     providers: { image: providerDefaults(), video: providerDefaults(), audio: providerDefaults(), music: providerDefaults() },
     createdAt: null,
     updatedAt: null,
@@ -113,6 +115,7 @@ export function validateProject(project) {
   // 旧版 v1 没有该字段时按默认开启，下一次写入会补齐配置。
   if (!Object.hasOwn(project, 'automation_mode')) project.automation_mode = true
   if (!Object.hasOwn(project, 'paid_automation_authorized')) project.paid_automation_authorized = false
+  if (project.storyboard && typeof project.storyboard === 'object' && !Array.isArray(project.storyboard) && !Object.hasOwn(project.storyboard, 'preferred_medium')) project.storyboard.preferred_medium = 'blender'
   exactKeys(project, ['schema_version', 'key', 'title', 'automation_mode', 'paid_automation_authorized', 'description', 'format', 'languages', 'creative', 'storyboard', 'providers', 'createdAt', 'updatedAt'], 'project.json')
   if (project.schema_version !== 1) throw new Error('project.json schema_version 必须为 1')
   if (typeof project.automation_mode !== 'boolean') throw new Error('automation_mode 必须是布尔值')
@@ -137,9 +140,10 @@ export function validateProject(project) {
   if (project.creative.art_style !== null) {
     validateArtStyle(project.creative.art_style, 'creative.art_style')
   }
-  exactKeys(project.storyboard, ['type', 'default_panel_grid_size'], 'project.storyboard')
+  exactKeys(project.storyboard, ['type', 'default_panel_grid_size', 'preferred_medium'], 'project.storyboard')
   if (project.storyboard.type !== null && !STORYBOARD_TYPES.has(project.storyboard.type)) throw new Error('storyboard.type 无效')
   if (project.storyboard.default_panel_grid_size !== null && (!Number.isInteger(project.storyboard.default_panel_grid_size) || project.storyboard.default_panel_grid_size < 1 || project.storyboard.default_panel_grid_size > 16)) throw new Error('storyboard.default_panel_grid_size 必须为 1–16 或 null')
+  if (!STORYBOARD_MEDIA.has(project.storyboard.preferred_medium)) throw new Error('storyboard.preferred_medium 必须为 image 或 blender')
   const providerModalities = Object.hasOwn(project.providers, 'music') ? ['image', 'video', 'audio', 'music'] : ['image', 'video', 'audio']
   exactKeys(project.providers, providerModalities, 'project.providers')
   for (const modality of providerModalities) {
@@ -396,19 +400,29 @@ function validateDocument(kind, document, episodeKey) {
   }
   if (kind === 'production-plan' && (typeof document.approved !== 'boolean' || !Array.isArray(document.unresolved))) throw new Error('production-plan approved/unresolved 无效')
   if (kind === 'production-plan') {
-    const fields = ['shot_number', 'dependencies', 'image_strategy', 'video_strategy', 'audio_strategy', 'provider', 'model_or_workflow', 'prompt_profile', 'input_mode', 'duration_seconds', 'resolution', 'aspect_ratio', 'candidate_count', 'reference_assets', 'estimated_paid_calls', 'fallback', 'review_checks', 'status']
+    const fields = ['shot_number', 'dependencies', 'storyboard_strategy', 'image_strategy', 'video_strategy', 'audio_strategy', 'provider', 'model_or_workflow', 'prompt_profile', 'input_mode', 'duration_seconds', 'resolution', 'aspect_ratio', 'candidate_count', 'reference_assets', 'estimated_paid_calls', 'fallback', 'review_checks', 'status']
     const numbers = new Set()
     document.shots.forEach((shot, index) => {
+      shot.storyboard_strategy ||= { mode: 'image' }
       for (const field of fields) if (!(field in shot)) throw new Error(`production-plan shots[${index}] 缺少 ${field}`)
       if (shot.shot_number !== index + 1 || numbers.has(shot.shot_number)) throw new Error(`production-plan shots[${index}].shot_number 必须从 1 连续递增`)
       numbers.add(shot.shot_number)
       for (const field of ['dependencies', 'reference_assets', 'review_checks']) if (!Array.isArray(shot[field])) throw new Error(`production-plan shots[${index}].${field} 必须是数组`)
-      for (const field of ['image_strategy', 'video_strategy', 'audio_strategy']) if (!shot[field] || typeof shot[field] !== 'object' || Array.isArray(shot[field])) throw new Error(`production-plan shots[${index}].${field} 必须是对象`)
+      for (const field of ['storyboard_strategy', 'image_strategy', 'video_strategy', 'audio_strategy']) if (!shot[field] || typeof shot[field] !== 'object' || Array.isArray(shot[field])) throw new Error(`production-plan shots[${index}].${field} 必须是对象`)
+      if (!STORYBOARD_MEDIA.has(shot.storyboard_strategy.mode)) throw new Error(`production-plan shots[${index}].storyboard_strategy.mode 必须为 image 或 blender`)
       for (const field of ['mode', 'board_type', 'panel_grid_size', 'overflow_strategy']) if (!(field in shot.image_strategy)) throw new Error(`production-plan shots[${index}].image_strategy 缺少 ${field}`)
-      if (shot.image_strategy.mode !== 'generate') throw new Error(`production-plan shots[${index}].image_strategy.mode 必须为 generate`)
+      if (!['generate', 'skip'].includes(shot.image_strategy.mode)) throw new Error(`production-plan shots[${index}].image_strategy.mode 必须为 generate 或 skip`)
       if (!STORYBOARD_TYPES.has(shot.image_strategy.board_type ?? 'shot-board')) throw new Error(`production-plan shots[${index}].image_strategy.board_type 无效`)
       if (!Number.isInteger(shot.image_strategy.panel_grid_size) || shot.image_strategy.panel_grid_size < 1 || shot.image_strategy.panel_grid_size > 16 || (shot.image_strategy.board_type === 'single') !== (shot.image_strategy.panel_grid_size === 1)) throw new Error(`production-plan shots[${index}].image_strategy.panel_grid_size 与分镜类型不匹配`)
       if (!['compose-assets', 'reject'].includes(shot.image_strategy.overflow_strategy ?? 'compose-assets')) throw new Error(`production-plan shots[${index}].image_strategy.overflow_strategy 无效`)
+      if (shot.previz_strategy !== undefined) {
+        const previz = shot.previz_strategy
+        if (!previz || typeof previz !== 'object' || Array.isArray(previz) || !['none', 'blender'].includes(previz.mode)) throw new Error(`production-plan shots[${index}].previz_strategy 无效`)
+        if (previz.mode === 'blender' && (!['review', 'motion-reference'].includes(previz.purpose) || !Number.isInteger(previz.fps) || previz.fps < 6 || previz.fps > 30)) throw new Error(`production-plan shots[${index}].previz_strategy Blender 参数无效`)
+      }
+      if (shot.storyboard_strategy.mode === 'image' && shot.image_strategy.mode !== 'generate') throw new Error(`production-plan shots[${index}] 图片分镜必须生成 image_strategy`)
+      if (shot.storyboard_strategy.mode === 'blender' && (shot.image_strategy.mode !== 'skip' || shot.previz_strategy?.mode !== 'blender')) throw new Error(`production-plan shots[${index}] 白模分镜必须跳过图片并启用 Blender`)
+      if (shot.previz_strategy?.purpose === 'motion-reference' && !supportsPrevizMotionReference(shot.provider, shot.model_or_workflow)) throw new Error(`production-plan shots[${index}] 当前 Provider/工作流不支持白模参考视频`)
       for (const field of ['provider', 'model_or_workflow', 'resolution', 'aspect_ratio']) if (typeof shot[field] !== 'string' || !shot[field]) throw new Error(`production-plan shots[${index}].${field} 必填`)
       if (!Number.isInteger(shot.duration_seconds) || shot.duration_seconds <= 0 || !Number.isInteger(shot.candidate_count) || shot.candidate_count <= 0 || !Number.isInteger(shot.estimated_paid_calls) || shot.estimated_paid_calls < 0) throw new Error(`production-plan shots[${index}] 数量或时长无效`)
       if (!['ready', 'blocked'].includes(shot.status)) throw new Error(`production-plan shots[${index}].status 无效`)
@@ -446,7 +460,9 @@ async function validateEpisodeDocument(kind, episodeKey, document) {
   if (kind !== 'video-prompts') return
   const ledger = await readJson(resolve(root, '.short-drama', 'assets.json'))
   for (const shot of document.shots) {
-    await access(resolve(episodeRoot(episodeKey), 'production-plan', `${safeKey(shot.production_plan_version, 'production plan version')}.json`))
+    const plan = await readJson(resolve(episodeRoot(episodeKey), 'production-plan', `${safeKey(shot.production_plan_version, 'production plan version')}.json`))
+    const planShot = plan.shots?.find((item) => item.shot_number === shot.shot_number)
+    if (!planShot) throw new Error(`video-prompts shot ${shot.shot_number} 在制作计划中不存在`)
     await access(resolve(episodeRoot(episodeKey), 'storyboard', `${safeKey(shot.storyboard_version, 'storyboard version')}.json`))
     for (const type of ['image', 'video', 'audio']) {
       const references = shot.references.filter((item) => item?.type === type)
@@ -460,6 +476,7 @@ async function validateEpisodeDocument(kind, episodeKey, document) {
       if (!version || asset.selectedVersionId !== reference.version_id) throw new Error(`video-prompts shot ${shot.shot_number} 引用必须是已选本地版本：${reference.asset_key}@${reference.version_id}`)
       await access(resolve(root, version.localPath))
     }
+    validateMotionReferenceBinding(episodeKey, planShot, shot, ledger)
   }
 }
 
@@ -492,7 +509,7 @@ async function main() {
     versionKey('v001')
     const now = new Date().toISOString()
     validateProject({ ...projectDefaults('short-drama', '短剧'), createdAt: now, updatedAt: now })
-    if (projectDefaults('short-drama', '短剧').automation_mode !== true) throw new Error('全自动化默认值自检失败')
+    if (projectDefaults('short-drama', '短剧').automation_mode !== true || projectDefaults('short-drama', '短剧').storyboard.preferred_medium !== 'blender') throw new Error('项目默认值自检失败')
     try {
       validateProject({ ...projectDefaults('short-drama', '短剧'), format: { aspect_ratio: '16:9', resolution: '1080x1920', fps: 24, episode_count: 1, episode_duration_seconds: 60 }, createdAt: now, updatedAt: now })
       throw new Error('画幅与分辨率一致性自检失败')
@@ -573,7 +590,7 @@ async function main() {
       format: { aspect_ratio: current.aspectRatio ?? current.aspect_ratio ?? null, resolution: current.resolution ?? null, fps: current.fps ?? null, episode_count: current.episodeCount ?? null, episode_duration_seconds: current.episodeDurationSeconds ?? null },
       languages: { output: current.outputLanguage ?? null, spoken: current.spokenLanguage ?? null, subtitle: current.subtitleLanguage ?? null },
       creative: { adaptation_mode: current.adaptationMode ?? null, genre: current.genre ?? null, tone: current.tone ?? null, rating: current.rating ?? null, art_style: current.artStyle ?? null },
-      storyboard: { type: current.storyboardType ?? null, default_panel_grid_size: current.defaultPanelGridSize ?? null },
+      storyboard: { type: current.storyboardType ?? null, default_panel_grid_size: current.defaultPanelGridSize ?? null, preferred_medium: current.storyboardPreferredMedium ?? 'blender' },
       providers: { image: provider('image'), video: provider('video'), audio: provider('audio') },
       createdAt: current.createdAt || now,
       updatedAt: now,

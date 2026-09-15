@@ -36,6 +36,7 @@
 │   ├── asset-plan/v001.json
 │   ├── storyboard/v001.json
 │   ├── production-plan/v001.json
+│   ├── previz/shot-001-v001.json
 │   ├── video-prompts/v001.json
 │   └── audio-plan/v001.json
 ├── assets/{characters,scenes,props,storyboards,audio,videos,other}/<asset-key>/v001.<ext>
@@ -107,7 +108,8 @@
   },
   "storyboard": {
     "type": "shot-board",
-    "default_panel_grid_size": 4
+    "default_panel_grid_size": 4,
+    "preferred_medium": "blender"
   },
   "providers": {
     "image": { "provider": "starrouter", "model_or_workflow": "gpt-image-2", "prompt_profile": null, "parameters": { "resolution": "1K", "aspect_ratio": "1:1", "n": 1, "quality": "auto" } },

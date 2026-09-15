@@ -15,6 +15,7 @@ import { selfCheck as checkBailian } from './generation/bailian.mjs'
 import { listReferenceUploads, publishReferenceImage, selfCheck as checkPublish, validateTemporaryReferenceUrl } from './media-hosting/publish.mjs'
 import { validateVideoReferenceBindings } from './reference-bindings.mjs'
 import { ANTI_GRID_CLAIM_ZH, PANEL_BOARD_CLAIM_ZH } from './grid-detect.mjs'
+import { missingPrevizAssets, missingStoryboardAssets } from './workflow-gates.mjs'
 
 const plugin = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const skillMap = JSON.parse(await readFile(resolve(plugin, 'references/skill-map.json'), 'utf8'))
@@ -238,7 +239,7 @@ async function main() {
   for (const field of ['confirmed', 'rights_confirmed', 'public_exposure_confirmed', 'usage_terms_confirmed', 'usage_scope']) if (!cloneSchema?.required?.includes(field)) throw new Error(`clone_voice 缺少必填确认字段：${field}`)
   const audioSchema = generationTools.find((tool) => tool.name === 'generate_audio')?.inputSchema?.properties
   if (!audioSchema.language_hints || !audioSchema.instruction || audioSchema.response_format.enum.join() !== 'mp3,pcm,flac,wav,opus') throw new Error('generate_audio 百炼字段缺失')
-  for (const script of ['asset-ledger.mjs', 'character-profiles.mjs', 'editing-store.mjs', 'export-edit-subtitles.mjs', 'file-lock.mjs', 'freeze-edit-candidate.mjs', 'media-tools.mjs', 'native-audio-audit.mjs', 'preflight.mjs', 'project-store.mjs', 'render-prompt.mjs', 'review-ledger.mjs', 'shot-fingerprint.mjs', 'task-ledger.mjs', 'task-sync.mjs', 'workflow-gates.mjs', 'generation/bailian.mjs', 'generation/voice-tools.mjs', 'voice-ledger.mjs']) run(script, '--self-check')
+  for (const script of ['asset-ledger.mjs', 'character-profiles.mjs', 'editing-store.mjs', 'export-edit-subtitles.mjs', 'file-lock.mjs', 'freeze-edit-candidate.mjs', 'media-tools.mjs', 'native-audio-audit.mjs', 'preflight.mjs', 'previz-self-check.mjs', 'project-store.mjs', 'render-prompt.mjs', 'review-ledger.mjs', 'shot-fingerprint.mjs', 'task-ledger.mjs', 'task-sync.mjs', 'workflow-gates.mjs', 'generation/bailian.mjs', 'generation/voice-tools.mjs', 'voice-ledger.mjs']) run(script, '--self-check')
   for (const check of [checkComfly, checkRunningHub, checkStarRouter, checkProviders, checkLitterbox, checkBailian, checkPublish]) await check()
   await checkMultiEpisodeEvidence()
   await checkBailianVoiceLifecycle()
@@ -415,6 +416,18 @@ async function main() {
     const invalidGridSize = { ...production, shots: production.shots.map((shot, index) => index ? shot : { ...shot, image_strategy: { ...shot.image_strategy, panel_grid_size: 2 } }) }
     const invalidGridResult = spawnSync(process.execPath, [resolve(plugin, 'scripts/project-store.mjs'), 'put-episode-document', root, 'production-plan', 'ep-001', 'v009', await json(root, 'production-invalid-grid.json', invalidGridSize)], { encoding: 'utf8' })
     if (invalidGridResult.status === 0 || !invalidGridResult.stderr.includes('panel_grid_size 与分镜类型不匹配')) throw new Error('分镜类型与格数不一致未被拒绝')
+    const invalidPreviz = { ...production, shots: production.shots.map((shot, index) => index ? shot : { ...shot, previz_strategy: { mode: 'blender', purpose: 'review', fps: 1 } }) }
+    const invalidPrevizResult = spawnSync(process.execPath, [resolve(plugin, 'scripts/project-store.mjs'), 'put-episode-document', root, 'production-plan', 'ep-001', 'v008', await json(root, 'production-invalid-previz.json', invalidPreviz)], { encoding: 'utf8' })
+    if (invalidPrevizResult.status === 0 || !invalidPrevizResult.stderr.includes('previz_strategy Blender 参数无效')) throw new Error('灰模预演参数错误未被拒绝')
+    const unsupportedMotionReference = { ...production, shots: production.shots.map((shot) => ({ ...shot, storyboard_strategy: { mode: 'blender' }, image_strategy: { ...shot.image_strategy, mode: 'skip' }, previz_strategy: { mode: 'blender', purpose: 'motion-reference', fps: 12 } })) }
+    const unsupportedMotionResult = spawnSync(process.execPath, [resolve(plugin, 'scripts/project-store.mjs'), 'put-episode-document', root, 'production-plan', 'ep-001', 'v006', await json(root, 'production-unsupported-motion-reference.json', unsupportedMotionReference)], { encoding: 'utf8' })
+    if (unsupportedMotionResult.status === 0 || !unsupportedMotionResult.stderr.includes('不支持白模参考视频')) throw new Error('不支持参考视频的 Provider 仍接受 motion-reference')
+    const blenderSelection = { ...production, shots: production.shots.map((shot) => ({ ...shot, storyboard_strategy: { mode: 'blender' }, image_strategy: { ...shot.image_strategy, mode: 'skip' }, previz_strategy: { mode: 'blender', purpose: 'review', fps: 12 } })) }
+    run('project-store.mjs', 'put-episode-document', root, 'production-plan', 'ep-001', 'v007', await json(root, 'production-blender.json', blenderSelection))
+    if ((await missingStoryboardAssets(root, 'ep-001', 'v001', blenderSelection.shots, JSON.parse(run('asset-ledger.mjs', 'list', root)))).length) throw new Error('白模分镜仍被错误要求图片分镜')
+    run('project-store.mjs', 'select-episode-document', root, 'production-plan', 'ep-001', 'v007')
+    const blenderSkills = JSON.parse(run('skill-runs.mjs', 'required', root, 'media-production'))
+    if (blenderSkills.includes('generate-storyboard-images') || !blenderSkills.includes('direct-blender-previz') || !blenderSkills.includes('generate-blender-previz')) throw new Error('全白模分镜未正确切换媒体 Skill')
     run('project-store.mjs', 'put-episode-document', root, 'production-plan', 'ep-001', 'v001', await json(root, 'production.json', production))
     run('project-store.mjs', 'select-episode-document', root, 'production-plan', 'ep-001', 'v001')
     if (!JSON.parse(run('skill-runs.mjs', 'required', root, 'media-production')).includes('generate-storyboard-images')) throw new Error('媒体阶段未强制要求分镜图 Skill')
@@ -430,7 +443,7 @@ async function main() {
     run('project-store.mjs', 'put-episode-document', root, 'audio-plan', 'ep-001', 'v001', await json(root, 'audio-plan.json', audioPlan))
     run('project-store.mjs', 'select-episode-document', root, 'audio-plan', 'ep-001', 'v001')
     const boundVideo = { provider: 'starrouter', model: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: 'first-last-frame', prompt_version: 'v001', prompt: videoPrompts.shots[0].prompt, duration: 5, frame_url: uploadReceipt.url, reference_manifest: videoPrompts.shots[0].references, confirmed: true, project_root: root, target: 'shot-ep001-001', prompt_document: { episode_key: 'ep-001', version_id: 'v001', shot_number: 1 } }
-    try { await callGeneration('submit_video', boundVideo); throw new Error('缺少分镜图时仍可提交视频') } catch (error) { if (!String(error.message).includes('整集分镜图生成与选版')) throw error }
+    try { await callGeneration('submit_video', boundVideo); throw new Error('缺少分镜图时仍可提交视频') } catch (error) { if (!String(error.message).includes('图片分镜镜头的生成与选版')) throw error }
     for (const shotNumber of [1, 2]) {
       const key = `board-ep001-${String(shotNumber).padStart(3, '0')}`
       const promptDocument = { kind: 'storyboard', episode_key: 'ep-001', version_id: 'v001', shot_number: shotNumber }
@@ -449,9 +462,11 @@ async function main() {
       run('asset-ledger.mjs', 'select', root, key, 'v001')
       run('task-ledger.mjs', 'update', root, `board-task-${shotNumber}`, 'completed', 'v001')
     }
-    try { await callGeneration('submit_video', boundVideo); throw new Error('缺少分镜图审计时仍可提交视频') } catch (error) { if (!String(error.message).includes('整集分镜图多维审计')) throw error }
+    try { await callGeneration('submit_video', boundVideo); throw new Error('缺少分镜图审计时仍可提交视频') } catch (error) { if (!String(error.message).includes('图片分镜镜头的多维审计')) throw error }
     const storyboardCriteria = ['空间关系与轴线', '时间与动作连续性', '物理与交互逻辑', '光线与色彩连续性', '人物身份与造型一致性', '场景与道具一致性', '构图与镜头语言', '叙事覆盖与阅读顺序']
     for (const shotNumber of [1, 2]) run('review-ledger.mjs', 'put', root, await json(root, `board-review-${shotNumber}.json`, { assetKey: `board-ep001-${String(shotNumber).padStart(3, '0')}`, versionId: 'v001', visual: 'passed', audio: 'not-applicable', transition: 'not-applicable', captions: 'not-applicable', issues: [], criteria: storyboardCriteria.map((criterion) => ({ criterion, status: 'passed', observation: `${criterion}已有可见证据` })) }))
+    const missingPreviz = await missingPrevizAssets(root, 'ep-001', 'v001', [{ shot_number: 1, previz_strategy: { mode: 'blender' } }], JSON.parse(run('asset-ledger.mjs', 'list', root)))
+    if (missingPreviz.length !== 1 || !missingPreviz[0].includes('Blender 白模分镜')) throw new Error('白模分镜缺失门禁未生效')
     try { await callGeneration('submit_video', { ...boundVideo, prompt: '被篡改的提示词' }); throw new Error('视频提示词绑定自检未触发') } catch (error) { if (!String(error.message).includes('prompt 不一致')) throw error }
     try { await callGeneration('submit_video', { ...boundVideo, fps: 25 }); throw new Error('Seedance 参数自检未触发') } catch (error) { if (!String(error.message).includes('fps 仅支持 24')) throw error }
     const batchConfirmations = (({ service, expires_in, usage_scope, confirmed, rights_confirmed, public_exposure_confirmed, usage_terms_confirmed }) => ({ service, expires_in, usage_scope, confirmed, rights_confirmed, public_exposure_confirmed, usage_terms_confirmed }))(publishInput)
@@ -476,21 +491,31 @@ async function main() {
     run('review-ledger.mjs', 'put', root, await json(root, 'board-review-ep001-002-v002.json', { assetKey: 'board-ep001-002', versionId: 'v002', visual: 'passed', audio: 'not-applicable', transition: 'not-applicable', captions: 'not-applicable', issues: [], criteria: storyboardCriteria.map((criterion) => ({ criterion, status: 'passed', observation: `${criterion}已有可见证据` })) }))
     await publishReferenceImage(root, { ...publishInput, asset_key: 'board-ep001-002', version_id: 'v002' }, async () => new Response('https://litter.catbox.moe/board.png', { status: 200 }))
     const boardRole = (role) => [{ type: 'image', order: 1, asset_key: 'board-ep001-002', version_id: 'v002', role }]
-    const panelDoc = (inputMode, role, withClause) => ({ episode_key: 'ep-001', source_versions: { production_plan: 'v001', storyboard: 'v001' }, unresolved: [], approved: true, shots: [{ shot_number: 2, production_plan_version: 'v001', storyboard_version: 'v001', provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: inputMode, prompt: `${ANTI_GRID_CLAIM_ZH}\n${withClause ? `${PANEL_BOARD_CLAIM_ZH}\n` : ''}人物走向门口。\n${ANTI_GRID_CLAIM_ZH}`, duration: 5, references: boardRole(role), continuity: {}, audio_policy: { mode: 'post-dub' }, errors: [] }] })
-    const putPanelVersion = async (version, documentToStore) => {
+    const panelDoc = (version, inputMode, role, withClause) => ({ episode_key: 'ep-001', source_versions: { production_plan: version, storyboard: 'v001' }, unresolved: [], approved: true, shots: [{ ...videoPrompts.shots[0], production_plan_version: version }, { shot_number: 2, production_plan_version: version, storyboard_version: 'v001', provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: inputMode, prompt: `${ANTI_GRID_CLAIM_ZH}\n${withClause ? `${PANEL_BOARD_CLAIM_ZH}\n` : ''}人物走向门口。\n${ANTI_GRID_CLAIM_ZH}`, duration: 5, references: boardRole(role), continuity: {}, audio_policy: { mode: 'post-dub' }, errors: [] }] })
+    const putPanelVersion = async (version, inputMode, role, withClause) => {
+      const panelProduction = { ...production, shots: production.shots.map((shot, index) => index === 0 ? shot : { ...shot, input_mode: inputMode, reference_assets: boardRole(role).map(({ asset_key: key, version_id, role: referenceRole, order }) => ({ key, version_id, role: referenceRole, order })) }) }
+      run('project-store.mjs', 'put-episode-document', root, 'production-plan', 'ep-001', version, await json(root, `production-panel-${version}.json`, panelProduction))
+      run('project-store.mjs', 'select-episode-document', root, 'production-plan', 'ep-001', version)
+      const boardState = JSON.parse(run('asset-ledger.mjs', 'list', root, 'board-ep001-002'))
+      run('asset-ledger.mjs', boardState.staleVersionIds?.includes('v002') ? 'restore' : 'select', root, 'board-ep001-002', 'v002')
+      run('review-ledger.mjs', 'put', root, await json(root, `board-review-ep001-002-${version}.json`, { assetKey: 'board-ep001-002', versionId: 'v002', visual: 'passed', audio: 'not-applicable', transition: 'not-applicable', captions: 'not-applicable', issues: [], criteria: storyboardCriteria.map((criterion) => ({ criterion, status: 'passed', observation: `${criterion}已有可见证据` })) }))
+      const documentToStore = panelDoc(version, inputMode, role, withClause)
       run('project-store.mjs', 'put-episode-document', root, 'video-prompts', 'ep-001', version, await json(root, `video-prompts-${version}.json`, documentToStore))
       run('project-store.mjs', 'select-episode-document', root, 'video-prompts', 'ep-001', version)
     }
-    await putPanelVersion('v099', panelDoc('full-reference', 'reference_image', true))
+    await putPanelVersion('v099', 'full-reference', 'reference_image', true)
     const panelAllowedPlan = await callGeneration('submit_episode_videos', { project_root: root, episode_key: 'ep-001', shot_numbers: [2], confirmed: false })
     if (!panelAllowedPlan.ready || panelAllowedPlan.shots[0].error) throw new Error(`多格分镜板语义参考输入被误拒：${JSON.stringify(panelAllowedPlan.shots[0])}`)
-    await putPanelVersion('v098', panelDoc('first-last-frame', 'first_frame', true))
+    await putPanelVersion('v098', 'first-last-frame', 'first_frame', true)
     const panelFramedPlan = await callGeneration('submit_episode_videos', { project_root: root, episode_key: 'ep-001', shot_numbers: [2], confirmed: false })
     if (panelFramedPlan.ready || !panelFramedPlan.shots[0].error?.includes('首帧/尾帧')) throw new Error(`多格分镜板像素槽位未拦截：${JSON.stringify(panelFramedPlan.shots[0])}`)
-    await putPanelVersion('v097', panelDoc('full-reference', 'reference_image', false))
+    await putPanelVersion('v097', 'full-reference', 'reference_image', false)
     const panelNoClaimPlan = await callGeneration('submit_episode_videos', { project_root: root, episode_key: 'ep-001', shot_numbers: [2], confirmed: false })
     if (panelNoClaimPlan.ready || !panelNoClaimPlan.shots[0].error?.includes('分镜板时间顺序条款')) throw new Error(`缺分镜板条款的多格板输入未拦截：${JSON.stringify(panelNoClaimPlan.shots[0])}`)
     run('project-store.mjs', 'select-episode-document', root, 'video-prompts', 'ep-001', 'v001')
+    run('project-store.mjs', 'select-episode-document', root, 'production-plan', 'ep-001', 'v001')
+    run('asset-ledger.mjs', 'restore', root, 'board-ep001-002', 'v002')
+    run('review-ledger.mjs', 'put', root, await json(root, 'board-review-ep001-002-restored.json', { assetKey: 'board-ep001-002', versionId: 'v002', visual: 'passed', audio: 'not-applicable', transition: 'not-applicable', captions: 'not-applicable', issues: [], criteria: storyboardCriteria.map((criterion) => ({ criterion, status: 'passed', observation: `${criterion}已有可见证据` })) }))
     const boundFailure = Object.values(JSON.parse(run('task-ledger.mjs', 'list', root)).tasks).find((task) => task.target === 'shot-ep001-001' && task.status === 'failed')
     if (!boundFailure) throw new Error('通过文档绑定校验后的失败视频请求未留档')
     try {

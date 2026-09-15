@@ -6,9 +6,10 @@ import { fileURLToPath } from 'node:url'
 import { stages } from './workflow-stages.mjs'
 import { validateManifest, validateReview, validateTimeline } from './editing-store.mjs'
 import { readSkillRuns, requiredSkills } from './skill-runs.mjs'
-import { STORYBOARD_REVIEW_CRITERIA } from './review-ledger.mjs'
+import { PREVIZ_REVIEW_CRITERIA, STORYBOARD_REVIEW_CRITERIA, validPrevizScore } from './review-ledger.mjs'
 import { isH3Model } from './generation/providers.mjs'
 import { sameShotVersion } from './shot-fingerprint.mjs'
+import { PREVIZ_REQUIRED_HARD_GATES, fileSha256, probePrevizMedia, validatePrevizContract, validatePrevizMedia } from './previz-contract.mjs'
 
 const pluginRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const skillMap = JSON.parse(await readFile(resolve(pluginRoot, 'references/skill-map.json'), 'utf8'))
@@ -49,9 +50,12 @@ function shotNumbers(items) {
 
 function sameNumbers(a, b) { return JSON.stringify(shotNumbers(a)) === JSON.stringify(shotNumbers(b)) }
 function sameReferences(plan, prompt) {
-  // storyboard-frame 是 Provider 单槽合同的派生输入，不属于制作计划中的叙事资产。
+  // 分镜裁片和白模运动参考都在制作计划完成后产生，属于可追溯的执行期派生输入。
   const planned = (plan || []).map(({ key, version_id, role, order }) => ({ asset_key: key, version_id, role, order }))
-  const prompted = (prompt || []).filter((item) => !(item.role === 'storyboard-frame' && item.asset_key?.startsWith('other-'))).map(({ asset_key, version_id, role, order }) => ({ asset_key, version_id, role, order }))
+  const prompted = (prompt || []).filter((item) => !(
+    item.role === 'storyboard-frame' && item.asset_key?.startsWith('other-')
+    || item.type === 'video' && item.role === 'reference_video' && /^other-previz-ep\d{3}-\d{3}$/.test(item.asset_key || '')
+  )).map(({ asset_key, version_id, role, order }) => ({ asset_key, version_id, role, order }))
   return JSON.stringify(planned) === JSON.stringify(prompted)
 }
 function sameShotContract(plan, prompt) {
@@ -63,9 +67,15 @@ function sameShotContract(plan, prompt) {
     && sameReferences(plan.reference_assets, prompt.references)
 }
 
+export function storyboardMedium(shot) { return shot?.storyboard_strategy?.mode || 'image' }
+export function previzDurationMatches(shot, version, contract) {
+  return contract?.duration_seconds === shot?.duration_seconds && version?.provenance?.parameters?.duration === shot?.duration_seconds
+}
+
 export async function missingStoryboardAssets(root, episode, storyboardVersion, shots, assets) {
   const missing = []
   for (const shot of shots || []) {
+    if (storyboardMedium(shot) !== 'image') continue
     const key = `board-${episode.replace('-', '')}-${String(shot.shot_number).padStart(3, '0')}`
     const asset = assets.assets?.[key]
     const version = asset?.versions?.find((item) => item.id === asset.selectedVersionId)
@@ -80,10 +90,63 @@ export async function missingStoryboardAssets(root, episode, storyboardVersion, 
 export function missingStoryboardReviews(episode, shots, assets, reviews) {
   const missing = []
   for (const shot of shots || []) {
+    if (storyboardMedium(shot) !== 'image') continue
     const key = `board-${episode.replace('-', '')}-${String(shot.shot_number).padStart(3, '0')}`
     const asset = assets.assets?.[key]
     const review = reviews.reviews?.[`${key}@${asset?.selectedVersionId}`]
     if (!review?.approved || review.visual !== 'passed' || JSON.stringify(review.criteria?.map((item) => item.criterion)) !== JSON.stringify(STORYBOARD_REVIEW_CRITERIA) || review.criteria.some((item) => item.status !== 'passed' || typeof item.observation !== 'string' || !item.observation.trim())) missing.push(`${episode} 第 ${shot.shot_number} 镜分镜图八维审计`)
+  }
+  return missing
+}
+
+export async function missingPrevizAssets(root, episode, storyboardVersion, shots, assets, productionPlanVersion) {
+  const missing = []
+  for (const shot of shots || []) {
+    if (shot.previz_strategy?.mode !== 'blender') continue
+    const key = `other-previz-${episode.replace('-', '')}-${String(shot.shot_number).padStart(3, '0')}`
+    const asset = assets.assets?.[key]
+    const version = asset?.versions?.find((item) => item.id === asset.selectedVersionId)
+    const source = version?.provenance?.prompt_document
+    const currentSource = source?.kind === 'storyboard' && source.episode_key === episode && source.shot_number === shot.shot_number
+      && await sameShotVersion(root, episode, 'storyboard', source.version_id, storyboardVersion, shot.shot_number).catch(() => false)
+    const contractPath = version?.provenance?.parameters?.direction_contract
+    let currentContract = false
+    let currentMedia = false
+    const contractPattern = new RegExp(`^episodes/${episode}/previz/shot-${String(shot.shot_number).padStart(3, '0')}-v\\d{3}\\.json$`)
+    if (typeof contractPath === 'string' && contractPattern.test(contractPath)) {
+      try {
+        const contractFile = resolve(root, contractPath)
+        const contract = await json(contractFile)
+        validatePrevizContract(contract, { episode, storyboardVersion, productionPlanVersion, shotNumber: shot.shot_number })
+        currentContract = previzDurationMatches(shot, version, contract)
+          && version?.provenance?.parameters?.direction_contract_sha256 === await fileSha256(contractFile)
+        if (currentContract && version?.localPath) {
+          const mediaFile = resolve(root, version.localPath)
+          const [actualFile, rootReal] = await Promise.all([realpath(mediaFile), realpath(root)])
+          if (actualFile !== rootReal && !actualFile.startsWith(`${rootReal}${sep}`)) throw new Error('白模媒体路径逃逸项目目录')
+          const hashMatches = version.sha256 === await fileSha256(actualFile)
+          if (hashMatches) {
+            validatePrevizMedia(probePrevizMedia(actualFile), contract, shot)
+            currentMedia = true
+          }
+        }
+      } catch {}
+    }
+    if (asset?.type !== 'other' || !version?.localPath || asset.staleVersionIds?.includes(version.id) || !await exists(resolve(root, version.localPath)) || !currentSource || !currentContract || !currentMedia) missing.push(`${episode} 第 ${shot.shot_number} 镜 selected Blender 白模分镜及导演合同（合同/媒体哈希及实际时长、帧率、帧数、分辨率必须一致）`)
+  }
+  return missing
+}
+
+export function missingPrevizReviews(episode, shots, assets, reviews) {
+  const missing = []
+  for (const shot of shots || []) {
+    if (shot.previz_strategy?.mode !== 'blender') continue
+    const key = `other-previz-${episode.replace('-', '')}-${String(shot.shot_number).padStart(3, '0')}`
+    const asset = assets.assets?.[key]
+    const review = reviews.reviews?.[`${key}@${asset?.selectedVersionId}`]
+    const watched = review?.watchedFull === true && review?.asset_sha256 === asset?.versions?.find((item) => item.id === asset?.selectedVersionId)?.sha256 && review.watch_evidence?.duration_seconds === shot.duration_seconds && ['start', 'middle', 'end'].every((field) => typeof review.watch_evidence?.[field] === 'string' && review.watch_evidence[field].trim())
+    const hardGates = Array.isArray(review?.hard_gates) && PREVIZ_REQUIRED_HARD_GATES.every((gate) => review.hard_gates.some((item) => item.gate === gate && item.status === 'passed' && Number.isInteger(item.frame) && typeof item.observation === 'string' && item.observation.trim()))
+    if (!review?.approved || review.visual !== 'passed' || !watched || !hardGates || !validPrevizScore(review.score) || JSON.stringify(review.criteria?.map((item) => item.criterion)) !== JSON.stringify(PREVIZ_REVIEW_CRITERIA) || review.criteria.some((item) => item.status !== 'passed' || typeof item.observation !== 'string' || !item.observation.trim())) missing.push(`${episode} 第 ${shot.shot_number} 镜 Blender 白模分镜导演验收`)
   }
   return missing
 }
@@ -229,6 +292,8 @@ export async function inspectStage(root, stage) {
       if (!plan || !storyboard || !prompts) { missing.push(`${episode} 缺少当前制作计划、分镜或视频提示词`); continue }
       missing.push(...await missingStoryboardAssets(root, episode, storyboard.versionId, plan.document.shots, assets))
       missing.push(...missingStoryboardReviews(episode, plan.document.shots, assets, reviews))
+      missing.push(...await missingPrevizAssets(root, episode, storyboard.versionId, plan.document.shots, assets, plan.versionId))
+      missing.push(...missingPrevizReviews(episode, plan.document.shots, assets, reviews))
       for (const shot of plan.document.shots || []) {
         let match
         for (const asset of Object.values(assets.assets || {})) {
@@ -297,6 +362,9 @@ async function main() {
   if (process.argv.includes('--self-check')) {
     try { await inspectStage('.', 'bad'); throw new Error('阶段自检失败') } catch (error) { if (!String(error.message).includes('未知阶段')) throw error }
     if (!sameReferences([{ key: 'char-a', version_id: 'v001', role: 'identity', order: 1 }], [{ asset_key: 'char-a', version_id: 'v001', role: 'identity', order: 1 }, { asset_key: 'other-shot-frame', version_id: 'v001', role: 'storyboard-frame', order: 2 }])) throw new Error('派生分镜帧一致性自检失败')
+    if (!sameReferences([{ key: 'char-a', version_id: 'v001', role: 'identity', order: 1 }], [{ type: 'image', asset_key: 'char-a', version_id: 'v001', role: 'identity', order: 1 }, { type: 'video', asset_key: 'other-previz-ep001-001', version_id: 'v001', role: 'reference_video', order: 1 }])) throw new Error('白模执行期派生引用一致性自检失败')
+    const durationVersion = { provenance: { parameters: { duration: 8 } } }
+    if (!previzDurationMatches({ duration_seconds: 8 }, durationVersion, { duration_seconds: 8 }) || previzDurationMatches({ duration_seconds: 8 }, durationVersion, { duration_seconds: 3.5 })) throw new Error('白模时长一致性自检失败')
     return console.log('ok')
   }
   const [root, stage] = process.argv.slice(2)

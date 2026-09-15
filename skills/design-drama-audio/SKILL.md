@@ -13,7 +13,7 @@ description: 设计并在本地管理短剧声音资产。用于角色声音分�
 
 OP、ED、BGM 或音乐短视频配乐写入可选 `music_tracks`，每项包含 `key`、`purpose`、`title`、`prompt`、`tags`、`lyrics`、`make_instrumental`、`provider`、`model`、`matched_shots`。StarRouter `suno_music` 调用 `generate_music` 并传 `{kind:"audio-plan",episode_key,version_id,track_key}`；结果仍保存为 `assets/audio/` 音频资产。
 
-所有已批准且互不依赖的语音行与音乐轨必须全量并发调用 `generate_audio`、`generate_music`，不设本地并发上限，由上游网关排队；每项继续使用独立目标、请求快照和任务记录，单项失败不取消同批其他音频。
+所有已批准且互不依赖的语音行与音乐轨必须全量提交 `generate_audio`、`generate_music`；RunningHub 同一 API Key 最多 2 路并发，其余请求由适配器排队，其他 Provider 由上游网关排队；每项继续使用独立目标、请求快照和任务记录，单项失败不取消同批其他音频。
 
 同一角色在当前时空、未来来电、录音回放等状态下必须绑定同一个基础 `voice_id` 或同一条已批准声纹；状态差异只通过后期电话窄带、压缩、轻微失真、空间混响和音量自动化表达，禁止为“未来版本”另随机一个音色。原生视频音频若无法锁定声纹，制作计划必须将关键对白改为 post-dub，或在逐镜验收中明确标记声纹不一致；不得把不同声纹仅靠字幕标注为同一人物。
 

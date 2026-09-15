@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "oh-my-short-drama",
   "displayName": "短剧工厂",
-  "version": "0.5.17",
+  "version": "0.7.0",
   "description": "本地优先的标准短剧制作插件，支持文本创作、媒体生成、剪辑和交付。",
   "author": {
     "name": "fuyang",

@@ -4,7 +4,7 @@
     "plan-drama-assets", "generate-drama-art-style", "generate-character-profiles", "generate-character-images",
     "generate-scene-assets", "generate-prop-assets",
     "build-drama-storyboard", "revise-drama-storyboards", "plan-drama-production", "generate-storyboard-images",
-    "review-drama-shots", "write-drama-video-prompts", "generate-drama-videos", "design-drama-audio",
+    "review-drama-shots", "direct-blender-previz", "generate-blender-previz", "write-drama-video-prompts", "generate-drama-videos", "design-drama-audio",
     "remotion-best-practices", "edit-drama-timeline", "edit-deliver-drama"
   ],
   "support": [
@@ -20,7 +20,7 @@
     "asset-analysis": ["plan-drama-assets", "generate-drama-art-style"],
     "asset-generation": ["manage-drama-assets"],
     "production-plan": ["build-drama-storyboard", "plan-drama-production", "write-drama-video-prompts"],
-    "media-production": ["drama-generation-service", "generate-storyboard-images", "review-drama-shots", "generate-drama-videos", "monitor-drama-tasks"],
+    "media-production": ["drama-generation-service", "review-drama-shots", "generate-drama-videos", "monitor-drama-tasks"],
     "editing": ["remotion-best-practices", "edit-drama-timeline"],
     "delivery": ["edit-deliver-drama"]
   },

@@ -1,0 +1,3 @@
+interface:
+  display_name: "生成 Blender 白模分镜"
+  short_description: "把复杂镜头转换为可审计的 Blender 白模分镜视频。"

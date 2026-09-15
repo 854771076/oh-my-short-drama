@@ -17,14 +17,15 @@ import { selfCheck as checkTempfile } from '../media-hosting/tempfile.mjs'
 import { selfCheck as checkTmpfiles } from '../media-hosting/tmpfiles.mjs'
 import { selfCheck as checkUguu } from '../media-hosting/uguu.mjs'
 import { validateVideoReferenceBindings } from '../reference-bindings.mjs'
-import { inspectStage, missingStoryboardAssets, missingStoryboardReviews } from '../workflow-gates.mjs'
+import { inspectStage, missingPrevizAssets, missingPrevizReviews, missingStoryboardAssets, missingStoryboardReviews, storyboardMedium } from '../workflow-gates.mjs'
+import { validateMotionReferenceBinding } from '../previz-contract.mjs'
 import { stages } from '../workflow-stages.mjs'
 import { validateProject, validateVideoPrompts } from '../project-store.mjs'
 import { syncTaskResult } from '../task-sync.mjs'
 import { detectMedia, hasPanelBoardClaim } from '../grid-detect.mjs'
 
 checkStarRouter()
-checkRunningHub()
+await checkRunningHub()
 checkComfly()
 checkBailian().catch((error) => { console.error(error.message); process.exitCode = 1 })
 checkLitterbox()
@@ -110,7 +111,7 @@ export const tools = [
   ['generate_image', '使用用户选择的 Provider 生成图片；付费和上传本地参考文件前必须确认。', {
     provider, model: { type: 'string' }, prompt: { type: 'string' }, size: { type: 'string' }, resolution: imageResolution, aspect_ratio: imageAspectRatio, seed: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1, maximum: 4 }, quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'] }, style: { type: 'string' }, background: { type: 'string', enum: ['auto', 'opaque', 'transparent'] }, moderation: { type: 'string', enum: ['auto', 'low'] }, output_format: { type: 'string', enum: ['png', 'jpeg', 'webp'] }, output_compression: { type: 'integer', minimum: 1 }, partial_images: { type: 'integer', minimum: 1 }, user: { type: 'string' }, reference_manifest: { type: 'array', maxItems: 9, items: referenceManifestItem }, confirmed: { const: true }, ...imageWorkflow, ...projectTracking,
   }, ['provider', 'prompt', 'reference_manifest', 'confirmed', 'project_root', 'target', 'prompt_document']],
-  ['submit_episode_images', '批量提交整集图片生成：先以 confirmed=false 返回逐项摘要；confirmed=true 后以最多 4 路并发执行，单项失败不阻塞其他图片。每个 items 项目字段与 generate_image 相同。', {
+  ['submit_episode_images', '批量提交整集图片生成：先以 confirmed=false 返回逐项摘要；confirmed=true 后以最多 4 路并发执行，RunningHub 同一 API Key 由适配器限制为 2 路；单项失败不阻塞其他图片。每个 items 项目字段与 generate_image 相同。', {
     project_root: { type: 'string' }, items: { type: 'array', minItems: 1, maxItems: 200, items: { type: 'object', properties: batchImageProperties, required: ['provider', 'prompt', 'reference_manifest', 'target', 'prompt_document'], additionalProperties: false } }, confirmed: { type: 'boolean' },
   }, ['project_root', 'items', 'confirmed']],
   ['generate_audio', '使用用户选择的 Provider 生成语音或提交音频工作流。StarRouter 使用 model/input/voice，RunningHub 使用 prompt/workflow，百炼使用 CosyVoice/qwen TTS 与已登记音色。', {
@@ -150,7 +151,7 @@ export const tools = [
     service: { type: 'string', enum: mediaHostNames, default: 'tempfile' }, expires_in: { type: 'string', enum: mediaHostExpiries, default: '24h' }, usage_scope: { type: 'string', enum: ['non-commercial', 'commercial-authorized'] }, force_reupload: { type: 'boolean' },
     confirmed: { const: true }, rights_confirmed: { const: true }, public_exposure_confirmed: { const: true }, usage_terms_confirmed: { const: true },
   }, ['project_root', 'episode_key', 'service', 'expires_in', 'usage_scope', 'confirmed', 'rights_confirmed', 'public_exposure_confirmed', 'usage_terms_confirmed']],
-  ['submit_episode_videos', '整集批量提交视频：先以 confirmed=false 取得逐镜费用摘要与校验结果；用户确认后 confirmed=true 一次性并发提交整集，单镜失败不阻塞其他镜头。', {
+  ['submit_episode_videos', '整集批量提交视频：先以 confirmed=false 取得逐镜费用摘要与校验结果；用户确认后 confirmed=true 一次性提交整集，RunningHub 同一 API Key 最多 2 路并发，单镜失败不阻塞其他镜头。', {
     project_root: { type: 'string' }, episode_key: { type: 'string', pattern: '^ep-\\d{3}$' }, shot_numbers: { type: 'array', items: { type: 'integer', minimum: 1 } }, confirmed: { type: 'boolean', description: 'false 仅返回费用摘要不提交；true 在用户看过摘要并确认费用后并发提交。' },
   }, ['project_root', 'episode_key', 'confirmed']],
   ['await_episode_tasks', '在 MCP 超时预算内并发轮询整集在途视频任务；pending 会刷新本地状态与时间，完成即自动下载登记并回写（含宫格检测标记），失败不自动重试；超时返回仍在途清单，全托管模式应立即续调。', {
@@ -227,17 +228,24 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
   const planSelection = JSON.parse(await readFile(resolve(root, 'episodes', promptDocument.episode_key, 'production-plan', 'selected.json'), 'utf8'))
   const storyboardSelection = JSON.parse(await readFile(resolve(root, 'episodes', promptDocument.episode_key, 'storyboard', 'selected.json'), 'utf8'))
   const plan = JSON.parse(await readFile(resolve(root, planSelection.path), 'utf8'))
+  const planShot = plan.shots?.find((item) => item.shot_number === promptDocument.shot_number)
+  if (!planShot) throw new Error('制作计划中不存在当前视频镜头')
+  const plannedShots = [planShot]
   const assets = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
-  const missingBoards = await missingStoryboardAssets(root, promptDocument.episode_key, storyboardSelection.versionId, plan.shots, assets)
-  if (missingBoards.length) throw new Error(`视频生成前必须先完成整集分镜图生成与选版：${missingBoards.join('；')}`)
+  validateMotionReferenceBinding(promptDocument.episode_key, planShot, shot, assets)
+  const missingBoards = await missingStoryboardAssets(root, promptDocument.episode_key, storyboardSelection.versionId, plannedShots, assets)
+  if (missingBoards.length) throw new Error(`视频生成前必须先完成图片分镜镜头的生成与选版：${missingBoards.join('；')}`)
   const reviews = JSON.parse(await readFile(resolve(root, '.short-drama/shot-reviews.json'), 'utf8'))
-  const missingBoardReviews = missingStoryboardReviews(promptDocument.episode_key, plan.shots, assets, reviews)
-  if (missingBoardReviews.length) throw new Error(`视频生成前必须先通过整集分镜图多维审计：${missingBoardReviews.join('；')}`)
+  const missingBoardReviews = missingStoryboardReviews(promptDocument.episode_key, plannedShots, assets, reviews)
+  if (missingBoardReviews.length) throw new Error(`视频生成前必须先通过图片分镜镜头的多维审计：${missingBoardReviews.join('；')}`)
+  const missingPreviz = await missingPrevizAssets(root, promptDocument.episode_key, storyboardSelection.versionId, plannedShots, assets, planSelection.versionId)
+  if (missingPreviz.length) throw new Error(`视频生成前必须先完成已启用的 Blender 白模分镜：${missingPreviz.join('；')}`)
+  const missingPrevizReview = missingPrevizReviews(promptDocument.episode_key, plannedShots, assets, reviews)
+  if (missingPrevizReview.length) throw new Error(`视频生成前必须先通过 Blender 白模分镜导演验收：${missingPrevizReview.join('；')}`)
   for (const [field, actual] of Object.entries({ provider: providerName, model_or_workflow: requestedModel, prompt_profile: args.prompt_profile, input_mode: args.input_mode, prompt: args.prompt, duration: args.duration })) {
     if (shot[field] !== actual) throw new Error(`实际视频参数与提示词文档 ${field} 不一致`)
   }
   const manifest = Array.isArray(args.reference_manifest) ? args.reference_manifest : []
-  const planShot = plan.shots?.find((item) => item.shot_number === promptDocument.shot_number)
   // 多参考 Provider 可把整张分镜板当语义参考；Comfly 单参考模式在下方强制改用可追溯的单格裁图。
   const boardRefs = (planShot?.image_strategy?.panel_grid_size ?? 1) > 1
     ? manifest.filter((item) => item.type === 'image' && item.asset_key?.startsWith('board-'))
@@ -325,6 +333,11 @@ export function referenceInputs(providerName, shot, locate) {
 
 function comflyStoryboardOnly(shot, episodeKey, assetsLedger, planShot) {
   if (shot.provider !== 'comfly') return shot
+  if (storyboardMedium(planShot) === 'blender') {
+    const images = (shot.references || []).filter((item) => item.type === 'image')
+    if (images.length > 1 || (shot.references || []).some((item) => item.type !== 'image')) throw new Error('Comfly 在白模分镜模式下最多接收一张独立图片参考，白模视频仅作编导依据不得上传')
+    return { ...shot, references: images }
+  }
   const boardKey = `board-${episodeKey.replace('-', '')}-${String(shot.shot_number).padStart(3, '0')}`
   const listed = (shot.references || []).find((item) => item.type === 'image' && item.asset_key === boardKey)
   const asset = assetsLedger.assets?.[boardKey]

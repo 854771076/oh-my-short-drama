@@ -2,6 +2,7 @@
 import { access, readdir, readFile } from 'node:fs/promises'
 import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { spawnSync } from 'node:child_process'
 import { injectPromptSystemVars, systemVariableNames } from './prompt-system-vars.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -9,10 +10,14 @@ const map = JSON.parse(await readFile(resolve(root, 'references/skill-map.json')
 const failures = []
 
 for (const path of ['.DS_Store', '.playwright-mcp']) {
-  try { await access(resolve(root, path)); failures.push(`插件包包含本地临时文件：${path}`) } catch {}
+  try {
+    await access(resolve(root, path))
+    // 发布包由 git archive 生成；被 Git 明确忽略的本地缓存不会进入插件包，不应造成审计误报。
+    if (spawnSync('git', ['-C', root, 'check-ignore', '-q', '--', path]).status !== 0) failures.push(`插件包包含未忽略的本地临时文件：${path}`)
+  } catch {}
 }
 
-for (const path of ['README.md', 'LICENSE', '.codex-plugin/plugin.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.claude-plugin/mcp.json', '.github/workflows/ci.yml', '.github/workflows/release.yml', '.github/workflows/upstream-sync.yml', 'references/project-spec-v1.md', 'references/codex-contracts.md', 'scripts/check-update.mjs', 'scripts/validate-project.mjs', 'scripts/skill-runs.mjs', 'scripts/preflight.mjs', 'scripts/generation/live-smoke-test.mjs', 'scripts/document-reference.mjs', 'scripts/reference-bindings.mjs', 'scripts/media-hosting/litterbox.mjs', 'scripts/media-hosting/publish.mjs']) {
+for (const path of ['README.md', 'LICENSE', '.codex-plugin/plugin.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.claude-plugin/mcp.json', '.github/workflows/ci.yml', '.github/workflows/release.yml', '.github/workflows/upstream-sync.yml', 'references/project-spec-v1.md', 'references/codex-contracts.md', 'scripts/check-update.mjs', 'scripts/validate-project.mjs', 'scripts/skill-runs.mjs', 'scripts/preflight.mjs', 'scripts/blender-previz.py', 'scripts/previz-contract.mjs', 'scripts/previz-self-check.mjs', 'scripts/generation/live-smoke-test.mjs', 'scripts/document-reference.mjs', 'scripts/reference-bindings.mjs', 'scripts/media-hosting/litterbox.mjs', 'scripts/media-hosting/publish.mjs']) {
   try { await access(resolve(root, path)) } catch { failures.push(`缺少项目规范组件：${path}`) }
 }
 
@@ -155,10 +160,10 @@ const comfly = await readFile(resolve(root, 'scripts/generation/comfly.mjs'), 'u
 for (const token of ['schema_version', 'validate-project-config', 'put-source', 'select-source', 'hidden_fact', 'v001']) if (!projectStore.includes(token)) failures.push(`项目规范实现缺少：${token}`)
 for (const token of ['environment.json', 'RESUME.md', 'prompt-runs', "'art-style'", 'staleVersionIds', 'migrate-project-layout']) if (!projectStore.includes(token)) failures.push(`项目恢复/预检实现缺少：${token}`)
 for (const token of ['assets.json', 'tasks.json', 'shot-reviews.json', 'normalizeModelParameters', '必须与 format.aspect_ratio 一致']) if (!projectStore.includes(token)) failures.push(`项目初始化或配置门禁缺少：${token}`)
-for (const token of ["new Set(['single', 'storyboard', 'shot-board'])", "storyboard: { type: 'shot-board', default_panel_grid_size: 4 }"]) if (!projectStore.includes(token)) failures.push(`分镜类型或初始化默认值缺少：${token}`)
-for (const token of ['image_strategy.mode 必须为 generate', 'panel_grid_size 与分镜类型不匹配']) if (!projectStore.includes(token)) failures.push(`分镜图必做或格数合同缺少：${token}`)
+for (const token of ["new Set(['single', 'storyboard', 'shot-board'])", "storyboard: { type: 'shot-board', default_panel_grid_size: 4, preferred_medium: 'blender' }"]) if (!projectStore.includes(token)) failures.push(`分镜类型或初始化默认值缺少：${token}`)
+for (const token of ['storyboard_strategy.mode 必须为 image 或 blender', '图片分镜必须生成 image_strategy', '白模分镜必须跳过图片并启用 Blender', 'panel_grid_size 与分镜类型不匹配', 'previz_strategy Blender 参数无效']) if (!projectStore.includes(token)) failures.push(`分镜或白模预演合同缺少：${token}`)
 for (const token of ['prompt-runs', 'templateSha256', 'resolvedContractOrPrompt', 'codexOutputSha256', 'variables', '--project-root', '--codex-output', 'providerPrompts', 'existingInside']) if (!promptRenderer.includes(token)) failures.push(`提示词留痕实现缺少：${token}`)
-for (const token of ['selectedDocumentRecord', 'missingStoryboardReviews', '分镜图八维审计', '制作计划与分镜镜号不一致', '视频提示词来源不是当前镜头内容', "stage === 'delivery'", "editing', episode", "delivery', episode", 'evidenceSha256', 'invalidatedAt', 'art-style.json', 'staleVersionIds']) if (!workflowGates.includes(token)) failures.push(`工作流硬门禁缺少：${token}`)
+for (const token of ['selectedDocumentRecord', 'storyboardMedium', 'missingStoryboardReviews', 'missingPrevizAssets', 'missingPrevizReviews', 'selected Blender 白模分镜及导演合同', 'Blender 白模分镜导演验收', '分镜图八维审计', '制作计划与分镜镜号不一致', '视频提示词来源不是当前镜头内容', "stage === 'delivery'", "editing', episode", "delivery', episode", 'evidenceSha256', 'invalidatedAt', 'art-style.json', 'staleVersionIds']) if (!workflowGates.includes(token)) failures.push(`工作流硬门禁缺少：${token}`)
 for (const token of ["command === 'complete'", 'finishedAt']) if (!workflow.includes(token)) failures.push(`工作流终态缺少：${token}`)
 for (const token of ['audio_tracks', 'volume_envelope', 'target_lufs', 'true_peak_dbtp', 'timestampMs', 'confidence', 'labels']) if (!editingStore.includes(token)) failures.push(`剪辑合同缺少：${token}`)
 const providerPrompts = new Set(map.provider_prompts || [])
@@ -175,15 +180,30 @@ for (const [prompt, skill] of Object.entries(map.prompts)) {
   }
 }
 for (const token of ['TYPE_PREFIXES', 'provenance', 'prompt_document', 'source_assets']) if (!assetLedger.includes(token)) failures.push(`资产规范实现缺少：${token}`)
-for (const token of ['STORYBOARD_REVIEW_CRITERIA', '空间关系与轴线', '时间与动作连续性', '物理与交互逻辑', '光线与色彩连续性', '分镜图 criteria[] 必须按八维审计合同']) if (!reviewLedger.includes(token)) failures.push(`分镜图多维审计合同缺少：${token}`)
+for (const token of ['STORYBOARD_REVIEW_CRITERIA', 'PREVIZ_REVIEW_CRITERIA', '空间关系与轴线', '时间与动作连续性', '物理与交互逻辑', '光线与色彩连续性', '分镜图 criteria[] 必须按八维审计合同', '白模分镜通过时必须总分至少 85', 'hard_gates[] 必须按导演合同原顺序逐项覆盖', 'validatePrevizMedia(actualMedia']) if (!reviewLedger.includes(token)) failures.push(`分镜多维审计合同缺少：${token}`)
 const taskLedger = await readFile(resolve(root, 'scripts/task-ledger.mjs'), 'utf8')
 for (const token of ['createRequestSnapshot', 'reserveTask', 'settleReservedTask', 'submitting', 'requestSha256', 'inputFingerprint', '.short-drama']) if (!taskLedger.includes(token)) failures.push(`生成请求留档缺少：${token}`)
 const skillRuns = await readFile(resolve(root, 'scripts/skill-runs.mjs'), 'utf8')
 if (!skillRuns.includes("version.provenance?.created_by !== 'provider'")) failures.push('Provider 变换资产可能绕过生成 Skill')
+for (const token of ['direct-blender-previz', 'episodes\\/ep-', 'generate-blender-previz']) if (!skillRuns.includes(token)) failures.push(`白模编导 Skill 门禁缺少：${token}`)
+const blenderPreviz = await readFile(resolve(root, 'scripts/blender-previz.py'), 'utf8')
+for (const token of ['animate_walk', 'arm_keyframes', 'head_keyframes', 'bone_keyframes', 'hand_pose_keyframes', 'contact_checks', 'plant_checks', 'validate_action_physics', 'RIG_BASE_ROTATIONS', 'FINGER_BASE_ROTATIONS', 'WEAPON_TYPES', 'EFFECT_TYPES', 'attach_weapon', 'evaluated_endpoint', 'FOG_GLOW', 'color 必须是三个 0–1 数字', 'camera_cuts 必须按帧号严格递增', 'marker.camera = cameras', 'keyframe.get("target", target)', 'ue-mannequin-retopology.glb']) if (!blenderPreviz.includes(token)) failures.push(`专业白模生成能力缺少：${token}`)
+const previzContract = await readFile(resolve(root, 'scripts/previz-contract.mjs'), 'utf8')
+const previzIntegrityImplementation = `${previzContract}\n${assetLedger}\n${workflowGates}`
+for (const token of ['validatePrevizContract', 'probePrevizMedia', 'validatePrevizMedia', 'direction_contract_sha256', '不得在接触帧', 'supportsPrevizMotionReference', 'validateMotionReferenceBinding', 'PREVIZ_REQUIRED_HARD_GATES', '倒序或过度重叠']) if (!previzIntegrityImplementation.includes(token)) failures.push(`白模完整性门禁缺少：${token}`)
+try { await access(resolve(root, 'public/models/ue-mannequin-retopology.glb')) } catch { failures.push('默认 UE Mannequin 模型缺失') }
+const previzDirector = await readFile(resolve(root, 'skills/direct-blender-previz/SKILL.md'), 'utf8')
+for (const token of ['剧情因果', '相机动机', '正打', '反打', 'camera_cuts', '85/100', 'direction-contract.md', 'action-previz.md', 'test_only']) if (!previzDirector.includes(token)) failures.push(`白模编导合同缺少：${token}`)
+const previzGenerator = await readFile(resolve(root, 'skills/generate-blender-previz/SKILL.md'), 'utf8')
+for (const token of ['MP4 生成成功不等于白模完成', '七项', 'P0/P1/P2', 'test_only', '不得判断“符合剧情”', '不得以“完成”“可用”或“已通过”交付']) if (!previzGenerator.includes(token)) failures.push(`白模生成后审计缺少：${token}`)
+const actionPreviz = await readFile(resolve(root, 'skills/direct-blender-previz/references/action-previz.md'), 'utf8')
+for (const token of ['预备—发力—接触—受力—回收', '肩—肘—腕', '髋—膝—踝', '支撑脚', '重心路径', '错开关键帧', '接触前加速', '相机运动必须早于接触点停稳', '建立空间—跟随启动—接触锁机—结果释放', '不得始终瞄准双人中点', '动作重定向', 'bone_keyframes', 'contact_checks', 'plant_checks', '兵器必须绑定持握手骨', '术法必须具有']) if (!actionPreviz.includes(token)) failures.push(`动作白模门禁缺少：${token}`)
+const weaponsVfx = await readFile(resolve(root, 'skills/direct-blender-previz/references/weapons-vfx.md'), 'utf8')
+for (const token of ['sword', 'dao', 'spear', 'staff', 'shield', 'orb', 'beam', 'ring', 'burst', 'attach_to', '双手 IK', '完整渲染和审计耗时']) if (!weaponsVfx.includes(token)) failures.push(`武器或术法白模门禁缺少：${token}`)
 for (const token of ['STARROUTER_AUDIO_MODELS', 'STARROUTER_ASR_MODELS', '/v1/audio/speech', '/v1/audio/transcriptions', '/v1/audio/translations', 'speech-2.8-hd', 'qwen3-asr-flash', 'audioPayload', 'audioResult', 'MiniMax-H3', 'MiniMax-H3-Max', '/v1/videos', 'h3Payload']) if (!starrouter.includes(token)) failures.push(`StarRouter 实现缺少：${token}`)
 for (const token of ['最多两张', '图片 9、视频 3、音频 3 或总数 12']) if (!starrouter.includes(token)) failures.push(`StarRouter 素材上限校验缺少：${token}`)
 const generationMcp = await readFile(resolve(root, 'scripts/generation/mcp.mjs'), 'utf8')
-for (const token of ['assetRoot', 'enforceGenerationStage', 'inspectStage', 'missingStoryboardAssets', 'missingStoryboardReviews', '视频生成前必须先完成整集分镜图生成与选版', '视频生成前必须先通过整集分镜图多维审计', 'validateVideoPrompts', '视频生成必须引用有效的 episode/version/shot', 'selected 提示词版本', '实际视频参数与提示词文档', 'project.json 已确认配置一致', 'imageWorkflow', 'referenceManifestItem', "required: ['type', 'order', 'asset_key', 'version_id', 'role']", 'maxItems: 12', 'transcribe_audio', 'translate_audio', 'list_media_hosts', 'list_reference_uploads', 'publish_reference_image', 'ensure_reference_urls', 'submit_episode_videos', 'await_episode_tasks', '整集校验未通过', 'submitVideoOnce', 'reserveTask']) if (!generationMcp.includes(token)) failures.push(`生成入口边界校验缺少：${token}`)
+for (const token of ['assetRoot', 'enforceGenerationStage', 'inspectStage', 'missingStoryboardAssets', 'missingStoryboardReviews', 'missingPrevizAssets', 'missingPrevizReviews', 'validateMotionReferenceBinding', '视频生成前必须先完成图片分镜镜头的生成与选版', '视频生成前必须先通过图片分镜镜头的多维审计', '视频生成前必须先完成已启用的 Blender 白模分镜', '视频生成前必须先通过 Blender 白模分镜导演验收', 'validateVideoPrompts', '视频生成必须引用有效的 episode/version/shot', 'selected 提示词版本', '实际视频参数与提示词文档', 'project.json 已确认配置一致', 'imageWorkflow', 'referenceManifestItem', "required: ['type', 'order', 'asset_key', 'version_id', 'role']", 'maxItems: 12', 'transcribe_audio', 'translate_audio', 'list_media_hosts', 'list_reference_uploads', 'publish_reference_image', 'ensure_reference_urls', 'submit_episode_videos', 'await_episode_tasks', '整集校验未通过', 'submitVideoOnce', 'reserveTask']) if (!generationMcp.includes(token)) failures.push(`生成入口边界校验缺少：${token}`)
 const nativeAudioAudit = await readFile(resolve(root, 'scripts/native-audio-audit.mjs'), 'utf8')
 for (const token of ['audit-episode', 'auditVersion', '已审计']) if (!nativeAudioAudit.includes(token)) failures.push(`原生音频批量审计缺少：${token}`)
 const litterbox = await readFile(resolve(root, 'scripts/media-hosting/litterbox.mjs'), 'utf8')

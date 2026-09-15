@@ -16,6 +16,27 @@ const KREA2_DIMENSIONS = {
 }
 const H3_RATIOS = { '16:9': '16:9 (Widescreen)', '9:16': '9:16 (Portrait Widescreen)' }
 const H3_MEGAPIXELS = { '480p': 0.4, '720p': 0.9, '1K': 1, '2K': 2 }
+const MAX_CONCURRENT_SUBMISSIONS = 2
+// ponytail: 当前按 MCP 进程内的 API Key 限流；多进程共享密钥时再升级为跨进程信号量。
+const submissionStates = new Map()
+
+async function withSubmissionSlot(key, action) {
+  let state = submissionStates.get(key)
+  if (!state) submissionStates.set(key, state = { active: 0, waiting: [] })
+  await new Promise((ready) => {
+    if (state.active < MAX_CONCURRENT_SUBMISSIONS) { state.active += 1; ready() }
+    else state.waiting.push(ready)
+  })
+  try { return await action() }
+  finally {
+    const next = state.waiting.shift()
+    if (next) next()
+    else {
+      state.active -= 1
+      if (state.active === 0) submissionStates.delete(key)
+    }
+  }
+}
 
 function apiKey() {
   const value = credential('RUNNINGHUB_API_KEY')
@@ -199,6 +220,19 @@ function outputUrls(data, found = []) {
   return [...new Set(found)]
 }
 
+function taskResult(payload) {
+  const data = payload?.data ?? payload
+  const status = String(data?.status || '').toUpperCase()
+  if (['QUEUED', 'RUNNING', 'PENDING'].includes(status) || [804, 813].includes(Number(payload?.code))) return { provider: 'runninghub', status: 'pending' }
+  if (['FAILED', 'ERROR'].includes(status) || Number(payload?.code) === 805) return { provider: 'runninghub', status: 'failed', error: String(data?.errorMessage || data?.failedReason?.message || payload?.msg || '任务失败') }
+  const urls = outputUrls(data?.results ?? data)
+  if (['SUCCESS', 'SUCCEEDED', 'COMPLETED'].includes(status) || urls.length) return urls.length
+    ? { provider: 'runninghub', status: 'completed', outputs: urls.map((url) => ({ url })) }
+    : { provider: 'runninghub', status: 'pending' }
+  if (![0, 200].includes(Number(payload?.code))) return { provider: 'runninghub', status: 'failed', error: String(payload?.msg || payload?.code || status || '未知任务状态') }
+  return { provider: 'runninghub', status: 'pending' }
+}
+
 export const runninghub = {
   label: 'RunningHub', credentialEnv: 'RUNNINGHUB_API_KEY',
   catalog: { image: [...new Set([KREA2_MODEL, process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID].filter(Boolean))], video: [H3_MODEL, process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID].filter(Boolean), audio: [process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID].filter(Boolean) },
@@ -212,28 +246,45 @@ export const runninghub = {
     if (Number(payload.code) !== 0) throw new Error(`RUNNINGHUB_REQUEST_FAILED(${payload.code}): ${String(payload.msg || '认证失败')}`)
   },
   async text() { throw new Error('RunningHub 不提供通用文本生成') },
-  async image(input) { return input.model === KREA2_MODEL ? submitKrea2(input) : submit(input, 'image') },
-  async submitVideo(input) { validateVideoPrompt(input); return input.model === H3_MODEL ? submitH3(input) : submit(input, 'video') },
-  async audio(input) { return submit(input, 'audio') },
+  async image(input) {
+    confirm(input)
+    return withSubmissionSlot(apiKey(), () => input.model === KREA2_MODEL ? submitKrea2(input) : submit(input, 'image'))
+  },
+  async submitVideo(input) {
+    confirm(input); validateVideoPrompt(input)
+    return withSubmissionSlot(apiKey(), () => input.model === H3_MODEL ? submitH3(input) : submit(input, 'video'))
+  },
+  async audio(input) {
+    confirm(input)
+    return withSubmissionSlot(apiKey(), () => submit(input, 'audio'))
+  },
   async task(input) {
     if (!input.task_id?.trim()) throw new Error('task_id 必填')
     const payload = await request('/openapi/v2/query', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId: input.task_id }), timeout: 30_000,
     })
-    if ([804, 813].includes(Number(payload.code))) return { provider: 'runninghub', status: 'pending' }
-    if (Number(payload.code) === 805) return { provider: 'runninghub', status: 'failed', error: String(payload.msg || '任务失败') }
-    if (![0, 200].includes(Number(payload.code))) return { provider: 'runninghub', status: 'failed', error: String(payload.msg || payload.code) }
-    const urls = outputUrls(payload.data ?? payload)
-    return urls.length ? { provider: 'runninghub', status: 'completed', outputs: urls.map((url) => ({ url, media_type: input.media_type })) } : { provider: 'runninghub', status: 'pending' }
+    const result = taskResult(payload)
+    if (result.outputs) result.outputs = result.outputs.map((item) => ({ ...item, media_type: input.media_type }))
+    return result
   },
 }
 
-export function selfCheck() {
+export async function selfCheck() {
   if (replaceMarkers({ text: '@prompt', image: '@asset:0' }, 'hello', ['a.png']).image !== 'a.png') throw new Error('RunningHub marker 自检失败')
   if (outputUrls([{ url: 'https://example.com/a.png' }, { fileUrl: 'https://example.com/b.png' }]).length !== 2) throw new Error('RunningHub 输出归一化失败')
+  if (taskResult({ taskId: '1', status: 'RUNNING', results: null }).status !== 'pending') throw new Error('RunningHub 新版任务状态兼容自检失败')
+  if (taskResult({ taskId: '1', status: 'SUCCESS', results: [{ url: 'https://example.com/a.mp4' }] }).status !== 'completed') throw new Error('RunningHub 新版任务结果兼容自检失败')
   validateVideoPrompt({ prompt_profile: 'h3', input_mode: 'T2VA', prompt: 'integrated_multimodal_description: A\noverall_soundscape: A\nnon_diegetic_music: N/A' })
   validateH3References({ input_mode: 'FL2VA', reference_manifest: [{ type: 'image', order: 1, role: 'first_frame' }, { type: 'image', order: 2, role: 'last_frame' }] }, [['images', ['a', 'b']], ['videos', []], ['audios', []]])
   try { validateH3References({ input_mode: 'I2VA', reference_manifest: [] }, [['images', []], ['videos', []], ['audios', []]]); throw new Error('RunningHub H3 模式自检失败') } catch (error) { if (!String(error.message).includes('I2VA')) throw error }
   if (H3_TEMPLATE['31']?.class_type !== 'MiniMaxH3ReferenceToVideo') throw new Error('RunningHub H3 内置工作流无效')
   if (KREA2_TEMPLATE['5']?.class_type !== 'CLIPTextEncode' || KREA2_DIMENSIONS['2K']['9:16'].join('x') !== '1152x2048') throw new Error('RunningHub Krea2 内置工作流无效')
+  let active = 0, maximum = 0
+  await Promise.all([1, 2, 3, 4].map(() => withSubmissionSlot('self-check-a', async () => {
+    active += 1
+    maximum = Math.max(maximum, active)
+    await new Promise((done) => setTimeout(done, 5))
+    active -= 1
+  })))
+  if (maximum !== 2) throw new Error('RunningHub 单 key 并发上限自检失败')
 }

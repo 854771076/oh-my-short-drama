@@ -77,6 +77,15 @@ function normalizeProvenance(value, fallbackOrigin = 'imported') {
   return output
 }
 
+function validatePrevizVersion(asset, key, extension, provenance) {
+  if (asset.type !== 'other' || !/^other-previz-ep\d{3}-\d{3}$/.test(key)) return
+  const source = provenance?.prompt_document
+  const parameters = provenance?.parameters
+  if (extension.toLowerCase() !== '.mp4') throw new Error('Blender 白模分镜必须登记为 MP4')
+  if (provenance.origin !== 'generated' || provenance.created_by !== 'codex' || provenance.model_or_workflow !== 'blender-eevee-previz' || source?.kind !== 'storyboard') throw new Error('Blender 白模分镜 provenance 无效')
+  if (!Number.isFinite(parameters?.duration) || parameters.duration <= 0 || typeof parameters.direction_contract !== 'string' || !/^episodes\/ep-\d{3}\/previz\/shot-\d{3}-v\d{3}\.json$/.test(parameters.direction_contract) || typeof parameters.direction_contract_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(parameters.direction_contract_sha256)) throw new Error('Blender 白模分镜必须绑定时长、导演合同路径及合同 SHA-256')
+}
+
 function localPath(root, value) {
   if (typeof value !== 'string' || !value.trim()) throw new Error('版本 localPath 必填')
   const path = resolve(root, value)
@@ -200,7 +209,7 @@ export async function invalidateShotAssets(rootArg, episodeKey, shotNumbers, kin
   return withFileLock(ledgerPath(root), async () => {
     const ledger = await readLedger(root)
     for (const suffix of suffixes) {
-      const prefixes = kind === 'storyboard' ? ['board-', 'shot-'] : kind === 'production-plan' ? ['board-', 'shot-'] : ['shot-']
+      const prefixes = kind === 'storyboard' ? ['board-', 'shot-', 'other-previz-'] : kind === 'production-plan' ? ['board-', 'shot-', 'other-previz-'] : ['shot-']
       for (const prefix of prefixes) {
         const asset = ledger.assets[`${prefix}${suffix}`]
         if (!asset?.selectedVersionId) continue
@@ -261,6 +270,7 @@ async function main() {
     if (asset.versions.some((item) => item.id === version.id)) throw new Error(`版本已存在：${version.id}`)
     const path = localPath(root, version.localPath)
     validateMediaExtension(asset.type, extname(path))
+    validatePrevizVersion(asset, key, extname(path), version.provenance)
     const expectedDirectory = resolve(root, 'assets', TYPE_DIRECTORIES[asset.type], key)
     if (!path.startsWith(`${expectedDirectory}${sep}`)) throw new Error('版本 localPath 必须位于该资产的标准目录')
     const fileStat = await stat(path)
@@ -332,6 +342,7 @@ async function main() {
       const filename = requestedName ? basename(requestedName) : `${versionId}${extension || '.bin'}`
       if (!filename || filename === '.' || filename === '..') throw new Error('文件名无效')
       validateMediaExtension(asset.type, extname(filename))
+      validatePrevizVersion(asset, key, extname(filename), provenance)
       target = resolve(directory, filename)
       await link(temporary, target)
       createdTarget = true

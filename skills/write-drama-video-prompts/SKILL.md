@@ -13,7 +13,7 @@ description: 把通过验收的本地分镜按实际视频模型编译为可执�
 
 所有模板都填充 `base_prompt`、`storyboard_context_json`、`grid_layout`、`panel_grid_size`、`camera_move`、`shot_type`、`style`、`duration_constraints` 和 `reference_manifest_json`。引用清单只包含已选本地资产、版本、用途及提交顺序，不包含密钥或临时 URL。
 
-按制作计划先把当前镜头的分镜板或故事版放入引用清单并占用一个图片槽位，默认使用 `shot-board`。若其他已选人物、场景、道具超过 Provider 剩余图片槽位且 `overflow_strategy=compose-assets`，调用 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/media-tools.mjs" compose-grid` 将这些图片按计划顺序拼成一张 `other-refpack-epNNN-NNN` 合板，登记为 `other` 资产并保留全部 `source_assets`，选版后仅把该合板作为一个图片引用。不得静默丢弃素材；策略为 `reject` 时停止并报告槽位不足。
+按制作计划读取逐镜分镜媒介。`storyboard_strategy.mode=image` 时先把当前分镜板或故事版放入引用清单并占一个图片槽位；`mode=blender` 时不伪造分镜图引用，selected 白模默认只作为编导审计证据。只有 `previz_strategy.purpose=motion-reference` 时才必须把当前 selected、未失效白模作为唯一 `type=video, role=reference_video` 的执行期派生引用加入；当前仅支持可直接绑定本地资产的 RunningHub `minimax-h3-reference-to-video`，StarRouter 与 Comfly 不得选择该用途。该派生引用不回写制作计划 `reference_assets`，但保存提示词和正式提交时都会重新绑定当前白模版本。无论使用哪种分镜媒介，正式视频始终绑定所需人物、场景和道具选版。其他图片超过 Provider 槽位时按既有 `overflow_strategy` 合板或阻塞，不得静默丢弃素材。
 
 每次模板编译统一输出严格 JSON `{prompt_profile,input_mode,prompt,duration,references,continuity,audio_policy,errors}`。Seedance 2.0 的 `prompt` 必须为中文自然语言，并让 `@图片N/@视频N/@音频N` 与引用清单及提交数组一一对应；总素材不超过 12 个，图片≤9、视频≤3且合计2–15秒、音频≤3且合计≤15秒，时长4–15秒，并禁止上传真实人物脸部参考。H3 使用 T2VA/I2VA/FL2VA/L2VA/Ref2VA 中与真实输入一致的模式；Ref2VA 的英文六段必须严格按 `subject_definitions → summary → retention_analysis → detailed_description → overall_soundscape → non_diegetic_music` 排列，仅对白、歌词和画内文字保留原语言。不得混用两套语法。
 
@@ -25,7 +25,7 @@ description: 把通过验收的本地分镜按实际视频模型编译为可执�
 
 人物离画后，把离画边、最后姿态、运动方向和持物状态作为画外连续性继续传递，直到其重新入画或场景明确重置。重新入画不得仅凭当前画面任意选边，必须与该记录、当前轴线和空间入口相容。
 
-编译前逐项对照起始参考帧与本镜所需人物、道具和空间结构。关键元素若应从首帧就在场却缺失，必须退回分镜图补齐或改用能绑定该资产的参考模式；只有剧本明确要求从画外进入时，才可写明首帧缺席、进入方向和出现路径。除有意空镜或 hold 外，首帧应已有可读主体或动作起势，不消耗成片时长等待主体到场。多人镜锁定准确人数、画面左右顺序、朝向和每只参与动作的手部归属；复杂交互无法清楚归属时拆镜。
+编译前逐项对照起始参考与本镜所需人物、道具和空间结构。关键元素若应从首帧就在场却缺失，必须退回对应图片/白模分镜补齐或改用能绑定该资产的参考模式；只有剧本明确要求从画外进入时，才可写明首帧缺席、进入方向和出现路径。除有意空镜或 hold 外，首帧应已有可读主体或动作起势，不消耗成片时长等待主体到场。多人镜锁定准确人数、画面左右顺序、朝向和每只参与动作的手部归属；复杂交互无法清楚归属时拆镜。
 
 画内手机、电视、电脑或招牌的内容必须来自 source_text 或已批准图形合同；没有内容证据时让屏幕关闭、空白或不可辨读，不允许模型自行填充随机文字和 UI。剧情依赖的精确消息、倒计时、地点或界面交给 Remotion 图形层实现，视频素材只保留可跟踪的屏幕平面、遮挡和光照。
 

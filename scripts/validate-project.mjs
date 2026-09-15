@@ -11,6 +11,7 @@ import { fingerprint, validateTaskOutput } from './task-ledger.mjs'
 import { validateManifest, validateReview, validateTimeline } from './editing-store.mjs'
 import { validDocumentReferenceShape, validateGenerationDocumentReference } from './document-reference.mjs'
 import { validateVideoReferenceBindings } from './reference-bindings.mjs'
+import { probePrevizMedia, validatePrevizContract, validatePrevizMedia } from './previz-contract.mjs'
 
 const scripts = dirname(fileURLToPath(import.meta.url))
 const pluginRoot = resolve(scripts, '..')
@@ -144,8 +145,20 @@ async function validateAssets() {
         const extension = version.localPath.toLowerCase().match(/\.[^.\/]+$/)?.[0] || ''
         if (!MEDIA_EXTENSIONS[family]?.has(extension)) failures.push(`${key}@${version.id} 媒体扩展名与资产类型不一致`)
       }
-      await localFile(version.localPath, `${key}@${version.id}`, version.sha256)
+      const actualPath = await localFile(version.localPath, `${key}@${version.id}`, version.sha256)
       const prompt = version.provenance?.prompt_document
+      if (actualPath && asset.type === 'other' && /^other-previz-ep\d{3}-\d{3}$/.test(key)) try {
+        const parameters = version.provenance?.parameters || {}
+        const contractPath = await localFile(parameters.direction_contract, `${key}@${version.id} 白模导演合同`, parameters.direction_contract_sha256)
+        if (!contractPath) throw new Error('白模导演合同文件无效')
+        const contract = JSON.parse(await readFile(contractPath, 'utf8'))
+        validatePrevizContract(contract, { episode: prompt?.episode_key, storyboardVersion: prompt?.version_id, shotNumber: prompt?.shot_number })
+        const planPath = resolve(root, 'episodes', contract.source.episode_key, 'production-plan', `${contract.source.production_plan_version}.json`)
+        const plan = JSON.parse(await readFile(planPath, 'utf8'))
+        const shot = plan.shots?.find((item) => item.shot_number === contract.source.shot_number)
+        if (!shot) throw new Error('白模导演合同引用的制作计划镜头不存在')
+        validatePrevizMedia(probePrevizMedia(actualPath), contract, shot)
+      } catch (error) { failures.push(`${key}@${version.id} 白模证据链：${error.message}`) }
       const providerOutput = version.provenance?.created_by === 'provider' && ['generated', 'transformed'].includes(version.provenance?.origin)
       if (providerOutput) {
         const requiredKind = asset.type === 'video' ? undefined : asset.type === 'audio' ? 'audio-plan' : asset.type === 'storyboard' ? 'storyboard' : ['character', 'scene', 'prop'].includes(asset.type) ? 'asset-plan' : null

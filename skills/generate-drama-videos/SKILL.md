@@ -5,7 +5,7 @@ description: 通过用户选择的生成 Provider 提交并查询短剧视频镜
 
 # 生成短剧视频
 
-开始视频制作前，整集每一镜都必须已有与当前 selected 分镜版本对应的本地 `board-epNNN-NNN` 选版，并通过 `review-drama-shots` 的空间、时间、物理、光线等八维审计；缺少或失败任意一项时停止。每镜的 Provider、模型或工作流 ID、prompt_profile、input_mode、提示词、时长与参考绑定以当前 selected `video-prompts` 为准，分辨率/画幅/声音等参数以 project.json 已确认配置为准；MCP 逐镜硬校验一致后才提交，任何手工改词、改参数都会被拒绝。同一目标与输入指纹存在在途任务时禁止重复提交。
+开始视频制作前，对本次待提交镜头逐镜按制作计划校验分镜媒介：`storyboard_strategy.mode=image` 必须有当前图片分镜选版和八维审计；`mode=blender` 必须有当前白模选版、导演合同和七项验收，且白模登记时长、导演合同时长、制作计划时长完全一致。缺少或失败任意一项时停止；单镜重生成不被其他未提交镜头阻塞。每镜的 Provider、模型或工作流 ID、prompt_profile、input_mode、提示词、时长与参考绑定以当前 selected `video-prompts` 为准，分辨率/画幅/声音等参数以 project.json 已确认配置为准；MCP 逐镜硬校验一致后才提交，任何手工改词、改参数都会被拒绝。同一目标与输入指纹存在在途任务时禁止重复提交。
 
 整集视频只允许按下面三次 MCP 调用成批完成，禁止逐镜让用户重复确认或手工拼接参考 URL：
 
@@ -19,7 +19,7 @@ H3 `audio_policy.mode=native` 时，声音随视频一次生成，不再提交�
 
 多格分镜板（`panel_grid_size > 1` 的 `board-*` 选版）仅允许交给有独立语义参考能力的 Provider：Seedance 2.0 用 `full-reference`、H3 用 `Ref2VA`、其他模型用 `reference_image` 角色；此时 prompt 还必须包含固定反宫格声明和分镜板时间顺序条款。Comfly 只有一个参考图槽位，严禁整张提交多格板：必须用 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/media-tools.mjs" extract-grid-cell <分镜图> <项目/assets/other/.../vNNN.png> <列数> <行数> <格号> 85` 裁出当前镜头单格，再以 `created_by=codex`、`origin=transformed`、`source_assets` 指回分镜选版的方式登记为 selected `other-*`，并在视频提示词 references 中标记 `role=storyboard-frame`；MCP 会拒绝缺少该链路的付费提交。多格板同样严禁放进首尾帧像素槽位。成片检测若高置信命中宫格会写 `grid_high_confidence` 并禁止误报放行；中置信 `grid_suspect` 仍须完整观看后记录证据。身份合板不得混入分镜格。
 
-整集所有无依赖镜头由 `submit_episode_videos` 一次确认后全量并发提交（不设本地并发上限，由上游网关排队），再由 `await_episode_tasks` 在一次调用内并发轮询全部在途任务；completed 后 MCP 自动下载并登记候选版本、回写 `outputVersionId`，但不会绕过验收自动选版。单镜失败不阻塞无依赖镜头；权限、余额、审核、schema、模型能力或在途冲突错误不自动重试、换模型或换 Provider，定位修复后只对失败镜头单次 `submit_video` 重提。`get_generation_task` 仅用于单镜恢复。
+整集所有无依赖镜头由 `submit_episode_videos` 一次确认后全量提交；RunningHub 同一 API Key 最多 2 路并发，超出的提交在适配器内排队，其他 Provider 由上游网关排队。再由 `await_episode_tasks` 在一次调用内并发轮询全部在途任务；completed 后 MCP 自动下载并登记候选版本、回写 `outputVersionId`，但不会绕过验收自动选版。单镜失败不阻塞无依赖镜头；权限、余额、审核、schema、模型能力或在途冲突错误不自动重试、换模型或换 Provider，定位修复后只对失败镜头单次 `submit_video` 重提。`get_generation_task` 仅用于单镜恢复。
 
 RunningHub 内置 `minimax-h3-reference-to-video` 接受本地图片 0–9、视频 0–2、音频 0–2，适配器自动上传并注入专用 workflow；无需 `node_info_list`。Comfly `minimax-h3` 固定使用 Ref2VA，接受 1–3 张公开 HTTPS 参考图片或 1 段公开视频，二者互斥且不支持参考音频。两者都必须使用 H3 提示词合同。
 
