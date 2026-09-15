@@ -19,5 +19,8 @@
 6. 身份关键的肤色、虹膜颜色、疤痕、纹身等只有档案或原文明确时才写；不得凭刻板印象推断。
 7. 每个 descriptions 必须恰好有 {candidate_count} 条。候选可改变不影响身份的面料或细节，但脸、发型、体型、主色和标志物必须一致。
 8. 角色在缩小到全身远景或去掉面部细节后仍应能由轮廓识别：体态比例、发型外轮廓、服装大形和 primary_identifier 形成稳定组合，不只依赖脸或衣服颜色。候选不得改变这组轮廓身份。
+9. 只处理已通过 audience_appeal 年龄门禁的人物。adult-charisma 必须把已确认 screen_presence 转译为服务人物与剧情的可见设计，并逐字保留 grooming_and_makeup、costume_signature 和每一项 memory_anchors；不得以裸露、身体部位夸张或模板化网红脸替代设计。
+10. 儿童使用 child-cuteness，只允许健康、灵动、童真、年龄匹配的可爱表达；禁止成人妆容、成人化服装、性感姿态、身体曲线强调和性化镜头语言。儿童保护失败时不输出候选。
+11. 每个候选和每个 appearance 都继承 audience_appeal 的全部身份字段；后续外观只能改变 change_reason 明示的字段，其他妆造、服装标志和记忆锚点保持一致。
 
 只返回严格 JSON：{"characters":[{"name":"规范名","appearances":[{"id":1,"change_reason":"初始形象","descriptions":["可直接出图的描述"]}]}]}。禁止 Markdown、解释和额外字段；JSON 字符串按标准转义，不改写原文标点。

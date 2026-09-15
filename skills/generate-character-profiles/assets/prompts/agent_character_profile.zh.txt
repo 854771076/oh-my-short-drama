@@ -23,6 +23,7 @@
 4. 只有确实需要独立视觉身份的出镜人物进入 new_characters。排除纯路人、仅被提及者、抽象概念和无需固定形象的群体。
 5. 仅从原文明示或跨场景重复证据提取长期表演与声音特征。单镜情绪、动作、伤势和特效不得固化。
 6. 仅当换装、年龄、发型或持续伪装需要重新制作人物图时增加 expected_appearances；每人必须先有 id=1 的初始形象。
+7. 年龄只取原文明示证据；不得根据姓名、职业、关系或外表猜测。年龄不明时 audience_appeal 使用 unknown/not-applicable，后续停止视觉生成。
 
 【字段约束】
 - role_level 只表示叙事重要性：S 主视角核心；A 核心配角或主要反派；B 重要支线人物；C 少量但需固定形象；D 短暂具名出镜。
@@ -34,13 +35,15 @@
 - introduction 说明身份、叙述视角映射、人物关系和称呼映射，但只写有证据的部分。
 - habitual_actions 的每项必须同时写明触发条件；没有稳定触发证据的习惯动作不入档，避免后续每镜机械复现。
 - stress_response 只记录有跨场证据的“常态面具—触发条件—可见破裂或恢复”模式；不得把一次性情绪升级成人物恒定标签。步态、重心、视线和声音身份描述长期可观察规律，不写服装、镜头或场景限定。
+- audience_appeal 必须且只能包含 age_class、appeal_mode、screen_presence、grooming_and_makeup、costume_signature、memory_anchors、prohibited_treatment。明确成年使用 adult-charisma：吸引力服务人物、时代和剧情，用眼神、姿态、妆发、服装轮廓、材质与记忆锚点形成银幕磁场；禁止用裸露、身体部位夸张或模板化网红脸代替设计。S/A 级写 2–3 个 memory_anchors，B–D 级写 1–3 个。
+- 儿童只使用 child-cuteness，以健康、灵动、童真、年龄匹配的可爱表达；禁止成人妆容、成人化服装、性感姿态、身体曲线强调和性化镜头语言。prohibited_treatment 明确记录这些保护边界，但禁止项不得混入正向妆造字段。
 
 【输出合同】
 只返回一个严格 JSON 对象，顶层只能包含 new_characters 和 updated_characters；禁止输出 characters、Markdown、解释或注释。没有结果时返回空数组。
 
-new_characters 每项必须包含：name、aliases、introduction、gender、age_range、role_level、archetype、personality_tags、era_period、social_class、occupation、costume_tier、suggested_colors、primary_identifier、visual_keywords、performance_bible、voice_identity、expected_appearances。
+new_characters 每项必须包含：name、aliases、introduction、gender、age_range、role_level、archetype、personality_tags、era_period、social_class、occupation、costume_tier、suggested_colors、primary_identifier、visual_keywords、performance_bible、voice_identity、audience_appeal、expected_appearances。
 
-performance_bible 必须包含 center_of_gravity、gait、habitual_actions、eyeline_behavior、blink_rhythm、stress_response、forbidden_performance。voice_identity 必须包含 pitch、timbre、accent、pace、delivery。expected_appearances 每项只能包含整数 id 和 change_reason。
+performance_bible 必须包含 center_of_gravity、gait、habitual_actions、eyeline_behavior、blink_rhythm、stress_response、forbidden_performance。voice_identity 必须包含 pitch、timbre、accent、pace、delivery。audience_appeal 使用上述七字段精确合同；expected_appearances 每项只能包含整数 id 和 change_reason。
 
 updated_characters 每项只能包含：name（与已有库规范名完全一致）、updated_introduction（合并旧介绍后的完整介绍）、updated_aliases（合并去重后的完整别名数组）。
 
