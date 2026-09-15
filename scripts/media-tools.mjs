@@ -58,6 +58,23 @@ async function sha256(path) {
   return hash.digest('hex')
 }
 
+export function probeMedia(value) {
+  const input = resolve(value)
+  const probe = JSON.parse(run('ffprobe', ['-v', 'error', '-show_format', '-show_streams', '-of', 'json', input], true))
+  const video = probe.streams?.find((stream) => stream.codec_type === 'video')
+  const audio = probe.streams?.find((stream) => stream.codec_type === 'audio')
+  const rate = String(video?.avg_frame_rate || video?.r_frame_rate || '0/1').split('/').map(Number)
+  return {
+    duration_ms: Math.round(Number(probe.format?.duration || video?.duration || audio?.duration || 0) * 1000),
+    has_video: Boolean(video),
+    has_audio: Boolean(audio),
+    width: video?.width || null,
+    height: video?.height || null,
+    fps: rate[1] ? rate[0] / rate[1] : 0,
+    format_name: probe.format?.format_name || null,
+  }
+}
+
 function lastNumber(text, pattern) {
   return [...text.matchAll(pattern)].at(-1)?.[1]
 }
