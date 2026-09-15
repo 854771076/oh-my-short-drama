@@ -18,9 +18,11 @@ const TITLE_ROOTS = Object.freeze([
 
 const SOURCE_TOPIC_ROOTS = Object.freeze([
   ...TITLE_ROOTS.flatMap(([, roots]) => roots),
-  '都市', '职场', '爱情', '情感', '霸总', '甜宠', '家庭', '婆媳', '伦理',
-  '系统', '异能', '丧尸', '搞笑',
+  '都市', '职场', '爱情', '情感', '古装', '家庭', '婆媳', '伦理', '系统', '异能', '丧尸', '搞笑',
+  '日常',
 ])
+
+const SOURCE_TOPIC_SUFFIXES = Object.freeze(['故事', '剧', '题材', '文'])
 
 const NON_TOPIC_TAGS = new Set([
   '真人', '短剧', '微短剧', '短视频', '已完结', '完结', '连载中', '连载', '热播', '新剧', '上新', '独播',
@@ -64,7 +66,8 @@ function isRecord(value) {
 }
 
 function normalizedText(value) {
-  return String(value).normalize('NFKC').trim().replace(/\s+/gu, ' ')
+  if (typeof value !== 'string') return ''
+  return value.normalize('NFKC').trim().replace(/\s+/gu, ' ')
 }
 
 function compactText(value) {
@@ -72,7 +75,8 @@ function compactText(value) {
 }
 
 function compactLabel(value) {
-  return String(value).normalize('NFKC').trim().replace(/\s+/gu, '')
+  if (typeof value !== 'string') return ''
+  return value.normalize('NFKC').trim().replace(/\s+/gu, '')
 }
 
 function sourceValue(item, aliases, accept = (value) => value !== undefined && value !== null && value !== '') {
@@ -96,17 +100,19 @@ function sourceValues(item, aliases) {
 }
 
 function safeNumber(value) {
-  if (typeof value === 'string') value = value.replaceAll(',', '').trim()
-  if (value === '' || value === null || value === undefined || typeof value === 'boolean') return undefined
-  const number = Number(value)
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined
+  if (typeof value !== 'string') return undefined
+  const text = value.replaceAll(',', '').trim()
+  if (!text) return undefined
+  const number = Number(text)
   return Number.isFinite(number) ? number : undefined
 }
 
-function firstSafeNumber(item, aliases) {
+function firstSafeNumber(item, aliases, validate = () => true) {
   for (const alias of aliases) {
     if (!Object.hasOwn(item, alias)) continue
     const value = safeNumber(item[alias])
-    if (value !== undefined) return { value, source: alias }
+    if (value !== undefined && validate(value)) return { value, source: alias }
   }
   return { value: null, source: undefined }
 }
@@ -150,7 +156,21 @@ function cleanListToken(value) {
 
 function isSourceTopicTag(tag) {
   const label = compactLabel(tag)
-  return SOURCE_TOPIC_ROOTS.some((root) => label.includes(compactLabel(root)))
+  if (!label || label.length > 16) return false
+  if (/(?:非|不|无|不是|拒绝|榜|第\d|推荐|热播|用户|运营|热门|官方|投票|点击|播放|指数|数据|排序)/u.test(label)) return false
+  let remaining = label
+  let matched = 0
+  while (remaining) {
+    const root = [...SOURCE_TOPIC_ROOTS].sort((left, right) => right.length - left.length).find((candidate) => remaining.startsWith(compactLabel(candidate)))
+    if (root) {
+      remaining = remaining.slice(compactLabel(root).length)
+      matched += 1
+      continue
+    }
+    if (matched > 0 && SOURCE_TOPIC_SUFFIXES.some((suffix) => remaining === suffix)) return true
+    return false
+  }
+  return matched > 0
 }
 
 export function parseList(value) {
@@ -160,12 +180,12 @@ export function parseList(value) {
     if (!text) return []
     try {
       const parsed = JSON.parse(text)
-      if (Array.isArray(parsed)) return parseList(parsed)
+      return Array.isArray(parsed) ? parseList(parsed) : []
     } catch {
       // 非法 JSON 按普通标签字符串处理，避免一条脏数据中断整榜归一化。
     }
     const result = []
-    flattenListValue(text.split(/[,，;；|/]/u), result)
+    flattenListValue(text.split(/[,，;；|/、]/u), result)
     return [...new Set(result)]
   }
   const result = []
@@ -192,16 +212,16 @@ function titleTopics(title) {
 }
 
 function detectFormat(values, rankingType) {
-  for (const value of values) {
-    const text = compactText(value)
-    if (text.includes('真人AI') || text.includes('AI真人')) return '真人AI'
-    if (text.includes('沙雕漫')) return '沙雕漫'
-    if (text.includes('动态漫') || text.includes('动态漫画')) return '动态漫'
+  for (const entry of values) {
+    const text = compactText(entry.value)
+    if (text.includes('真人AI') || text.includes('AI真人')) return { value: '真人AI', source: entry.source }
+    if (text.includes('沙雕漫')) return { value: '沙雕漫', source: entry.source }
+    if (text.includes('动态漫') || text.includes('动态漫画')) return { value: '动态漫', source: entry.source }
   }
-  if (rankingType === 'motion-ai') return '真人AI'
-  if (rankingType === 'motion-comedy') return '沙雕漫'
-  if (rankingType === 'motion') return '动态漫'
-  return null
+  if (rankingType === 'motion-ai') return { value: '真人AI', source: 'rankingType' }
+  if (rankingType === 'motion-comedy') return { value: '沙雕漫', source: 'rankingType' }
+  if (rankingType === 'motion') return { value: '动态漫', source: 'rankingType' }
+  return { value: null, source: undefined }
 }
 
 function titleHash(title) {
@@ -209,10 +229,20 @@ function titleHash(title) {
 }
 
 function normalizedId(value) {
-  if (value === undefined || value === null || typeof value === 'object') return null
+  if (value === undefined || value === null || typeof value === 'object' || typeof value === 'boolean') return null
   if (typeof value === 'number' && Number.isFinite(value)) return value
-  const text = String(value).trim()
+  if (typeof value !== 'string') return null
+  const text = value.trim()
   return text || null
+}
+
+function firstValidSource(item, aliases, validate) {
+  for (const alias of aliases) {
+    if (!Object.hasOwn(item, alias)) continue
+    const value = validate(item[alias])
+    if (value !== null && value !== undefined) return { value, source: alias }
+  }
+  return { value: null, source: undefined }
 }
 
 function rankingItems(value) {
@@ -227,24 +257,32 @@ function rankingItems(value) {
 export function normalizeRankingItem(rankingType, item, context = {}) {
   const source = isRecord(item) ? item : {}
   const observedAt = context?.observedAt ?? source.observedAt ?? null
-  const idSource = sourceValue(source, FIELD_ALIASES.id)
-  const titleSource = sourceValue(source, FIELD_ALIASES.title)
-  const title = titleSource.value === undefined ? '' : normalizedText(titleSource.value)
-  const playletId = normalizedId(idSource.value)
+  const idSource = firstValidSource(source, FIELD_ALIASES.id, normalizedId)
+  const titleSource = firstValidSource(source, FIELD_ALIASES.title, (value) => {
+    if (typeof value !== 'string' || !value.trim()) return null
+    return normalizedText(value)
+  })
+  const title = titleSource.value ?? ''
+  const playletId = idSource.value
+  if (playletId === null && title === '') return null
   const tagSource = sourceValues(source, FIELD_ALIASES.tags)
-  const tags = tagSource.values.flatMap((value) => parseList(value))
-  const uniqueTags = [...new Set(tags)]
+  const tagEntries = tagSource.values.flatMap((value, index) => parseList(value).map((tag) => ({ value: tag, source: tagSource.sources[index] })))
+  const uniqueTagEntries = [...new Map(tagEntries.map((entry) => [entry.value, entry])).values()]
+  const uniqueTags = uniqueTagEntries.map(({ value }) => value)
   const sourceTopics = uniqueTags.filter((tag) => {
     const label = compactLabel(tag)
     return isSourceTopicTag(tag)
       && !AUDIENCE_LABELS.has(label)
       && !ERA_LABELS.has(label)
       && !NON_TOPIC_TAGS.has(label)
-      && detectFormat([tag], '') === null
+      && detectFormat([{ value: tag, source: '' }], '').value === null
   })
   const formatSource = sourceValue(source, FIELD_ALIASES.format)
-  const formatValues = [...uniqueTags, ...(formatSource.value === undefined ? [] : parseList(formatSource.value))]
-  const format = detectFormat(formatValues, rankingType)
+  const formatEntries = [
+    ...(formatSource.value === undefined ? [] : parseList(formatSource.value).map((value) => ({ value, source: formatSource.source }))),
+    ...uniqueTagEntries,
+  ]
+  const format = detectFormat(formatEntries, rankingType)
   const audienceSource = sourceValue(source, FIELD_ALIASES.audience)
   const explicitAudience = audienceSource.value === undefined ? null : labelValue(parseList(audienceSource.value), AUDIENCE_LABELS)
   const audience = explicitAudience || labelValue(uniqueTags, AUDIENCE_LABELS)
@@ -254,10 +292,10 @@ export function normalizeRankingItem(rankingType, item, context = {}) {
   const inferredTopics = titleTopics(title)
   const topics = sourceTopics.length > 0 ? sourceTopics : (inferredTopics.length > 0 ? inferredTopics : ['未分类'])
   const topicSource = sourceTopics.length > 0 ? 'source-tag' : (inferredTopics.length > 0 ? 'title-keyword' : 'unclassified')
-  const ranking = firstSafeNumber(source, FIELD_ALIASES.ranking)
+  const ranking = firstSafeNumber(source, FIELD_ALIASES.ranking, (value) => Number.isInteger(value) && value >= 1)
   const heatValue = firstSafeNumber(source, FIELD_ALIASES.heatValue)
   const growthValue = firstSafeNumber(source, FIELD_ALIASES.growthValue)
-  const persistenceDays = firstSafeNumber(source, FIELD_ALIASES.persistenceDays)
+  const persistenceDays = firstSafeNumber(source, FIELD_ALIASES.persistenceDays, (value) => Number.isInteger(value) && value >= 0)
   const isNew = firstBoolean(source, FIELD_ALIASES.isNew)
   const companySource = sourceValues(source, FIELD_ALIASES.companies)
   const companies = [...new Set(companySource.values.flatMap((value) => parseList(value)))]
@@ -276,7 +314,7 @@ export function normalizeRankingItem(rankingType, item, context = {}) {
     tags: tagSource.sources.length ? tagSource.sources : undefined,
     audience: explicitAudience ? audienceSource.source : (audience ? 'tags' : undefined),
     era: explicitEra ? eraSource.source : (era ? 'tags' : undefined),
-    format: formatSource.source || (format && uniqueTags.some((tag) => detectFormat([tag], '') === format) ? 'tags' : (format && rankingType.startsWith('motion') ? 'rankingType' : undefined)),
+    format: format.source,
   })) {
     if (value !== undefined) sourceFields[name] = value
   }
@@ -291,7 +329,7 @@ export function normalizeRankingItem(rankingType, item, context = {}) {
     topics,
     audience,
     era,
-    format,
+    format: format.value,
     heatValue: heatValue.value,
     growthValue: growthValue.value,
     isNew: isNew.value,
@@ -312,18 +350,27 @@ export function normalizeRankingItem(rankingType, item, context = {}) {
 
 export function normalizeRankings(rankings, context = {}) {
   if (Array.isArray(rankings)) {
-    return rankings.map((item) => normalizeRankingItem(item?.rankingType ?? context?.rankingType ?? '', item, context))
+    return rankings.map((item) => normalizeRankingItem(item?.rankingType ?? context?.rankingType ?? '', item, context)).filter(Boolean)
   }
   if (!isRecord(rankings)) return []
   const result = []
   for (const [rankingType, value] of Object.entries(rankings)) {
-    for (const item of rankingItems(value)) result.push(normalizeRankingItem(rankingType, item, context))
+    for (const item of rankingItems(value)) {
+      const observation = normalizeRankingItem(rankingType, item, context)
+      if (observation) result.push(observation)
+    }
   }
   return result
 }
 
 function firstNonEmpty(values) {
   return values.find((value) => value !== null && value !== undefined && value !== '') ?? null
+}
+
+function cloneValue(value) {
+  if (Array.isArray(value)) return value.map((entry) => cloneValue(entry))
+  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, cloneValue(entry)]))
+  return value
 }
 
 export function mergePlayletObservations(items) {
@@ -355,9 +402,9 @@ export function mergePlayletObservations(items) {
         growthValue: item.growthValue,
         isNew: item.isNew,
         persistenceDays: item.persistenceDays,
-        provenance: item.provenance,
+        provenance: cloneValue(item.provenance),
       })),
-      observations: [...observations],
+      observations: observations.map((item) => cloneValue(item)),
     }
   })
 }

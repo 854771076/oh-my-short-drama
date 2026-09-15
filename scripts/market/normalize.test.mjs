@@ -65,6 +65,67 @@ test('来源细分题材按受控语义词根保留原标签', () => {
   assert.equal(observation.provenance.topicSource, 'source-tag')
 })
 
+test('JSON 非数组不降级拆分，普通文本支持中文顿号，JSON 对象不进入证据', () => {
+  assert.deepEqual(parseList('{"token":"悬疑"}'), [])
+  assert.deepEqual(parseList('12'), [])
+  assert.deepEqual(parseList('true'), [])
+  assert.deepEqual(parseList('都市、悬疑'), ['都市', '悬疑'])
+
+  const observation = normalizeRankingItem('hot', { title: '普通作品', tags: '{"token":"悬疑"}' })
+  assert.deepEqual(observation.topics, ['未分类'])
+  assert.deepEqual(observation.provenance.evidence.rawTags, [])
+})
+
+test('ID 和标题候选逐个校验并过滤完全无身份的脏条目', () => {
+  const fallback = normalizeRankingItem('hot', {
+    playletId: {},
+    id: 'valid-id',
+    playletName: ' ',
+    title: '有效标题',
+  })
+  assert.equal(fallback.playletId, 'valid-id')
+  assert.equal(fallback.title, '有效标题')
+
+  const numericFallback = normalizeRankingItem('hot', {
+    playletId: Number.NaN,
+    id: Infinity,
+    title: '数字候选无效',
+    ranking: [],
+    rank: -1,
+    topNum: '2.5',
+    listDays: { toString: null },
+    topDays: '3.5',
+    persistenceDays: '4',
+    growthValue: { toString: null },
+    playCountAddRaw: '-20',
+  })
+  assert.equal(numericFallback.playletId, null)
+  assert.equal(numericFallback.ranking, null)
+  assert.equal(numericFallback.persistenceDays, 4)
+  assert.equal(numericFallback.growthValue, -20)
+  assert.equal(normalizeRankingItem('hot', { playletId: {}, playletName: ' ' }), null)
+  assert.equal(normalizeRankings({ hot: [{ playletId: {}, playletName: ' ' }, { id: 'ok', title: '保留' }] }).length, 1)
+})
+
+test('运营榜单文案和否定标签不会成为来源题材', () => {
+  const observation = normalizeRankingItem('hot', {
+    title: '普通作品',
+    tags: ['系统推荐', '都市榜第1', '家庭用户热播', '非爱情'],
+  })
+  assert.deepEqual(observation.topics, ['未分类'])
+  assert.equal(observation.provenance.topicSource, 'unclassified')
+})
+
+test('格式字段无效时使用动态漫标签并记录实际来源', () => {
+  const observation = normalizeRankingItem('hot', {
+    title: '动态作品',
+    format: { invalid: true },
+    tags: ['动态漫'],
+  })
+  assert.equal(observation.format, '动态漫')
+  assert.equal(observation.provenance.sourceFields.format, 'tags')
+})
+
 test('标题词根只推断受控题材，不从题材推断受众和时代', () => {
   const observation = normalizeRankingItem('hot', {
     name: '重生后我成了霸总的白月光',
@@ -122,4 +183,20 @@ test('跨榜单按作品键聚合并保留每个榜单观察和证据', () => {
     { rankingType: 'douyin', ranking: 4 },
   ])
   assert.equal(merged[0].rankings[1].provenance.rankingType, 'douyin')
+})
+
+test('合并结果是与输入及其他结果隔离的深快照', () => {
+  const observations = normalizeRankings({ hot: [{ playletId: 'copy', title: '快照作品', tags: ['悬疑'], company: ['公司'] }] })
+  const merged = mergePlayletObservations(observations)
+  const other = mergePlayletObservations(observations)
+
+  merged[0].observations[0].topics.push('被修改')
+  merged[0].observations[0].provenance.evidence.rawTags.push('被修改')
+  merged[0].rankings[0].provenance.evidence.titleKeywords.push('被修改')
+  merged[0].companies.push('被修改')
+
+  assert.deepEqual(observations[0].topics, ['悬疑'])
+  assert.deepEqual(observations[0].provenance.evidence.rawTags, ['悬疑'])
+  assert.deepEqual(other[0].observations[0].provenance.evidence.rawTags, ['悬疑'])
+  assert.deepEqual(other[0].companies, ['公司'])
 })
