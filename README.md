@@ -28,12 +28,15 @@ Codex / Claude Code / Hermes → oh-my-short-drama → drama-generation MCP → 
   → 导演本落盘
   → 资产分析
   → 人物 / 场景 / 道具生成并落盘
+  → 人物银幕吸引力审核与跨镜身份绑定
   → 分镜与制作规划（逐镜选择图片 / Blender 白模）
   → 图片分镜八维审计 / 白模分镜导演评分
+  → 连续镜头空间计划 / 按需绑定上一镜尾帧
   → 视频提示词落盘
-  → 视频与配音生成
-  → 逐镜验收
-  → Remotion 剪辑
+  → 原生声音优先的视频生成与七维复听
+  → 失败区间受控配音兜底 / 按需对口型
+  → 授权配乐与逐镜验收
+  → Remotion 剪辑 / 媒体修复 / 按需 SeedVR2.5 超分
   → 成片交付
 ```
 
@@ -82,6 +85,8 @@ export RUNNINGHUB_AUDIO_WORKFLOW_ID='workflow-id'
 详见 [RunningHub Provider 合同](references/runninghub-provider.md)。密钥不得写入项目配置、提示词、任务账本或版本记录。
 
 内置 `krea2-normal-v1` 图片工作流和 `minimax-h3-reference-to-video` 视频工作流，不需要手写 `node_info_list`。
+
+媒体变换支持用户工作流口型同步与视频修复，可分别配置 `RUNNINGHUB_LIP_SYNC_WORKFLOW_ID`、`RUNNINGHUB_VIDEO_INPAINT_WORKFLOW_ID`；视频超分使用内置 `seedvr2.5-video-upscale` 固定映射。所有媒体变换先生成未选候选，完整观看并通过专项审核后才能替换当前选版。同一 RunningHub Key 的任务提交并发上限固定为 2。
 
 ### Comfly
 
@@ -209,7 +214,13 @@ project/
 - `submit_video`
 - `get_generation_task`
 - `generate_audio`
+- `generate_music`
+- `generate_audio_fallback`
+- `submit_media_operation`
+- `review_media_operation`
 - `design_voice` / `clone_voice` / `list_voices` / `delete_voice`
+
+口型同步也可使用用户自行安装的 MuseTalk 1.5：设置 `MUSETALK_ROOT`，并按需设置 `MUSETALK_PYTHON`、`MUSETALK_ENTRYPOINT`。插件不会自动安装、下载模型或修改 MuseTalk 目录。StarRouter 音乐目录可用 `STARROUTER_MUSIC_MODELS` 扩展；外部音乐必须先登记许可证与允许用途。
 
 如果当前任务看不到这些工具，应使用 `⌘Q` 完全退出 Codex，再重新打开并新建任务；不得降级为占位媒体。
 

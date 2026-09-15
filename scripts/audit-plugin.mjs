@@ -235,6 +235,7 @@ for (const token of ['speech_intelligibility', 'speaker_identity', 'narration_pe
 const museTalk = await readFile(resolve(root, 'scripts/generation/musetalk.mjs'), 'utf8')
 const mcpConfig = await readFile(resolve(root, '.mcp.json'), 'utf8')
 for (const token of ['MUSETALK_ROOT', 'MUSETALK_PYTHON', 'MUSETALK_ENTRYPOINT', 'transform.lip-sync', 'single-visible-face', '不会自动下载']) if (!`${museTalk}\n${mcpConfig}`.includes(token)) failures.push(`MuseTalk 可选连接器合同缺少：${token}`)
+if (!mcpConfig.includes('STARROUTER_MUSIC_MODELS')) failures.push('Codex MCP 未透传 StarRouter 可选音乐模型目录')
 const audioFlowDocs = await Promise.all(['skills/design-drama-audio/SKILL.md', 'skills/edit-drama-timeline/SKILL.md', 'skills/drama-generation-service/SKILL.md', 'skills/write-drama-video-prompts/SKILL.md', 'references/feature-completeness.md', 'references/pipeline.md', 'references/usage-guide.md'].map((path) => readFile(resolve(root, path), 'utf8')))
 const audioFlowGuide = audioFlowDocs.join('\n')
 for (const token of ['native-first', 'video.native-audio', 'cinematic-tts', 'native_audio_exception', 'MUSETALK_ROOT', 'transform.lip-sync', 'BGM 始终走独立', 'speech_intelligibility', 'speaker_identity', 'narration_performance', 'ambience_action_sync', 'lip_sync', 'technical_audio', 'undeclared_music']) if (!audioFlowGuide.includes(token)) failures.push(`声音流程文档缺少：${token}`)
