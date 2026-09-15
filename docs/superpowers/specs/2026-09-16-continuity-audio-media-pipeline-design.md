@@ -1,0 +1,368 @@
+# 连续性、声音与媒体后期能力化流水线设计
+
+日期：2026-09-16  
+状态：已完成设计与规格自审，待用户复核  
+目标版本：下一次功能版本
+
+## 1. 背景与目标
+
+当前插件已经具备分镜、白模、正式视频、独立配音、基础配乐、时间线和媒体质量检查，但以下能力尚未形成闭环：
+
+1. 分镜可以声明 `previous-tail`，媒体工具也能提取尾帧，但没有把上一镜选中视频的真实尾帧可靠地变成下一镜首帧引用。
+2. 声音计划能生成语音，但对 CosyVoice 声音描述的约束不够严格，也没有可执行的对口型流程。
+3. 轴线、视线、出入画和镜尾状态以自然语言为主，无法系统校验多个连续镜头的空间关系和站位。
+4. 配乐只支持生成，没有授权音乐素材的搜索、导入和许可证留存合同。
+5. 局部视频修复、对口型和超分没有统一的 MCP、任务和派生资产模型。
+6. RunningHub SeedVR2.5 视频高清化工作流 `2099866760106491906` 尚未作为命名能力接入。
+
+本设计把这些能力统一为“能力化媒体流水线”：所有生成或变换操作都读取已选上游资产，创建不可变任务与请求快照，产出带来源指纹的派生资产，并经过独立审核后才能被时间线使用。任何上游选版变化都会使依赖结果失效。
+
+## 2. 范围与非目标
+
+### 2.1 本期范围
+
+- 同场景、同机位连续镜头的上一镜尾帧继承。
+- 跨镜空间状态计划、相邻状态校验和白模坐标映射。
+- CosyVoice 声音描述合同加强，支持原生声音、独立生成语音、外部音频和对口型。
+- 可扩展的授权音乐素材 Provider 合同，以及现有生成音乐 Provider 的统一暴露。
+- 本地确定性修复与远端生成式修复共用的媒体操作 MCP。
+- RunningHub SeedVR2.5 工作流的命名适配、任务查询、资产登记和超分审核。
+- 对上述能力的合同测试、集成自检和逐项验收。
+
+### 2.2 非目标
+
+- 不绕过网站登录、付费、验证码或许可证限制。
+- 不自动抓取或使用未取得同步权和母带权的商业热曲。
+- 不用淡化、补帧或生成式修复掩盖剧情、轴线或动作因果错误。
+- 不覆盖任何源媒体，也不把临时远程 URL 当作长期资产。
+- 不为未知 RunningHub 工作流猜测 `nodeId` 或 `fieldName`。
+- 不在本期引入独立数据库或远程编排服务；继续使用项目本地 JSON、资产账本和任务账本。
+
+## 3. 方案选择
+
+采用“扩展现有资产账本和 Provider 注册表的能力化媒体流水线”。
+
+没有采用在各 Skill 中分别增加脚本的最小补丁方案，因为尾帧、口型、局部修复和超分都需要相同的来源校验、异步任务、派生资产、失效和审核语义。也没有拆成独立后期插件，因为那会重复当前项目选版、任务监控和交付门禁。
+
+本方案包含三个清晰边界：
+
+- `continuity-plan` 只描述跨镜必须保持的状态和允许变化，不执行媒体操作。
+- `media-operation` 只执行一个来源明确的媒体变换，不决定剧情或分镜。
+- Provider 适配器只实现已声明能力，不直接修改项目文档和资产账本。
+
+## 4. 总体数据流
+
+```text
+剧本 / 导演本 / 分镜 / 制作计划
+              │
+              ▼
+       continuity-plan
+       ├─ 场景坐标与轴线
+       ├─ 每镜 start/end state
+       └─ 尾帧继承建议与依赖
+              │
+      ┌───────┴────────┐
+      ▼                ▼
+正式视频生成       声音与音乐计划
+      │                │
+      └───────┬────────┘
+              ▼
+       media-operation
+       ├─ 尾帧提取
+       ├─ 对口型
+       ├─ 局部修复
+       └─ SeedVR2.5 超分
+              │
+              ▼
+      派生资产选版与专项审核
+              │
+              ▼
+          Remotion 时间线
+```
+
+## 5. 连续性计划
+
+### 5.1 文档合同
+
+新增单集不可变文档 `episodes/<ep>/continuity-plan/vNNN.json`，并纳入 `project-store.mjs` 的保存、选版、依赖和失效检查。顶层合同：
+
+```json
+{
+  "episode_key": "ep-001",
+  "source_versions": {
+    "storyboard": "v001",
+    "director-book": "v001",
+    "production-plan": "v001"
+  },
+  "scenes": [],
+  "shots": [],
+  "unresolved": [],
+  "approved": false
+}
+```
+
+每个 `scenes` 项定义：
+
+- `scene_key`：与导演本和分镜一致。
+- `coordinate_mode`：`semantic` 或 `blender-world`。
+- `axis_id`、`axis_description`、`camera_side`。
+- `anchors`：场景入口、门、桌、窗等已有剧本或资产证据的命名锚点。
+- `lighting_anchor`：主光来源、方向和色温连续性。
+
+每个 `shots` 项定义：
+
+- `shot_number`、`scene_key`、`camera_setup_id`。
+- `start_state` 与 `end_state`。
+- `transition_link`。
+- `inherited_fields`、`allowed_changes`、`evidence`。
+
+人物状态只保存可审核字段：`actor_key`、`zone`、`depth`、`facing`、`eyeline_target`、`screen_direction`、`entry_edge`、`exit_edge`、`posture`、`held_props`。图片路径使用 `left|center|right` 和 `near|mid|far` 等语义位置；白模路径可以附带 Blender 世界坐标、朝向和相机变换，但自然语言提示词只编译可见关系，不暴露无意义的伪精确数值。
+
+### 5.2 相邻镜校验
+
+相邻镜属于同一连续时空时，校验器必须比较：
+
+- 上一镜 `end_state` 与下一镜 `start_state` 的人物集合和持物状态；
+- 人物左右、纵深、朝向和视线；
+- 出画边与重新入画边；
+- 运动屏幕方向；
+- 摄影轴、机位侧和主光方向；
+- 门窗、关键道具等场景状态。
+
+差异只有三种合法来源：剧本动作、导演调度或显式的 `allowed_changes`。无法解释的变化进入 `unresolved`，文档不得批准。切换场景、明确跳时空或蒙太奇时使用新的空间状态段，不强制继承。
+
+## 6. 首尾帧衔接
+
+### 6.1 推荐策略
+
+默认“自动建议、逐镜可关闭”。只有以下条件全部成立时，构建分镜或连续性计划才建议 `previous-tail`：
+
+- 前后镜属于同一场景和连续时间；
+- `camera_setup_id` 相同；
+- 轴线侧、画幅和目标成片规格一致；
+- 下一镜确实从上一镜动作或静态尾势继续；
+- 没有正反打、插入镜、跳切、时空省略或刻意重新建立空间。
+
+用户或导演合同可以逐镜设为 `independent`。系统不把“同场景”单独视为足够条件。
+
+### 6.2 执行流程
+
+1. 上一镜正式视频必须已经完整审看、通过并成为 selected 版本。
+2. `prepare_previous_tail` 使用本地确定性工具从实际视频末尾提取一帧，不从提示词、分镜图或远程缩略图推断。
+3. 提取结果登记为图片派生资产，保存源资产 key、源版本、源文件 SHA-256、提取时间点、工具版本和输出哈希。
+4. 下一镜视频提示词编译时重新验证当前 selected 上一镜和来源哈希，并把派生图片放在图片清单第一个位置，角色为 `first_frame`。
+5. 仅支持首帧输入的模型路径才可执行；不支持时把镜头标为阻塞，不能静默降级为普通参考图。
+6. 下一镜生成后提取实际首帧，对继承帧做尺寸、画幅和视觉相似度检查，并人工核对人物、道具、光线和动作状态。
+
+`transition_link` 使用严格合同：
+
+```json
+{
+  "mode": "previous-tail",
+  "source_shot_number": 1,
+  "source_camera_setup_id": "cam-a",
+  "enabled": true,
+  "reason": "承接上一镜推门动作",
+  "required_provider_capability": "video.first-frame"
+}
+```
+
+### 6.3 失效传播
+
+以下任一变化都会使尾帧资产、下一镜视频提示词及依赖该提示词生成的视频失效：
+
+- 上一镜 selected 视频版本或文件哈希变化；
+- 连续性计划、分镜或制作计划换版；
+- 下一镜 Provider、模型、画幅或首帧输入模式变化；
+- 尾帧提取参数或工具版本变化。
+
+历史文件保留，但不能继续成为当前选版或提交输入。
+
+## 7. 声音、语音生成与对口型
+
+### 7.1 CosyVoice 声音描述
+
+现有 `character_voice_description.zh.txt` 已吸收参考文件的大部分业务规则，但本期补成可测试硬合同：
+
+- 输出一段不超过 50 个中文加权字符的自然语言；
+- 必须明确性别和大致年龄段；
+- 必须包含 2–4 个有角色档案证据的声音特征，特征来自音高、语速、情绪色彩和特殊质感；
+- 不包含人物名、地名、剧情、具体台词或真人模仿对象；
+- 不使用标题、前缀、引号、Markdown；
+- 不根据职业、地域或社会阶层补造刻板口音。
+
+保留受控标签 Provider 使用的 `character_voice_recommend`，自然语言声音设计使用加强后的 `character_voice_description`，不把两种输出协议混用。
+
+### 7.2 声音来源模式
+
+`audio-plan.lines[]` 增加明确的 `delivery_mode`：
+
+- `native`：由视频模型一次生成声音，不重复 TTS。
+- `post_dub`：使用已批准 voice 生成逐句音频并替换原声对白区间。
+- `external_audio`：导入用户提供且已确认使用权的音频。
+- `offscreen`：声音存在但画面中没有可见说话口型。
+- `narration`：旁白或内心独白，不驱动画内人物口型。
+
+`post_dub` 与 `external_audio` 必须绑定实际 selected 音频资产、台词来源、说话人和时间范围。外部音频也要经过解码、响度、静音、裁切和台词一致性审核。
+
+### 7.3 对口型操作
+
+新增 `lip-sync` 媒体操作，输入为：
+
+- selected 视频资产；
+- selected 对白音频资产；
+- 角色 key 或明确的人脸选择；
+- 视频和音频时间范围；
+- Provider、模型或工作流；
+- 用户已确认的费用参数。
+
+以下情况禁止执行：旁白、画外音、遮脸、无稳定可见脸、多人脸无法唯一归属、台词与音频不一致。默认适配器边界支持本地或远端 Provider；MuseTalk 1.5 可作为后续具体实现，但不把模型代码直接耦合进项目存储层。
+
+对口型结果必须是新的视频候选，保留原视频和音频来源。专项审核至少包括：音画起止偏差、闭塞音和开口时点、身份保持、牙齿/嘴唇/下巴伪影、非目标脸是否被修改、帧率和时长是否保持。审核未通过时不得把时间线 `dialogue_sync` 标记为 `lip-synced`。
+
+## 8. 配乐 Provider
+
+### 8.1 两类能力
+
+Provider 注册表区分：
+
+- `music.generate`：根据提示词生成新音乐，现有 StarRouter/Suno 属于此类。
+- `music.catalog`：搜索、预览并导入授权音乐素材。
+
+目录 Provider 接口返回统一结果：`provider`、`track_id`、`title`、`creator`、`genre`、`mood`、`duration`、`preview_url`、`source_url`、`license_name`、`license_url`、`attribution_required`、`content_id_risk`、`allowed_uses`。远程搜索结果不是本地资产；只有成功下载或由用户导入并完成许可证登记后才进入资产账本。
+
+### 8.2 首批来源与版权门禁
+
+- 本地授权音乐：首个必须支持的目录 Provider，用户提供文件和许可证或权利声明。
+- Pixabay：允许在更大创作作品中使用，但保存下载页、文件名、许可证、下载时间和可选证书；Content ID 风险必须可见。
+- YouTube Audio Library：通过用户账号下载后导入，保留曲目许可证和署名要求；不抓取普通 YouTube 视频音轨。
+- Uppbeat：按下载时的账号方案和许可证保存用途范围；免费、广告、客户项目、广播等限制不能互相冒充。
+
+所谓“网络热曲”只能作为风格参考或在用户提交有效同步权、母带权证明后导入。插件不提供盗链、解析或规避 Content ID 的功能。
+
+### 8.3 选曲与时间线
+
+声音设计根据场景功能、情绪曲线、节奏、对白密度和乐器占位生成搜索条件，而不是只按“悲伤/热血”单标签随机选曲。每条选中音乐记录匹配镜头、进入点、退出点、循环或裁切、对白让位和授权凭证。缺失可验证许可证时，时间线保存必须拒绝该音乐资产。
+
+## 9. 媒体操作 MCP
+
+### 9.1 统一合同
+
+新增以下 MCP 工具：
+
+- `prepare_previous_tail`：提取并登记上一镜尾帧。
+- `submit_media_operation`：提交一个本地或 Provider 媒体操作。
+- `get_media_operation`：查询异步任务和归一化输出。
+- `register_media_operation_output`：把完成结果复制或下载进本地资产库并登记 provenance。
+- `review_media_operation`：保存该操作类型要求的专项审核。
+
+`submit_media_operation` 的 `operation` 初始枚举：
+
+- 本地确定性：`trim`、`replace-audio`、`stabilize`、`denoise`、`color-match`、`mask-blur`、`frame-interpolate`。
+- 远端或生成式：`lip-sync`、`video-inpaint`、`video-upscale`。
+
+每个请求必须包含输入资产 key/version、操作参数、输出规格和 `confirmed`。局部操作还必须给出开始/结束时间；遮罩类操作必须给出本地遮罩资产。所有输出使用新文件名和新版本，禁止原地覆盖。
+
+### 9.2 Provider 能力注册
+
+Provider 从当前粗粒度的 `image/video/audio` 布尔值扩展为兼容的能力集合：
+
+```json
+{
+  "generate.image": true,
+  "generate.video": true,
+  "generate.audio": true,
+  "music.generate": false,
+  "music.catalog": false,
+  "transform.lip-sync": false,
+  "transform.video-inpaint": false,
+  "transform.video-upscale": true
+}
+```
+
+旧布尔字段继续只读兼容一个版本周期，新 MCP 只依据细粒度能力路由。未声明能力的 Provider 必须在提交前失败，不能先收费再发现不支持。
+
+### 9.3 任务与资产
+
+媒体操作沿用生成任务的请求快照、任务 ID、状态查询、输出下载和资产版本机制，但任务记录额外保存 `operation`、来源哈希、时间范围、遮罩和变换参数。RunningHub 的所有生成与变换请求继续按同一 API Key 最多 2 路并发；查询不占提交槽位。
+
+## 10. RunningHub SeedVR2.5 视频高清化
+
+### 10.1 命名能力
+
+新增模型或工作流标识：
+
+```text
+provider: runninghub
+model: seedvr2.5-video-upscale
+workflow_id: 2099866760106491906
+capability: transform.video-upscale
+```
+
+输入必须是一个本地 selected 视频资产。输出必须被归一化为视频，下载到本地资产库并登记为来源视频的派生版本。适配器复用 RunningHub 的上传、任务提交、查询、错误归一化和单 Key 并发限制。
+
+### 10.2 工作流合同门禁
+
+RunningHub 官方协议要求依据工作流导出的 API JSON 确定 `nodeId` 和 `fieldName`。实现必须取得工作流 `2099866760106491906` 的真实 API 导出，并以仓库内固定模板或经过自检的节点映射接入。至少验证：
+
+- 唯一视频输入节点和字段；
+- 可选放大倍率、目标分辨率、分块、帧率或输出编码字段；
+- 保存视频输出节点；
+- 工作流 ID 与导出内容一致。
+
+如果工作流页面不可访问、需要登录而当前没有可用会话，或无法取得 API 导出，适配器保持不可用并返回明确配置错误。不得提交空 `nodeInfoList` 试错、不得猜节点、不得用另一个 SeedVR 工作流冒充完成。
+
+### 10.3 超分审核
+
+SeedVR2.5 输出必须比较：
+
+- 输出分辨率确实高于输入并符合用户目标；
+- 时长和帧率未发生未声明变化；
+- 音轨被保留或按工作流合同明确回贴；
+- 没有新增黑帧、长冻结、画面裁切或色彩元数据错误；
+- 人脸、手指、文字、细线和高速运动区域没有明显重绘伪影；
+- 来源和输出 SHA-256、工作流 ID、节点覆盖、耗时及费用进入审核记录。
+
+只有结构化 QC 与完整观看都通过后，超分版本才能成为 selected 视频。
+
+## 11. 错误处理与恢复
+
+- 合同错误、缺失选版、失效依赖和能力不支持在提交前失败，不产生远程费用。
+- Provider 任务失败保留请求快照和错误，不登记伪造输出；只重试失败操作。
+- 远程 URL 必须下载成功并核对媒体类型后才登记本地资产。
+- 上游变化通过哈希和版本依赖传播失效，历史候选可查看但不能继续提交或交付。
+- 局部操作、口型和超分各自保存专项审核，不用普通视频审核替代。
+- 许可证缺失或用途不匹配时，音乐资产可保留为候选，但不得选入时间线。
+
+## 12. 兼容性与迁移
+
+- 现有项目没有 `continuity-plan` 时仍可读取，但启用 `previous-tail` 或连续空间校验前必须创建并批准该文档。
+- 旧分镜的 `continuity` 字段继续保留；新计划从中读取意图并增加结构化状态，不在原位改写历史分镜。
+- 现有生成 Provider、音频计划和时间线继续有效；新增字段只对新能力成为必填。
+- Provider 粗粒度能力保留一个版本周期，审计提示迁移到细粒度能力。
+- 所有新文档和任务均使用不可变版本，不批量改写用户已有项目。
+
+## 13. 测试与逐步验收
+
+实施按以下里程碑独立提交和审计：
+
+1. **连续性合同**：先写失败测试，再实现 `continuity-plan` 校验、保存、选版和失效。
+2. **尾帧闭环**：用本地测试视频验证提取、资产登记、首帧绑定、换版失效和不支持模型阻塞。
+3. **空间状态**：覆盖同轴连续、合法反打、出入画承接、持物变化、白模坐标和无证据跳变。
+4. **声音与口型**：覆盖 CosyVoice 字数/性别/年龄/特征合同、五种 delivery mode、外部音频、多人脸阻塞和专项审核。
+5. **音乐目录**：覆盖授权元数据、署名、Content ID 风险、许可证用途不匹配和时间线拒绝。
+6. **媒体操作 MCP**：覆盖本地操作、异步任务、来源哈希、禁止覆盖、失败重试和失效传播。
+7. **SeedVR2.5**：以真实 API 导出做节点合同自检；先完成离线适配测试，再经用户确认进行一次真实付费冒烟和完整输出审核。
+8. **总回归**：运行所有相关自检、插件总审计、三清单版本一致性检查，并对六项原始需求逐条给出文件、测试和运行证据。
+
+每个里程碑只有在对应测试和审计通过后才进入下一项。真实付费任务、登录下载和外部授权素材导入仍在动作发生前按用户确认与权利门禁执行。
+
+## 14. 权威外部依据
+
+- RunningHub `nodeInfoList` 与 API 导出说明：https://www.runninghub.cn/runninghub-api-doc-cn/doc-8287336
+- RunningHub 工作流完整接入说明：https://www.runninghub.cn/runninghub-api-doc-cn/doc-8287342
+- MuseTalk 官方仓库与许可证：https://github.com/TMElyralab/MuseTalk
+- Pixabay Content License：https://pixabay.com/service/license-summary/
+- Pixabay 音乐与 Content ID FAQ：https://pixabay.com/service/faq/
+- YouTube Audio Library 官方说明：https://support.google.com/youtube/answer/3376882
+- Uppbeat Basic License：https://uppbeat.io/uppbeat-basic-license
