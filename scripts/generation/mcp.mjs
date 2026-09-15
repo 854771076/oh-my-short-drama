@@ -36,6 +36,10 @@ import { probeMedia } from '../media-tools.mjs'
 import { compileMusicSearch, listMusicCatalogs, searchMusicCatalog } from '../music-catalog/providers.mjs'
 import { putMusicLicense } from '../music-license-ledger.mjs'
 
+const SEEDVR25_MODEL = 'seedvr2.5-video-upscale'
+const SEEDVR25_WORKFLOW_ID = '2099866760106491906'
+const SEEDVR25_MAPPING = JSON.parse(await readFile(new URL('./seedvr2.5-video-upscale.mapping.json', import.meta.url), 'utf8'))
+
 checkStarRouter()
 await checkRunningHub()
 checkComfly()
@@ -143,7 +147,7 @@ export const tools = [
   ['prepare_previous_tail', '从上一镜当前选中且通过审核的视频提取尾帧，并登记为下一镜首帧资产。', {
     project_root: { type: 'string' }, episode_key: { type: 'string', pattern: '^ep-\\d{3}$' }, shot_number: { type: 'integer', minimum: 2 }, continuity_version: { type: 'string', pattern: '^v\\d{3}$' },
   }, ['project_root', 'episode_key', 'shot_number', 'continuity_version']],
-  ['submit_media_operation', '校验并执行本地媒体修复，或在确认后提交具备细粒度能力的远端变换任务。confirmed=false 只返回摘要。', mediaOperationProperties, ['project_root', 'target', 'operation', 'provider', 'source', 'parameters', 'confirmed']],
+  ['submit_media_operation', '校验并执行本地媒体修复，或在确认后提交具备细粒度能力的远端变换任务。RunningHub SeedVR2.5 使用固定真实节点映射；confirmed=false 只返回上传、工作流与节点摘要。', mediaOperationProperties, ['project_root', 'target', 'operation', 'provider', 'source', 'parameters', 'confirmed']],
   ['get_media_operation', '查询远端媒体变换任务；完成时按请求快照自动登记不可变候选版本。', {
     project_root: { type: 'string' }, task_id: { type: 'string', minLength: 1 },
   }, ['project_root', 'task_id']],
@@ -691,23 +695,28 @@ async function validateProjectMediaOperation(args) {
   if (!remote && capability !== 'transform.local') throw new Error(`${request.operation} 需要远端 ${capability} 能力`)
   if (remote && capability === 'transform.local') throw new Error(`${request.operation} 是确定性本地操作，不得伪装为远端任务`)
   if (remote && !providerSupports(args.provider, capability)) throw new Error(`${args.provider} 未声明 ${capability} 能力`)
-  const modelOrWorkflow = args.workflow_id || args.model || (args.provider === 'musetalk' ? 'musetalk-1.5' : null)
+  const seedVr25 = args.provider === 'runninghub' && request.operation === 'video-upscale' && args.model === SEEDVR25_MODEL
+  if (seedVr25 && args.workflow_id && String(args.workflow_id) !== SEEDVR25_WORKFLOW_ID) throw new Error('SeedVR2.5 必须使用固定工作流 2099866760106491906')
+  if (seedVr25 && args.node_info_list?.length) throw new Error('SeedVR2.5 节点覆盖由内置真实映射生成，不接受手工 node_info_list')
+  const modelOrWorkflow = seedVr25 ? SEEDVR25_MODEL : args.workflow_id || args.model || (args.provider === 'musetalk' ? 'musetalk-1.5' : null)
   if (remote && !modelOrWorkflow) throw new Error('远端媒体操作必须显式提供 model 或 workflow_id')
-  if (remote && args.provider === 'runninghub' && (!Array.isArray(args.node_info_list) || !args.node_info_list.length)) throw new Error('RunningHub 媒体操作 node_info_list 必填')
+  if (remote && args.provider === 'runninghub' && !seedVr25 && (!Array.isArray(args.node_info_list) || !args.node_info_list.length)) throw new Error('RunningHub 媒体操作 node_info_list 必填')
   return {
-    root, target: args.target, provider: args.provider, remote, capability, modelOrWorkflow,
+    root, target: args.target, provider: args.provider, remote, capability, modelOrWorkflow, model: seedVr25 ? SEEDVR25_MODEL : args.model,
     request: { ...request, source_sha256: source.version.sha256 },
     referencePaths: references.map((item) => item.selected.path),
     referencePathsByRole: Object.fromEntries(references.map((item) => [item.role, item.selected.path])),
     uploads: references.map((item) => ({ role: item.role, asset_key: item.requested.asset_key, version_id: item.requested.version_id, sha256: item.selected.version.sha256 })),
-    workflow_id: args.workflow_id, node_info_list: args.node_info_list,
+    workflow_id: seedVr25 ? SEEDVR25_WORKFLOW_ID : args.workflow_id,
+    node_info_list: args.node_info_list,
+    node_overrides: seedVr25 ? [SEEDVR25_MAPPING.video_input] : undefined,
   }
 }
 
 async function submitProviderMediaOperation(normalized) {
   const selected = adapter(normalized.provider)
   if (typeof selected.transform !== 'function') throw new Error(`${normalized.provider} 未实现媒体变换提交`)
-  const providerArgs = { ...normalized.request, workflow_id: normalized.workflow_id, node_info_list: normalized.node_info_list, reference_paths: normalized.referencePaths, confirmed: true }
+  const providerArgs = { ...normalized.request, model: normalized.model, workflow_id: normalized.workflow_id, node_info_list: normalized.node_info_list, reference_paths: normalized.referencePaths, confirmed: true }
   const snapshot = await createRequestSnapshot(normalized.root, { tool: 'submit_media_operation', target: normalized.target, type: 'video', provider: normalized.provider, modelOrWorkflow: normalized.modelOrWorkflow, promptDocument: null, arguments: providerArgs })
   await reserveTask(normalized.root, { taskId: snapshot.requestId, target: normalized.target, type: 'video', provider: normalized.provider, requestPath: snapshot.requestPath })
   let result
@@ -718,7 +727,7 @@ async function submitProviderMediaOperation(normalized) {
       source_audio_path: normalized.referencePathsByRole.audio,
       output_path: resolve(normalized.root, '.short-drama', 'provider-output', `${snapshot.requestId}.mp4`),
       face_selector: normalized.request.parameters.face_selector,
-    } : providerArgs
+    } : normalized.model === SEEDVR25_MODEL ? { ...providerArgs, source_video_path: normalized.referencePathsByRole.source } : providerArgs
     result = await selected.transform(invocation)
   }
   catch (error) {
@@ -733,7 +742,7 @@ async function submitProviderMediaOperation(normalized) {
 
 async function submitMediaOperation(args) {
   const normalized = await validateProjectMediaOperation(args)
-  if (args.confirmed !== true) return { requires_confirmation: normalized.remote, remote: normalized.remote, operation: normalized.request.operation, capability: normalized.capability, source: normalized.request.source, uploads: normalized.uploads, provider: normalized.provider, model_or_workflow: normalized.modelOrWorkflow }
+  if (args.confirmed !== true) return { requires_confirmation: normalized.remote, remote: normalized.remote, operation: normalized.request.operation, capability: normalized.capability, source: normalized.request.source, uploads: normalized.uploads, provider: normalized.provider, model_or_workflow: normalized.modelOrWorkflow, ...(normalized.workflow_id ? { workflow_id: normalized.workflow_id } : {}), ...(normalized.node_overrides ? { node_overrides: normalized.node_overrides } : {}) }
   if (normalized.remote) return submitProviderMediaOperation(normalized)
   const result = await executeLocalMediaOperation(normalized.root, normalized.request)
   return { status: 'completed', provider: 'local', operation: normalized.request.operation, ...result }

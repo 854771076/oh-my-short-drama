@@ -16,7 +16,7 @@ const qc = (contents) => ({
   blockers: [],
   video_sha256: createHash('sha256').update(contents).digest('hex'),
   duration_ms: 2000,
-  video: { width: 1920, height: 1080 },
+  video: { width: 1920, height: 1080, fps: 24 },
   audio: true,
 })
 
@@ -56,7 +56,7 @@ test('批准媒体操作后才选择候选版本', async () => {
     await makeVersion('v001', sourceContents, { origin: 'imported', created_by: 'user', provider: null, model_or_workflow: null, task_id: null, prompt_document: null, source_assets: [], parameters: {} })
     await selectAssetVersion(root, key, 'v001')
     await makeVersion('v002', outputContents, {
-      origin: 'transformed', created_by: 'provider', provider: 'runninghub', model_or_workflow: 'seedvr2.5-video-upscale', task_id: 'task-upscale', prompt_document: null,
+      origin: 'transformed', created_by: 'provider', provider: 'runninghub', model_or_workflow: 'workflow-upscale', task_id: 'task-upscale', prompt_document: null,
       source_assets: [{ key, version_id: 'v001' }],
       parameters: { operation: 'video-upscale', parameters: { target_resolution: '2K' }, source_sha256: createHash('sha256').update(sourceContents).digest('hex') },
     })

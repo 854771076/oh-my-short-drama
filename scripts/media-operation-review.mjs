@@ -45,6 +45,7 @@ export function validateMediaOperationReview(operation, review) {
   if (review.approved) {
     if (review.watched_full !== true) throw new Error('批准媒体操作前必须完整观看并听完输出')
     if (!validQc(review.qc)) throw new Error('批准媒体操作必须绑定已通过的完整结构化 QC')
+    if (operation === 'video-upscale' && (!Number.isFinite(review.qc.video?.fps) || review.qc.video.fps <= 0)) throw new Error('批准视频超分必须在 QC 中记录输出帧率')
     if (review.issues.some((issue) => ['P0', 'P1'].includes(issue.severity))) throw new Error('存在 P0/P1 问题时不得批准媒体操作')
   }
   return structuredClone(review)

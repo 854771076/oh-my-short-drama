@@ -72,7 +72,17 @@ export function validateTaskOutput(task, request, asset, version, requireComplet
   if (request.target !== task.target || request.type !== task.type || request.provider !== task.provider || request.modelOrWorkflow !== provenance.model_or_workflow) throw new Error('请求、任务与资产模型不一致')
   if (JSON.stringify(canonicalPromptDocument(request.promptDocument, request.tool)) !== JSON.stringify(canonicalPromptDocument(provenance.prompt_document, request.tool))) throw new Error('请求与资产提示词文档不一致')
   const expectedParameters = canonicalProvenanceParameters(request)
-  if (JSON.stringify(expectedParameters) !== JSON.stringify(canonical(provenance.parameters || {}))) throw new Error(`资产 provenance 参数与请求不一致：实际 ${JSON.stringify(provenance.parameters || {})}，期望 ${JSON.stringify(expectedParameters)}`)
+  const actualParameters = canonical(provenance.parameters || {})
+  const { output_processing: outputProcessing, ...requestParameters } = actualParameters
+  if (JSON.stringify(expectedParameters) !== JSON.stringify(requestParameters)) throw new Error(`资产 provenance 参数与请求不一致：实际 ${JSON.stringify(provenance.parameters || {})}，期望 ${JSON.stringify(expectedParameters)}`)
+  if (outputProcessing !== undefined) {
+    const seedVr25 = request.tool === 'submit_media_operation' && request.modelOrWorkflow === 'seedvr2.5-video-upscale' && request.arguments?.operation === 'video-upscale'
+    const providerOutput = outputProcessing?.provider_output
+    const audioSource = outputProcessing?.audio_remux_source
+    if (!seedVr25 || !providerOutput || providerOutput.asset_key !== task.target || !/^v\d{3}$/.test(providerOutput.version_id || '') || !/^[0-9a-f]{64}$/.test(providerOutput.sha256 || '') || !['ffmpeg-stream-copy', 'ffmpeg-video-copy-source-audio-aac'].includes(outputProcessing.method)) throw new Error('SeedVR2.5 输出处理 provenance 无效')
+    if (audioSource && (audioSource.asset_key !== request.arguments.source.asset_key || audioSource.version_id !== request.arguments.source.version_id || audioSource.sha256 !== request.arguments.source_sha256)) throw new Error('SeedVR2.5 音轨复用来源与请求不一致')
+    if (outputProcessing.method === 'ffmpeg-video-copy-source-audio-aac' && !audioSource) throw new Error('SeedVR2.5 音轨复用缺少来源证据')
+  }
   if (request.tool === 'submit_video' || request.tool === 'generate_image') {
     const expectedSources = (request.arguments.reference_manifest || []).map((item) => ({ key: item.asset_key, version_id: item.version_id }))
     if (JSON.stringify(expectedSources) !== JSON.stringify(provenance.source_assets)) throw new Error('媒体资产上游版本与请求参考清单不一致')

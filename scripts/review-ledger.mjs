@@ -86,6 +86,12 @@ export async function putMediaOperationReview(rootArg, input) {
     if (!source || asset.selectedVersionId !== source.version_id) throw new Error('媒体操作审核只能替换当前 selected 来源版本')
     const sourceVersion = asset.versions.find((item) => item.id === source.version_id)
     if (!sourceVersion || version.provenance.parameters.source_sha256 !== sourceVersion.sha256) throw new Error('媒体操作候选记录的来源 SHA-256 与当前来源版本不一致')
+    if (version.provenance.model_or_workflow === 'seedvr2.5-video-upscale') {
+      const processing = version.provenance.parameters.output_processing
+      const providerOutput = asset.versions.find((item) => item.id === processing?.provider_output?.version_id)
+      if (!providerOutput || providerOutput.sha256 !== processing.provider_output.sha256 || providerOutput.provenance?.task_id !== `${version.provenance.task_id}:provider-output`) throw new Error('SeedVR2.5 候选缺少不可变 Provider 原始输出证据')
+      if (processing.audio_remux_source && (processing.audio_remux_source.asset_key !== source.key || processing.audio_remux_source.version_id !== source.version_id || processing.audio_remux_source.sha256 !== sourceVersion.sha256)) throw new Error('SeedVR2.5 音轨复用来源证据无效')
+    }
     await selectedAssetVersion(root, record.asset_key)
     const local = resolve(root, version.localPath || '')
     const [rootReal, localReal] = await Promise.all([realpath(root), realpath(local)])

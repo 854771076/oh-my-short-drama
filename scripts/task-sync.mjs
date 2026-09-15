@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { generationProvenance, getTask, updateTaskStatus } from './task-ledger.mjs'
 import { detectMedia } from './grid-detect.mjs'
+import { probeMedia } from './media-tools.mjs'
 
 const execute = promisify(execFile)
 const assetLedger = fileURLToPath(new URL('./asset-ledger.mjs', import.meta.url))
@@ -22,6 +23,50 @@ function nextVersion(asset, offset = 0) {
 }
 
 async function run(...args) { return (await execute(process.execPath, [assetLedger, ...args], { maxBuffer: 4 * 1024 * 1024 })).stdout.trim() }
+
+function isSeedVr25(request) {
+  return request.tool === 'submit_media_operation' && request.modelOrWorkflow === 'seedvr2.5-video-upscale' && request.arguments?.operation === 'video-upscale'
+}
+
+function validateSeedVr25Output(source, output) {
+  if (!source.has_video || !output.has_video) throw new Error('SeedVR2.5 输入和输出必须包含视频流')
+  const durationTolerance = Math.max(100, Math.ceil(1500 / Math.max(source.fps, 1)))
+  if (Math.abs(source.duration_ms - output.duration_ms) > durationTolerance) throw new Error(`SeedVR2.5 输出时长漂移：${source.duration_ms}ms -> ${output.duration_ms}ms`)
+  if (!source.fps || !output.fps || Math.abs(source.fps - output.fps) > 0.01) throw new Error(`SeedVR2.5 输出帧率漂移：${source.fps} -> ${output.fps}`)
+}
+
+async function normalizeSeedVr25Output(root, task, request, registered, versionId, temporary) {
+  const sourceRef = request.arguments.source
+  const ledger = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
+  const sourceVersion = ledger.assets?.[sourceRef.asset_key]?.versions?.find((item) => item.id === sourceRef.version_id)
+  if (!sourceVersion || sourceVersion.sha256 !== request.arguments.source_sha256) throw new Error('SeedVR2.5 源视频版本或 SHA-256 已变化')
+  const sourcePath = resolve(root, sourceVersion.localPath)
+  const providerPath = resolve(root, registered.localPath)
+  const sourceProbe = probeMedia(sourcePath)
+  const providerProbe = probeMedia(providerPath)
+  validateSeedVr25Output(sourceProbe, providerProbe)
+  const output = resolve(root, '.short-drama', 'provider-output', `${task.taskId}-${versionId}-final.mp4`)
+  await mkdir(resolve(root, '.short-drama', 'provider-output'), { recursive: true })
+  const remuxAudio = sourceProbe.has_audio && !providerProbe.has_audio
+  const inputs = remuxAudio ? ['-i', providerPath, '-i', sourcePath] : ['-i', providerPath]
+  const maps = remuxAudio ? ['-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-shortest'] : ['-map', '0:v:0', '-map', '0:a?', '-c', 'copy']
+  try { await execute('ffmpeg', ['-nostdin', '-loglevel', 'error', '-y', ...inputs, ...maps, output], { maxBuffer: 4 * 1024 * 1024 }) }
+  catch (error) { throw new Error(`SeedVR2.5 输出封装失败：${String(error.stderr || error.message).slice(0, 500)}`) }
+  const finalProbe = probeMedia(output)
+  validateSeedVr25Output(sourceProbe, finalProbe)
+  if (sourceProbe.has_audio && !finalProbe.has_audio) throw new Error('SeedVR2.5 最终输出未保留源音轨')
+  const provenanceValue = generationProvenance(task, request)
+  provenanceValue.parameters.output_processing = {
+    provider_output: { asset_key: task.target, version_id: registered.id, sha256: registered.sha256 },
+    ...(remuxAudio ? { audio_remux_source: { asset_key: sourceRef.asset_key, version_id: sourceRef.version_id, sha256: sourceVersion.sha256 } } : {}),
+    method: remuxAudio ? 'ffmpeg-video-copy-source-audio-aac' : 'ffmpeg-stream-copy',
+  }
+  const provenance = resolve(temporary, `provenance-${versionId}-final.json`)
+  await writeFile(provenance, `${JSON.stringify(provenanceValue, null, 2)}\n`)
+  const finalVersionId = nextVersion(ledger.assets[task.target])
+  try { return JSON.parse(await run('import', root, task.target, output, finalVersionId, '-', provenance)) }
+  finally { await rm(output, { force: true }) }
+}
 
 export async function syncTaskResult(rootArg, taskId, result) {
   const root = resolve(rootArg)
@@ -49,7 +94,9 @@ export async function syncTaskResult(rootArg, taskId, result) {
       if (output.media_type && output.media_type !== task.type) throw new Error(`输出类型与任务不一致：${output.media_type}/${task.type}`)
       const versionId = nextVersion(ledger.assets[task.target], index - existingCount)
       const provenance = resolve(temporary, `provenance-${index}.json`)
-      await writeFile(provenance, `${JSON.stringify(generationProvenance(task, request), null, 2)}\n`)
+      const seedVr25 = isSeedVr25(request)
+      const provenanceTask = seedVr25 ? { ...task, taskId: `${task.taskId}:provider-output` } : task
+      await writeFile(provenance, `${JSON.stringify(generationProvenance(provenanceTask, request), null, 2)}\n`)
       let registered
       if (output.url) registered = JSON.parse(await run('fetch', root, task.target, output.url, versionId, '-', provenance))
       else if (output.b64_json) {
@@ -63,20 +110,24 @@ export async function syncTaskResult(rootArg, taskId, result) {
         const temporaryRoot = resolve(rootReal, '.short-drama', 'provider-output')
         if (outputReal.startsWith(`${temporaryRoot}${sep}`)) await rm(outputReal, { force: true })
       } else throw new Error(`第 ${index + 1} 个输出无 URL、base64 或受控本地路径`)
+      if (seedVr25) {
+        registered = await normalizeSeedVr25Output(root, task, request, registered, versionId, temporary)
+        ledger = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
+      }
       // 成片宫格自动检测：只打标，不自动重生（门框/地平线可能误报，交给人工复核）
       if (task.type === 'video') {
         let flags = []
         let report = null
         try { report = detectMedia(resolve(root, registered.localPath)); if (report.detected) flags = [report.confidence === 'high' ? 'grid_high_confidence' : 'grid_suspect'] }
         catch { flags = ['grid_check_failed'] }
-        quality.push({ version_id: versionId, flags, ...(report ? { grid_report: report } : {}) })
+        quality.push({ version_id: registered.id, flags, ...(report ? { grid_report: report } : {}) })
         if (flags.length) {
           const flagFile = resolve(temporary, `flags-${index}.json`)
           await writeFile(flagFile, JSON.stringify(flags))
-          await run('flag-version', root, task.target, versionId, flagFile)
+          await run('flag-version', root, task.target, registered.id, flagFile)
         }
       }
-      versions.push(versionId)
+      versions.push(registered.id)
     }
     return { ...result, output_version_ids: versions, output_quality: quality, local_task: await updateTaskStatus(root, taskId, 'completed', versions[0]) }
   } finally { await rm(temporary, { recursive: true, force: true }) }
