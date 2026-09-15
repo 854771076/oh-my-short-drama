@@ -71,6 +71,25 @@ test('超时错误不暴露请求头', async () => {
   })
 })
 
+test('response.json 阶段被中止时仍返回超时错误', async (t) => {
+  for (const name of ['AbortError', 'TimeoutError']) {
+    await t.test(name, async () => {
+      const client = createJuchachaClient({
+        fetchImpl: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => { throw new DOMException('request aborted', name) },
+        }),
+      })
+      await assert.rejects(client.fetchRanking('income'), (error) => {
+        assert.equal(error.code, 'JUCHACHA_TIMEOUT')
+        assert.equal(error.endpoint, '/playlet/getPlayletRevenueRankData')
+        return true
+      })
+    })
+  }
+})
+
 test('HTTP 错误、业务错误和脏 JSON 使用不同错误码', async (t) => {
   await t.test('HTTP 错误', async () => {
     const client = createJuchachaClient({ fetchImpl: async () => new Response('bad gateway', { status: 502 }) })
@@ -86,13 +105,22 @@ test('HTTP 错误、业务错误和脏 JSON 使用不同错误码', async (t) =>
   })
 })
 
-test('未知榜单类型返回协议错误', async () => {
-  const client = createJuchachaClient({ fetchImpl: async () => response({ statusCode: 200, content: [] }) })
-  await assert.rejects(client.fetchRanking('not-a-ranking'), (error) => {
-    assert.equal(error.code, 'JUCHACHA_INVALID_RESPONSE')
-    assert.equal(error.endpoint, null)
-    return true
+test('未知榜单类型只接受 rankingDefinitions 自有属性', async () => {
+  let calls = 0
+  const client = createJuchachaClient({
+    fetchImpl: async () => {
+      calls += 1
+      return response({ statusCode: 200, content: [] })
+    },
   })
+  for (const type of ['not-a-ranking', 'constructor', 'toString', '__proto__']) {
+    await assert.rejects(client.fetchRanking(type), (error) => {
+      assert.equal(error.code, 'JUCHACHA_INVALID_RESPONSE')
+      assert.equal(error.endpoint, null)
+      return true
+    })
+  }
+  assert.equal(calls, 0)
 })
 
 test('fetchAllRankings 保留成功榜单并记录失败榜单', async () => {

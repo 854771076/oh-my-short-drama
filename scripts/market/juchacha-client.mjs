@@ -106,7 +106,8 @@ export function createJuchachaClient({
     try {
       if (typeof response.json !== 'function') throw new TypeError('response.json 不可用')
       payload = await response.json()
-    } catch {
+    } catch (caught) {
+      if (isTimeout(caught)) throw error('JUCHACHA_TIMEOUT', endpoint, '剧查查请求超时')
       throw error('JUCHACHA_INVALID_RESPONSE', endpoint, '剧查查返回内容不是有效 JSON')
     }
 
@@ -134,8 +135,10 @@ export function createJuchachaClient({
   }
 
   async function fetchRanking(type, periods = {}) {
+    if (!Object.hasOwn(rankingDefinitions, type)) {
+      throw error('JUCHACHA_INVALID_RESPONSE', null, `未知榜单类型：${String(type)}`)
+    }
     const definition = rankingDefinitions[type]
-    if (!definition) throw error('JUCHACHA_INVALID_RESPONSE', null, `未知榜单类型：${String(type)}`)
     const period = selectedPeriod(periods)
     let chosenPeriod = period
     if (!chosenPeriod && definition.dateEndpoint) {
