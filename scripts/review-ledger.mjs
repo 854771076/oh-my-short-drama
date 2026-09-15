@@ -8,6 +8,7 @@ import { sameShotVersion } from './shot-fingerprint.mjs'
 import { fileSha256, probePrevizMedia, validatePrevizContract, validatePrevizMedia } from './previz-contract.mjs'
 import { validateMediaOperationReview } from './media-operation-review.mjs'
 import { validateNativeAudioReview } from './native-audio-audit.mjs'
+import { validateCharacterAppealReview } from './character-appeal-review.mjs'
 
 const CHECKS = new Set(['passed', 'failed', 'not-applicable'])
 // 机器质量标记必须人工复核后才能放行；只能用带实际观察的误报判定覆盖。
@@ -68,6 +69,49 @@ async function save(root, value) {
   const temporary = `${target}.${randomUUID()}.tmp`
   await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { flag: 'wx' })
   await rename(temporary, target)
+}
+
+async function characterProfileForCandidate(root, asset, version) {
+  const source = version.provenance?.prompt_document
+  if (version.provenance?.origin !== 'generated' || asset.type !== 'character' || source?.kind !== 'asset-plan' || source.asset_key !== asset.key || !/^ep-\d{3}$/.test(source.episode_key) || !/^v\d{3}$/.test(source.version_id)) throw new Error('人物专项审核目标必须是绑定资产计划的新生成人物候选')
+  const selected = JSON.parse(await readFile(resolve(root, 'episodes', source.episode_key, 'asset-plan', 'selected.json'), 'utf8'))
+  if (selected.versionId !== source.version_id) throw new Error('人物专项审核必须绑定当前 selected 资产计划')
+  const plan = JSON.parse(await readFile(resolve(root, 'episodes', source.episode_key, 'asset-plan', `${source.version_id}.json`), 'utf8'))
+  const planned = plan.characters?.find((item) => item.key === asset.key)
+  if (!planned?.name) throw new Error('资产计划无法解析人物候选的规范名')
+  const bytes = await readFile(resolve(root, 'assets/characters/profiles.json'))
+  const store = JSON.parse(bytes.toString('utf8'))
+  const matches = store.characters?.filter((character) => character?.name === planned.name) || []
+  if (matches.length !== 1) throw new Error('人物专项审核无法解析唯一人物档案')
+  return { character: matches[0], profile_sha256: createHash('sha256').update(bytes).digest('hex') }
+}
+
+export async function putCharacterAppealReview(rootArg, input) {
+  const root = resolve(rootArg)
+  const record = structuredClone(input)
+  if (record?.review_type !== 'character-appeal' || !/^char-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(record.assetKey || '') || !/^v\d{3}$/.test(record.versionId || '')) throw new Error('人物专项审核必须绑定有效人物资产与版本')
+  return withFileLock(pathFor(root), async () => {
+    const assets = JSON.parse(await readFile(resolve(root, '.short-drama', 'assets.json'), 'utf8'))
+    const asset = assets.assets?.[record.assetKey]
+    const version = asset?.versions?.find((item) => item.id === record.versionId)
+    if (!version || asset.staleVersionIds?.includes(record.versionId)) throw new Error('人物专项审核目标必须是未失效候选版本')
+    const { character, profile_sha256 } = await characterProfileForCandidate(root, asset, version)
+    const approved = validateCharacterAppealReview(character, record)
+    const saved = { ...record, asset_sha256: version.sha256, profile_sha256, approved, reviewedAt: new Date().toISOString() }
+    const ledger = await read(root)
+    const key = `${record.assetKey}@${record.versionId}`
+    const previous = ledger.reviews[key]
+    ledger.reviews[key] = saved
+    await save(root, ledger)
+    if (approved) try { await selectAssetVersion(root, record.assetKey, record.versionId) }
+    catch (error) {
+      if (previous) ledger.reviews[key] = previous
+      else delete ledger.reviews[key]
+      await save(root, ledger)
+      throw error
+    }
+    return { ...saved, selected: approved }
+  })
 }
 
 export async function putMediaOperationReview(rootArg, input) {
@@ -131,7 +175,8 @@ async function main() {
   const root = resolve(rootArg)
   if (command === 'list') return console.log(JSON.stringify(await read(root), null, 2))
   if (command === 'review-media-operation' && inputPath) return console.log(JSON.stringify(await putMediaOperationReview(root, JSON.parse(await readFile(resolve(inputPath), 'utf8'))), null, 2))
-  if (command !== 'put' || !inputPath) throw new Error('用法：review-ledger.mjs put <项目目录> <验收 JSON> | review-media-operation <项目目录> <专项审核 JSON> | list <项目目录>')
+  if (command === 'review-character' && inputPath) return console.log(JSON.stringify(await putCharacterAppealReview(root, JSON.parse(await readFile(resolve(inputPath), 'utf8'))), null, 2))
+  if (command !== 'put' || !inputPath) throw new Error('用法：review-ledger.mjs put <项目目录> <验收 JSON> | review-character <项目目录> <人物专项审核 JSON> | review-media-operation <项目目录> <专项审核 JSON> | list <项目目录>')
   return withFileLock(pathFor(root), async () => {
     const record = JSON.parse(await readFile(resolve(inputPath), 'utf8'))
     let approved = validate(record)

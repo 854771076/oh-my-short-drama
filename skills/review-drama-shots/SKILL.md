@@ -5,6 +5,8 @@ description: 验收短剧分镜图和视频镜头。用于逐镜视觉、音频�
 
 # 验收短剧镜头
 
+人物定妆候选先执行独立的人物视觉专项审核，不能套用普通镜头总分。必须查看原图或完整设定板，并写 `review_type:"character-appeal"`、`assetKey`、`versionId`、`watched_or_inspected_full:true`、`approved`、`protection_flags[]`，以及五个不可互相补偿的维度：`age_classification:{status,observation,observed_age_class}`、`identity:{status,observation}`、`grooming_costume:{status,observation}`、`memory_anchors:{status,observation}`、`audience_appeal:{status,observation}`。任一维度 failed、年龄观察与档案不符或任何保护标记存在都不得批准；儿童成人化不能由高美观分抵消，成年人缺少专属妆造或记忆锚点也不能选版。使用 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/review-ledger.mjs" review-character <项目目录> <人物审核.json>`，通过后脚本才原子选择当前候选并绑定资产 SHA 与人物档案 SHA；不得直接调用 `asset-ledger select` 绕过。
+
 图片分镜生成候选后，先用图像查看能力逐张查看原图，并结合前后镜、结构化分镜、人物/场景/道具选版和项目画风做整集连续审计；不能只看缩略图、文件存在或生成状态。每张图片分镜的 `criteria` 必须严格按以下八项原顺序记录 `{criterion,status,observation}`：`空间关系与轴线`、`时间与动作连续性`、`物理与交互逻辑`、`光线与色彩连续性`、`人物身份与造型一致性`、`场景与道具一致性`、`构图与镜头语言`、`叙事覆盖与阅读顺序`。单图的时间维度检查与前后镜衔接；故事版/分镜板还要检查各格内部顺序。任何一项 failed 都必须修订或重生成后复审，所有图片分镜镜头通过前不得制作正式视频。
 
 分镜审计通过后、视频提示词编译前执行 `plan-shot-continuity`。审计观察必须足以支持人物位置、姿态、运动方向、持物、出入画边、轴线、机位侧和主光锚点；看不清或上下镜冲突的内容进入连续性计划 `unresolved`，不得用主观判断补齐。启用 previous-tail 的下一镜还要确认上一镜结束状态已稳定可读，并与同机位承接相容。

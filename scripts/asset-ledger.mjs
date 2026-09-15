@@ -298,6 +298,13 @@ export async function selectAssetVersion(rootArg, key, versionId) {
     const version = asset.versions.find((item) => item.id === versionId)
     if (!version) throw new Error(`版本不存在：${versionId}`)
     if (asset.staleVersionIds?.includes(versionId)) throw new Error(`版本已因上游变更失效：${key}@${versionId}`)
+    if (asset.type === 'character' && version.provenance?.origin === 'generated') {
+      const reviews = JSON.parse(await readFile(resolve(root, '.short-drama', 'shot-reviews.json'), 'utf8').catch((error) => error?.code === 'ENOENT' ? '{"reviews":{}}' : Promise.reject(error)))
+      const review = reviews.reviews?.[`${key}@${versionId}`]
+      const profileBytes = await readFile(resolve(root, 'assets/characters/profiles.json'))
+      const profileSha256 = createHash('sha256').update(profileBytes).digest('hex')
+      if (review?.review_type !== 'character-appeal' || review.approved !== true || review.asset_sha256 !== version.sha256 || review.profile_sha256 !== profileSha256) throw new Error(`新生成人物候选必须通过当前档案绑定的人物专项审核：${key}@${versionId}`)
+    }
     await access(localPath(root, version.localPath))
     if (asset.selectedVersionId && asset.selectedVersionId !== versionId) {
       const shot = shotIdentity(key)
