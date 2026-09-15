@@ -2,9 +2,10 @@ import { bailian, BAILIAN_COSYVOICE_LANGUAGE_HINTS, weightedLength } from './bai
 import { starrouter } from './starrouter.mjs'
 import { runninghub } from './runninghub.mjs'
 import { comfly } from './comfly.mjs'
+import { musetalk } from './musetalk.mjs'
 import { credential } from './credentials.mjs'
 
-export const adapters = { bailian, starrouter, runninghub, comfly }
+export const adapters = { bailian, starrouter, runninghub, comfly, musetalk }
 export const providerNames = Object.keys(adapters)
 const H3_MODELS = new Set(['starrouter:MiniMax-H3', 'starrouter:MiniMax-H3-Max', 'runninghub:minimax-h3-reference-to-video', 'comfly:minimax-h3'])
 
@@ -159,7 +160,7 @@ export function applyConfiguredModelParameters(provider, model, configured, requ
 
 export function providerSetupCatalog() {
   return Object.entries(adapters).map(([key, value]) => ({
-    key, label: value.label || key, configured: Boolean(credential(value.credentialEnv)), credentialEnv: value.credentialEnv,
+    key, label: value.label || key, configured: value.configured ? value.configured() : Boolean(credential(value.credentialEnv)), credentialEnv: value.credentialEnv,
     capabilities: value.capabilities,
     models: Object.fromEntries(['image', 'video', 'audio', 'music', 'asr'].map((type) => [type, (value.catalog?.[type] || []).map((id) => ({ id, promptProfile: type === 'video' ? isH3Model(key, id) ? 'h3' : /seedance-2-0/.test(id) ? 'seedance2' : 'generic' : null, parameters: parameterCatalog[key]?.[id] || [] }))])),
   }))

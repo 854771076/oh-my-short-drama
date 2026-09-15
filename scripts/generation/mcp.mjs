@@ -8,6 +8,7 @@ import { selfCheck as checkStarRouter } from './starrouter.mjs'
 import { selfCheck as checkRunningHub } from './runninghub.mjs'
 import { selfCheck as checkComfly } from './comfly.mjs'
 import { selfCheck as checkBailian } from './bailian.mjs'
+import { selfCheck as checkMuseTalk } from './musetalk.mjs'
 import { designVoice, cloneVoice, deleteVoice, importExternalAudio, listVoices } from './voice-tools.mjs'
 import { createRequestSnapshot, getTask, listTasks, reserveTask, settleReservedTask } from '../task-ledger.mjs'
 import { validateGenerationDocumentReference } from '../document-reference.mjs'
@@ -31,11 +32,13 @@ import { executeLocalMediaOperation } from '../media-operations.mjs'
 import { putMediaOperationReview } from '../review-ledger.mjs'
 import { validateNativeAudioReview } from '../native-audio-audit.mjs'
 import { planAudioFallback } from '../audio-fallback.mjs'
+import { probeMedia } from '../media-tools.mjs'
 
 checkStarRouter()
 await checkRunningHub()
 checkComfly()
 checkBailian().catch((error) => { console.error(error.message); process.exitCode = 1 })
+await checkMuseTalk()
 checkLitterbox()
 checkTempfile(); checkTmpfiles(); checkUguu()
 checkProviders()
@@ -92,7 +95,7 @@ const mediaOperationProperties = {
   provider: { type: 'string', enum: ['local', ...providerNames] }, model: { type: 'string' }, workflow_id: { type: 'string' },
   source: assetVersionReference, audio: assetVersionReference, mask: assetVersionReference,
   range: { type: 'object', properties: { start_ms: { type: 'integer', minimum: 0 }, end_ms: { type: 'integer', minimum: 1 } }, required: ['start_ms', 'end_ms'], additionalProperties: false },
-  parameters: { type: 'object' }, node_info_list: { type: 'array', items: { type: 'object' } }, confirmed: { type: 'boolean' },
+  parameters: { type: 'object', description: 'lip-sync 时必须包含 audio_plan 与 face_selector={mode:"single-visible-face",character_key?}。' }, node_info_list: { type: 'array', items: { type: 'object' } }, confirmed: { type: 'boolean' },
 }
 const projectTracking = {
   project_root: { type: 'string', description: '短剧项目绝对路径；生成请求和任务会自动保存在项目内。' },
@@ -633,6 +636,30 @@ function selfCheck() {
   if (out.missing.join() !== 'missing-a@v001' || out.args.metadata.content.some((item) => item.type !== 'text')) throw new Error('参考缺失登记自检失败')
 }
 
+function sameReference(left, right) {
+  return left?.asset_key === right?.asset_key && left?.version_id === right?.version_id
+}
+
+async function validateLipSyncEligibility(root, request, source, audio) {
+  const reference = request.parameters.audio_plan
+  const selection = JSON.parse(await readFile(resolve(root, 'episodes', reference.episode_key, 'audio-plan', 'selected.json'), 'utf8'))
+  if (selection.versionId !== reference.version_id) throw new Error('对口型必须引用当前 selected audio-plan')
+  const plan = JSON.parse(await readFile(resolve(root, selection.path), 'utf8'))
+  const line = plan.approved === true && !plan.unresolved?.length && plan.lines?.find((item) => item.line_index === reference.line_index)
+  if (!line) throw new Error('对口型所引用的 audio-plan 行不存在、未批准或仍有未决项')
+  if (line.presentation !== 'visible-dialogue') throw new Error('旁白或画外音不得执行对口型')
+  if (!['post_dub', 'external_audio'].includes(line.delivery_mode)) throw new Error('合格原生对白不得执行对口型；仅独立音频可用')
+  if (!sameReference(line.source_audio, request.audio)) throw new Error('对口型音频必须与 audio-plan 行的 selected 独立音频完全一致')
+  const shot = /^shot-ep(\d{3})-(\d{3})$/.exec(request.target)
+  if (!shot || reference.episode_key !== `ep-${shot[1]}` || line.matched_shot?.shot_number !== Number(shot[2])) throw new Error('对口型 audio-plan 行必须与目标镜头完全一致')
+  if (!line.range || line.range.start_ms !== request.range.start_ms || line.range.end_ms !== request.range.end_ms) throw new Error('对口型范围必须与 audio-plan 行完全一致')
+  const media = probeMedia(source.path)
+  if (!media.has_video || request.range.end_ms > media.duration_ms) throw new Error('对口型来源视频未覆盖完整台词范围')
+  const speech = probeMedia(audio.path)
+  if (!speech.has_audio || speech.duration_ms < request.range.end_ms - request.range.start_ms) throw new Error('对口型独立音频未覆盖完整台词范围')
+  return line
+}
+
 async function validateProjectMediaOperation(args) {
   const root = await realpath(resolve(args.project_root))
   const state = JSON.parse(await readFile(resolve(root, '.short-drama/state.json'), 'utf8'))
@@ -648,19 +675,21 @@ async function validateProjectMediaOperation(args) {
     if (role === 'mask' && (!['other', 'storyboard'].includes(selected.asset.type) || !/\.(?:jpe?g|png|webp)$/i.test(selected.path))) throw new Error('媒体操作 mask 必须是当前 selected 本地图像资产')
     references.push({ role, requested: request[role], selected })
   }
+  if (request.operation === 'lip-sync') await validateLipSyncEligibility(root, request, source, references.find((item) => item.role === 'audio').selected)
 
   const capability = operationCapability(request.operation)
   const remote = args.provider !== 'local'
   if (!remote && capability !== 'transform.local') throw new Error(`${request.operation} 需要远端 ${capability} 能力`)
   if (remote && capability === 'transform.local') throw new Error(`${request.operation} 是确定性本地操作，不得伪装为远端任务`)
   if (remote && !providerSupports(args.provider, capability)) throw new Error(`${args.provider} 未声明 ${capability} 能力`)
-  const modelOrWorkflow = args.workflow_id || args.model || null
+  const modelOrWorkflow = args.workflow_id || args.model || (args.provider === 'musetalk' ? 'musetalk-1.5' : null)
   if (remote && !modelOrWorkflow) throw new Error('远端媒体操作必须显式提供 model 或 workflow_id')
   if (remote && args.provider === 'runninghub' && (!Array.isArray(args.node_info_list) || !args.node_info_list.length)) throw new Error('RunningHub 媒体操作 node_info_list 必填')
   return {
     root, target: args.target, provider: args.provider, remote, capability, modelOrWorkflow,
     request: { ...request, source_sha256: source.version.sha256 },
     referencePaths: references.map((item) => item.selected.path),
+    referencePathsByRole: Object.fromEntries(references.map((item) => [item.role, item.selected.path])),
     uploads: references.map((item) => ({ role: item.role, asset_key: item.requested.asset_key, version_id: item.requested.version_id, sha256: item.selected.version.sha256 })),
     workflow_id: args.workflow_id, node_info_list: args.node_info_list,
   }
@@ -673,7 +702,16 @@ async function submitProviderMediaOperation(normalized) {
   const snapshot = await createRequestSnapshot(normalized.root, { tool: 'submit_media_operation', target: normalized.target, type: 'video', provider: normalized.provider, modelOrWorkflow: normalized.modelOrWorkflow, promptDocument: null, arguments: providerArgs })
   await reserveTask(normalized.root, { taskId: snapshot.requestId, target: normalized.target, type: 'video', provider: normalized.provider, requestPath: snapshot.requestPath })
   let result
-  try { result = await selected.transform(providerArgs) }
+  try {
+    const invocation = normalized.provider === 'musetalk' ? {
+      ...providerArgs,
+      source_video_path: normalized.referencePathsByRole.source,
+      source_audio_path: normalized.referencePathsByRole.audio,
+      output_path: resolve(normalized.root, '.short-drama', 'provider-output', `${snapshot.requestId}.mp4`),
+      face_selector: normalized.request.parameters.face_selector,
+    } : providerArgs
+    result = await selected.transform(invocation)
+  }
   catch (error) {
     await settleReservedTask(normalized.root, snapshot.requestId, { status: 'failed' })
     throw error

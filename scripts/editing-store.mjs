@@ -72,6 +72,21 @@ function uncoveredRanges(tracks, duration) {
   return gaps
 }
 
+function sourcePromptDocument(assets, assetKey, version, seen = new Set()) {
+  if (version?.provenance?.prompt_document) return version.provenance.prompt_document
+  const identity = `${assetKey}@${version?.id}`
+  if (seen.has(identity)) return null
+  seen.add(identity)
+  for (const source of version?.provenance?.source_assets || []) {
+    const sourceAsset = assets.assets?.[source.key]
+    const sourceVersion = sourceAsset?.versions?.find((item) => item.id === source.version_id)
+    if (!sourceVersion || sourceAsset?.type !== 'video') continue
+    const document = sourcePromptDocument(assets, source.key, sourceVersion, seen)
+    if (document) return document
+  }
+  return null
+}
+
 export async function validateTimeline(root, timeline) {
   for (const field of ['fps', 'width', 'height']) if (!Number.isInteger(timeline[field]) || timeline[field] <= 0) throw new Error(`${field} 必须是正整数`)
   if (!EPISODE.test(timeline.episode_key) || !Array.isArray(timeline.segments) || timeline.segments.length === 0 || !Array.isArray(timeline.subtitles)) throw new Error('timeline episode_key、segments[]、subtitles[] 必填')
@@ -99,11 +114,16 @@ export async function validateTimeline(root, timeline) {
     const asset = assets.assets?.[segment.asset_key]
     const version = asset?.versions?.find((item) => item.id === segment.version_id)
     if (asset?.type !== 'video' || asset.selectedVersionId !== segment.version_id || !version?.localPath) throw new Error(`${segment.shot_key} 必须引用 selected 视频版本`)
-    if (version.provenance?.prompt_document?.episode_key !== timeline.episode_key) throw new Error(`${segment.shot_key} 视频不属于 ${timeline.episode_key}`)
-    const shotNumber = version.provenance?.prompt_document?.shot_number
+    const promptDocument = sourcePromptDocument(assets, segment.asset_key, version)
+    if (promptDocument?.episode_key !== timeline.episode_key) throw new Error(`${segment.shot_key} 视频不属于 ${timeline.episode_key}`)
+    const shotNumber = promptDocument?.shot_number
     const expectedShotKey = `shot-${timeline.episode_key.replace('-', '')}-${String(shotNumber).padStart(3, '0')}`
     if (!Number.isInteger(shotNumber) || segment.shot_key !== expectedShotKey || segment.asset_key !== expectedShotKey) throw new Error(`${segment.shot_key} 必须与视频提示词镜号和规范资产 key 一致`)
-    if (!reviews.reviews?.[`${segment.asset_key}@${segment.version_id}`]?.approved) throw new Error(`${segment.shot_key} 未通过逐镜四项验收`)
+    const shotReview = reviews.reviews?.[`${segment.asset_key}@${segment.version_id}`]
+    if (!shotReview?.approved) throw new Error(`${segment.shot_key} 未通过逐镜四项验收`)
+    const lipSyncOutput = version.provenance?.origin === 'transformed' && version.provenance?.parameters?.operation === 'lip-sync'
+    if (segment.dialogue_sync === 'lip-synced' && (!lipSyncOutput || shotReview.review_type !== 'media-operation' || shotReview.operation !== 'lip-sync')) throw new Error(`${segment.shot_key} 未通过当前版本的口型专项审核`)
+    if (lipSyncOutput && segment.dialogue_sync !== 'lip-synced') throw new Error(`${segment.shot_key} 对口型候选必须明确 dialogue_sync=lip-synced`)
     await existingInside(root, version.localPath)
     previousEnd = segment.timeline_end_ms
     segments.push({ ...segment, transition, source: version.localPath })
@@ -131,7 +151,7 @@ export async function validateTimeline(root, timeline) {
     const version = asset?.versions?.find((item) => item.id === track.version_id)
     if (!['audio', 'video'].includes(asset?.type) || asset.selectedVersionId !== track.version_id || !version?.localPath) throw new Error(`${track.asset_key} 必须引用 selected 音频或原生声轨视频`)
     if (asset.type === 'audio' && !track.asset_key.startsWith(`audio-${timeline.episode_key.replace('-', '')}-`)) throw new Error(`${track.asset_key} 音频不属于 ${timeline.episode_key}`)
-    if (asset.type === 'video' && version.provenance?.prompt_document?.episode_key !== timeline.episode_key) throw new Error(`${track.asset_key} 原生声轨不属于 ${timeline.episode_key}`)
+    if (asset.type === 'video' && sourcePromptDocument(assets, track.asset_key, version)?.episode_key !== timeline.episode_key) throw new Error(`${track.asset_key} 原生声轨不属于 ${timeline.episode_key}`)
     const envelope = track.volume_envelope || []
     if (!Array.isArray(envelope) || envelope.some((point) => !Number.isInteger(point?.time_ms) || point.time_ms < track.timeline_start_ms || point.time_ms > track.timeline_end_ms || typeof point.gain_db !== 'number')) throw new Error(`${track.asset_key}.volume_envelope 无效`)
     await existingInside(root, version.localPath)

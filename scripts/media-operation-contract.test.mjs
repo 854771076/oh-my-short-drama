@@ -15,9 +15,10 @@ test('局部遮罩操作缺少范围和遮罩时拒绝', () => {
 })
 
 test('对口型和替换音轨必须绑定版本化音频', () => {
-  const base = { operation: 'lip-sync', source: { asset_key: 'shot-ep001-001', version_id: 'v001' }, range: { start_ms: 0, end_ms: 1000 }, parameters: {} }
+  const base = { operation: 'lip-sync', source: { asset_key: 'shot-ep001-001', version_id: 'v001' }, range: { start_ms: 0, end_ms: 1000 }, parameters: { audio_plan: { episode_key: 'ep-001', version_id: 'v001', line_index: 1 }, face_selector: { mode: 'single-visible-face', character_key: 'char-linwan' } } }
   assert.throws(() => validateMediaOperation(base), /音频/)
   assert.doesNotThrow(() => validateMediaOperation({ ...base, audio: { asset_key: 'audio-ep001-line-001', version_id: 'v001' } }))
+  assert.throws(() => validateMediaOperation({ ...base, audio: { asset_key: 'audio-ep001-line-001', version_id: 'v001' }, parameters: { ...base.parameters, face_selector: { mode: 'multiple' } } }), /唯一可见人脸/)
 })
 
 test('旧 video 布尔能力不能冒充 upscale', () => {

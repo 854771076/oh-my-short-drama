@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
-import { resolve } from 'node:path'
+import { resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { generationProvenance, getTask, updateTaskStatus } from './task-ledger.mjs'
@@ -56,7 +56,13 @@ export async function syncTaskResult(rootArg, taskId, result) {
         const encoded = resolve(temporary, `output-${index}.txt`)
         await writeFile(encoded, output.b64_json)
         registered = JSON.parse(await run('decode', root, task.target, encoded, versionId, '-', provenance))
-      } else throw new Error(`第 ${index + 1} 个输出无 URL 或 base64 内容`)
+      } else if (output.path) {
+        const [rootReal, outputReal] = await Promise.all([realpath(root), realpath(resolve(output.path))])
+        if (outputReal !== rootReal && !outputReal.startsWith(`${rootReal}${sep}`)) throw new Error('本地 Provider 输出必须位于项目目录内')
+        registered = JSON.parse(await run('import', root, task.target, outputReal, versionId, '-', provenance))
+        const temporaryRoot = resolve(rootReal, '.short-drama', 'provider-output')
+        if (outputReal.startsWith(`${temporaryRoot}${sep}`)) await rm(outputReal, { force: true })
+      } else throw new Error(`第 ${index + 1} 个输出无 URL、base64 或受控本地路径`)
       // 成片宫格自动检测：只打标，不自动重生（门框/地平线可能误报，交给人工复核）
       if (task.type === 'video') {
         let flags = []

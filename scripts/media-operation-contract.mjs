@@ -31,5 +31,11 @@ export function validateMediaOperation(value) {
   if (value.range !== undefined && !validRange(value.range)) throw new Error('媒体操作时间范围无效')
   if (MASKED_OPERATIONS.has(value.operation)) assetReference(value.mask, '遮罩媒体操作')
   if (AUDIO_OPERATIONS.has(value.operation)) assetReference(value.audio, '媒体操作音频')
+  if (value.operation === 'lip-sync') {
+    const plan = value.parameters?.audio_plan
+    const face = value.parameters?.face_selector
+    if (!plan || !/^ep-\d{3}$/.test(plan.episode_key || '') || !/^v\d{3}$/.test(plan.version_id || '') || !Number.isInteger(plan.line_index) || plan.line_index <= 0) throw new Error('lip-sync 必须绑定 selected audio-plan 的具体行')
+    if (face?.mode !== 'single-visible-face' || Object.keys(face).some((key) => !['mode', 'character_key'].includes(key)) || face.character_key !== undefined && (typeof face.character_key !== 'string' || !face.character_key.trim())) throw new Error('lip-sync 必须明确唯一可见人脸，可选绑定 character_key')
+  }
   return structuredClone(value)
 }
