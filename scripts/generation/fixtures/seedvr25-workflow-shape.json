@@ -1,0 +1,15 @@
+{
+  "12": {
+    "inputs": { "video": "example.mp4" },
+    "class_type": "VHS_LoadVideo",
+    "_meta": { "title": "Synthetic video input" }
+  },
+  "44": {
+    "inputs": { "model": ["12", 0] },
+    "class_type": "SyntheticSeedVRProcessor"
+  },
+  "98": {
+    "inputs": { "images": ["44", 0] },
+    "class_type": "VHS_VideoCombine"
+  }
+}
