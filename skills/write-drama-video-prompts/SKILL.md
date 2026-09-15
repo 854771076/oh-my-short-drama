@@ -13,6 +13,8 @@ description: 把通过验收的本地分镜按实际视频模型编译为可执�
 
 所有模板都填充 `base_prompt`、`storyboard_context_json`、`grid_layout`、`panel_grid_size`、`camera_move`、`shot_type`、`style`、`duration_constraints` 和 `reference_manifest_json`。引用清单只包含已选本地资产、版本、用途及提交顺序，不包含密钥或临时 URL。
 
+每个 `char-*` 引用必须带 `identity_binding:{profile_name,profile_sha256,appearance_id}` 和 `identity_constraints:{age_class,grooming_and_makeup,costume_signature,memory_anchors}`。提交前执行 `assertCharacterReadyForVisuals` 并精确核对人物档案 SHA、规范名、appearance 与全部可见约束，不得从 asset key 猜人物。模板只把妆发、服装标识和记忆锚点编译进可见描述，不暴露绑定元数据；连续性 `visual_identity` 有冲突或换装缺少剧情证据时写入 errors。
+
 按制作计划读取逐镜分镜媒介。`storyboard_strategy.mode=image` 时先把当前分镜板或故事版放入引用清单并占一个图片槽位；`mode=blender` 时不伪造分镜图引用，selected 白模默认只作为编导审计证据。只有 `previz_strategy.purpose=motion-reference` 时才必须把当前 selected、未失效白模作为唯一 `type=video, role=reference_video` 的执行期派生引用加入；当前仅支持可直接绑定本地资产的 RunningHub `minimax-h3-reference-to-video`，StarRouter 与 Comfly 不得选择该用途。该派生引用不回写制作计划 `reference_assets`，但保存提示词和正式提交时都会重新绑定当前白模版本。无论使用哪种分镜媒介，正式视频始终绑定所需人物、场景和道具选版。其他图片超过 Provider 槽位时按既有 `overflow_strategy` 合板或阻塞，不得静默丢弃素材。
 
 每次模板编译统一输出严格 JSON `{prompt_profile,input_mode,prompt,duration,references,continuity,audio_policy,errors}`。Seedance 2.0 的 `prompt` 必须为中文自然语言，并让 `@图片N/@视频N/@音频N` 与引用清单及提交数组一一对应；总素材不超过 12 个，图片≤9、视频≤3且合计2–15秒、音频≤3且合计≤15秒，时长4–15秒，并禁止上传真实人物脸部参考。H3 使用 T2VA/I2VA/FL2VA/L2VA/Ref2VA 中与真实输入一致的模式；Ref2VA 的英文六段必须严格按 `subject_definitions → summary → retention_analysis → detailed_description → overall_soundscape → non_diegetic_music` 排列，仅对白、歌词和画内文字保留原语言。不得混用两套语法。

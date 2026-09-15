@@ -35,6 +35,9 @@
     "build-drama-storyboard": ["professional_storyboard"],
     "design-drama-audio": ["voice_analysis"]
   },
+  "quality_gates": {
+    "character_visual": ["audience_appeal", "assertCharacterReadyForVisuals", "validateCharacterAppealReview", "identity_binding", "identity_constraints", "visual_identity"]
+  },
   "prompts": {
     "art_style_decision": "generate-drama-art-style",
     "asset_analysis": "plan-drama-assets",

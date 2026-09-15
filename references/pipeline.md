@@ -51,7 +51,9 @@
 
 配乐分为 `music.generate` 与 `music.catalog`。生成曲保持现有 `generate_music` 流程；目录曲只返回本地已授权结果或 Pixabay、YouTube Audio Library、Uppbeat 官方搜索页，不自动登录或下载。用户试听并取得文件与许可证证据后，`register_licensed_music` 先写不可变收据，再登记未选音频候选。audio-plan 绑定精确资产、`license_receipt` 与项目用途，时间线再次验证选版和 allowed uses；普通视频页面、无同步权与母带权凭证的热曲不能进入资产库。
 
-剧本阶段的 `short-drama` 必须绑定实际分集剧本版本；人物分析必须绑定 `assets/characters/profiles.json`。新项目默认 `storyboard.preferred_medium=blender`，制作计划仍逐镜选择：复杂空间、多人调度、动作接触、轴线风险和连续运镜优先白模；静态特写、细腻表演和画风确认使用图片。旧计划缺少 `storyboard_strategy` 时按图片分镜兼容。
+剧本阶段的 `short-drama` 必须绑定实际分集剧本版本；人物分析必须绑定 `assets/characters/profiles.json`。人物链路固定为：年龄证据 → `audience_appeal` 校验 → 人物定妆候选 → 人物专项审核与选版 → 分镜/白模/正式视频引用绑定 → 跨镜一致性复核。明确成年人物使用 `adult-charisma`，必须有专属 `grooming_and_makeup`、`costume_signature` 和角色级 `memory_anchors`；儿童只使用 `child-cuteness`，任何成人化或性化处理都是不可由总分抵消的硬失败。未知年龄停在人物档案阶段。新生成角色候选只能经 `validateCharacterAppealReview` 和 `review-character` 选版，正式视频人物引用还要通过 `assertCharacterReadyForVisuals` 及档案 SHA、appearance 与可见身份约束校验。
+
+新项目默认 `storyboard.preferred_medium=blender`，制作计划仍逐镜选择：复杂空间、多人调度、动作接触、轴线风险和连续运镜优先白模；静态特写、细腻表演和画风确认使用图片。旧计划缺少 `storyboard_strategy` 时按图片分镜兼容。
 
 图片分镜镜头要求对应 `board-epNNN-NNN` 已生成、选版并通过八维审计。白模分镜镜头先由 `direct-blender-previz` 写入 `episodes/<episode>/previz/shot-NNN-vNNN.json` 导演合同，再由 `generate-blender-previz` 渲染为 `other-previz-epNNN-NNN`，登记、完整观看、按七项 100 分合同验收并选版；总分低于 85 或任一单项低于 70% 时不得提交正式视频。两类分镜都不能替代正式视频所需的人物、场景和道具资产。
 

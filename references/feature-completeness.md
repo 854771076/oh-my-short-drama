@@ -11,7 +11,7 @@
 | 导演本 | `write-drama-director-book` | 场次导演合同单独保存 |
 | 剧本自然化与复核 | `humanizer`、`review-drama-script` | 新版本落盘，复核版本必须匹配所选剧本；合规清单形成硬门禁 |
 | 人物、场景、道具分析 | `plan-drama-assets`、三类资产 Skills | 证据化提取、版本和未决项门禁 |
-| 人物/场景/道具设定板 | 各资产生成 Skill | 人物含脸部、三主视图与辅助设定；场景含九视角、平面/轴测；道具含主视图、三视图与结构细节 |
+| 人物/场景/道具设定板 | 各资产生成 Skill、`character-appeal.mjs`、`character-appeal-review.mjs` | 人物含脸部、三主视图与辅助设定；成年魅力、儿童可爱保护、专属妆造和记忆锚点使用不可互相补偿的生成与选版门禁；场景含九视角、平面/轴测；道具含主视图、三视图与结构细节 |
 | 分镜与镜头修订 | storyboard/revision Skills | 资产白名单、来源覆盖、连续性与版本化 |
 | 跨镜空间与尾帧承接 | `plan-shot-continuity`、`continuity-plan.mjs`、`prepare_previous_tail` | 独立记录起止状态、轴线和机位；只从已审核 selected 上一镜派生带 SHA-256 来源链的首帧 |
 | 分镜图、视频提示词、镜头视频 | storyboard image/video Skills | 视频提示词按 Seedance 2.0、MiniMax H3 或已确认通用协议编译并本地版本化；由 Provider 实时能力控制参数 |
@@ -39,7 +39,9 @@
 - 在线模板 CRUD、提示词管理后台、通知、SSE 和 Web 页面状态。
 - 无限画布、节点编辑器及其节点 ID 合同。
 
-原项目四组制作提示词共有 45 个唯一 stem：38 个按原能力映射，`character_reference_to_sheet` 合并优化为人物完整 `character_asset_sheet`，`panel_h3_video` 重构为独立于画布的 `h3_video`；`cat_meme_*` 属于猫咪梗剧专项，`director_snapshot_render` 属于在线导演台快照，`project_cover_generation` 属于产品封面，`character_voice_recommend_cosy` 绑定单一音频供应商，这 5 个不进入标准短剧插件。插件另补 source analysis、brief、director book、production plan、script review、画风/资产完整设定板和 Seedance 2.0 等标准制作模板，当前合计 51 组中英文模板。
+原项目四组制作提示词共有 45 个唯一 stem：38 个按原能力映射，`character_reference_to_sheet` 合并优化为人物完整 `character_asset_sheet`，`panel_h3_video` 重构为独立于画布的 `h3_video`；`character_voice_recommend_cosy` 已去除单一供应商耦合并吸收到通用 `character_voice_recommend`，而 `cat_meme_*`、`director_snapshot_render`、`project_cover_generation` 仍不进入标准短剧插件。插件另补 source analysis、brief、director book、production plan、script review、画风/资产完整设定板和 Seedance 2.0 等标准制作模板，当前合计 52 组中英文模板。
+
+人物视觉不是普通美观评分：`audience_appeal` 先从明确年龄证据区分 `adult-charisma` 与 `child-cuteness`；定妆图逐项审查年龄、身份、妆造服装、`memory_anchors`、观众吸引力及保护标记。任何一项失败都禁止选版。跨镜引用用档案 SHA、`appearance_id` 和 `identity_constraints` 绑定，连续性计划用 `visual_identity` 阻止无剧情证据的换脸、换妆造或换装。
 
 这些能力服务原产品 SaaS，不是“从本地素材到本地成片”的必要步骤；引入它们会重新耦合原系统。
 
