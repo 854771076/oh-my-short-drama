@@ -4,7 +4,8 @@ function isRecord(value) {
 
 function text(value, fallback = '—') {
   if (value === null || value === undefined || value === '') return fallback
-  return String(value)
+  // 表格单元和列表项只能容纳行内文本，统一折叠换行符以免外部数据改变报告结构或注入新的块级 Markdown。
+  return String(value).replace(/[\r\n\u2028\u2029\t]+/gu, ' ').replace(/ {2,}/gu, ' ').trim()
 }
 
 function escapeMarkdown(value) {

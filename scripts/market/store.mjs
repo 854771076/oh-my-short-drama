@@ -19,6 +19,17 @@ function reportTimestamp(report) {
   return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY
 }
 
+function jsonSnapshot(value, label) {
+  let serialized
+  try {
+    serialized = JSON.stringify(value)
+  } catch {
+    throw new Error(`${label} 必须是可序列化的 JSON 数据`)
+  }
+  if (serialized === undefined) throw new Error(`${label} 必须是可序列化的 JSON 数据`)
+  return JSON.parse(serialized)
+}
+
 async function readJson(path) {
   try {
     return JSON.parse(await readFile(path, 'utf8'))
@@ -111,7 +122,8 @@ export function createMarketStore(workspaceRoot) {
   }
 
   async function saveReport(report) {
-    const source = normalizeReport(report)
+    // 报告写入跨越多个 await；先按 JSON 合同切断调用方引用，确保 JSON 与 Markdown 基于同一时点的数据。
+    const source = normalizeReport(jsonSnapshot(report, '报告'))
     const markdown = renderMarketReportMarkdown(source)
     // 先落 Markdown、再暴露 JSON；历史读取只以 JSON 为准，避免写入中断时读到缺少配套 Markdown 的报告。
     await writeTextAtomically(reportPath(source.report_id, 'md'), markdown)

@@ -92,3 +92,35 @@ test('Markdown 转义外部文本且限制章节始终存在', async () => {
   assert.match(markdown, /## 限制与解读边界/)
   assert.match(markdown, /暂无额外限制说明。/)
 })
+
+test('报告异步写入期间调用方篡改输入时，JSON 与 Markdown 仍绑定初始快照', async () => {
+  const root = await createRoot()
+  const store = createMarketStore(root)
+  const value = report({ report_id: 'market-report-stable', snapshot_ids: ['20260916T153000+0800'] })
+  const saving = store.saveReport(value)
+  value.report_id = 'market-report-mutated'
+  value.snapshot_ids[0] = '20260916T160000+0800'
+  await saving
+  const saved = JSON.parse(await readFile(resolve(root, '.short-drama-market/reports/market-report-stable.json'), 'utf8'))
+  const markdown = await readFile(resolve(root, '.short-drama-market/reports/market-report-stable.md'), 'utf8')
+  assert.equal(saved.report_id, 'market-report-stable')
+  assert.deepEqual(saved.snapshot_ids, ['20260916T153000+0800'])
+  assert.match(markdown, /market-report-stable/)
+  assert.match(markdown, /20260916T153000\+0800/)
+})
+
+test('Markdown 将外部文本的换行折叠，表格和章节不会被注入内容截断', async () => {
+  const root = await createRoot()
+  const store = createMarketStore(root)
+  await store.saveReport(report({
+    report_id: 'market-report-multiline',
+    topic_metrics: [{ topic: '悬疑\n## 伪造章节', opportunity_score: 72.5, confidence: 'low', supply_count: 1, demand_strength: 0.8, growth_strength: 0.7, platform_coverage: 0.5 }],
+    limitations: ['公开样本\r\n## 伪造限制章节'],
+  }))
+  const markdown = await readFile(resolve(root, '.short-drama-market/reports/market-report-multiline.md'), 'utf8')
+  assert.equal(markdown.split('\n').filter((line) => line.startsWith('|')).length, 3)
+  assert.doesNotMatch(markdown, /\n## 伪造/)
+  assert.match(markdown, /悬疑 \\#\\# 伪造章节/)
+  assert.match(markdown, /公开样本 \\#\\# 伪造限制章节/)
+  assert.deepEqual(markdown.match(/^## /gmu), ['## ', '## ', '## ', '## '])
+})
