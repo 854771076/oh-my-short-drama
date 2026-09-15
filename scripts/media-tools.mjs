@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { mkdir } from 'node:fs/promises'
-import { createReadStream } from 'node:fs'
+import { createReadStream, mkdirSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { basename, dirname, extname, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -37,6 +37,15 @@ function gridCellCrop(width, height, columns, rows, index, contentPercent) {
 
 function distinct(input, output) {
   if (resolve(input) === resolve(output)) throw new Error('输出路径不得覆盖源文件')
+}
+
+export function extractFrame(input, output, position = 'first') {
+  distinct(input, output)
+  const numericPosition = Number(position)
+  if (!['first', 'last'].includes(position) && (!Number.isFinite(numericPosition) || numericPosition < 0)) throw new Error('帧位置必须是 first、last 或非负秒数')
+  mkdirSync(dirname(resolve(output)), { recursive: true })
+  const seek = position === 'last' ? ['-sseof', '-0.05'] : position === 'first' ? [] : ['-ss', String(numericPosition)]
+  run('ffmpeg', ['-nostdin', '-loglevel', 'error', '-n', ...seek, '-i', resolve(input), '-frames:v', '1', '-update', '1', resolve(output)])
 }
 
 function qualityEvents(stderr) {
@@ -109,11 +118,7 @@ async function main() {
   if (command === 'extract-frame') {
     const [input, output, position = 'first'] = args
     if (!input || !output) throw new Error('用法：extract-frame <视频> <输出图片> [first|last|秒数]')
-    distinct(input, output)
-    await mkdir(dirname(resolve(output)), { recursive: true })
-    const seek = position === 'last' ? ['-sseof', '-0.05'] : position === 'first' ? [] : ['-ss', String(Number(position))]
-    if (!['first', 'last'].includes(position) && (!Number.isFinite(Number(position)) || Number(position) < 0)) throw new Error('帧位置必须是 first、last 或非负秒数')
-    run('ffmpeg', ['-nostdin', '-loglevel', 'error', '-n', ...seek, '-i', resolve(input), '-frames:v', '1', '-update', '1', resolve(output)])
+    extractFrame(input, output, position)
     return
   }
   if (command === 'crop') {

@@ -7,6 +7,7 @@ export function validDocumentReferenceShape(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || !/^ep-\d{3}$/.test(value.episode_key) || !/^v\d{3}$/.test(value.version_id)) return false
   if (value.kind === 'audio-plan') return ((Number.isInteger(value.line_index) && value.line_index > 0) || (typeof value.track_key === 'string' && value.track_key.length > 0)) && Object.keys(value).length === 4
   if (value.kind === 'storyboard') return Number.isInteger(value.shot_number) && value.shot_number > 0 && Object.keys(value).length === 4
+  if (value.kind === 'continuity-plan') return Number.isInteger(value.shot_number) && value.shot_number > 0 && Object.keys(value).length === 4
   if (value.kind === 'asset-plan') return typeof value.asset_key === 'string' && value.asset_key.length > 0 && Object.keys(value).length === 4
   return value.kind === undefined && Number.isInteger(value.shot_number) && value.shot_number > 0 && Object.keys(value).length === 3
 }
