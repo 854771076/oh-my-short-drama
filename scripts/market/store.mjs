@@ -2,6 +2,7 @@ import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/
 import { realpathSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { basename, dirname, resolve } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { renderMarketReportMarkdown } from './report.mjs'
 
 const ID_PATTERN = /^[A-Za-z0-9+_-]{1,80}$/
@@ -133,20 +134,33 @@ async function readJsonFile(path, label) {
   }
 }
 
-async function writeAtomically(path, value, label) {
+async function readTextFile(path, label) {
+  const status = await safePath(path, label)
+  if (!status) return null
+  if (!status.isFile()) throw new Error(`${label} 必须是文件`)
+  return readFile(path, 'utf8')
+}
+
+async function writeAtomically(path, value, label, renameFile = rename) {
   const target = await safePath(path, label)
   if (target && !target.isFile()) throw new Error(`${label} 必须是文件`)
   const temporary = resolve(dirname(path), `.${basename(path)}.tmp-${process.pid}-${randomUUID()}`)
   try {
     await writeFile(temporary, value, 'utf8')
-    await rename(temporary, path)
+    await renameFile(temporary, path)
   } finally {
     // rename 失败时主动回收同目录临时文件，避免恢复扫描把残留写入误判为业务数据。
     await rm(temporary, { force: true }).catch(() => undefined)
   }
 }
 
-export function createMarketStore(workspaceRoot) {
+function reportStorageError(code, message) {
+  const error = new Error(`${code}: ${message}`)
+  error.code = code
+  return error
+}
+
+export function createMarketStore(workspaceRoot, { renameFile = rename } = {}) {
   const root = canonicalRoot(workspaceRoot)
   const coordinator = coordinatorFor(root)
   const marketRoot = resolve(root, '.short-drama-market')
@@ -242,6 +256,27 @@ export function createMarketStore(workspaceRoot) {
     await writeAtomically(indexPath, `${JSON.stringify(next, null, 2)}\n`, '市场索引文件')
   }
 
+  async function existingReportState(source) {
+    const jsonPath = reportPath(source.report_id)
+    const markdownPath = reportPath(source.report_id, 'md')
+    const [jsonStatus, markdownStatus] = await Promise.all([
+      safePath(jsonPath, '报告文件'),
+      safePath(markdownPath, '报告 Markdown 文件'),
+    ])
+    if (jsonStatus && !jsonStatus.isFile()) throw reportStorageError('MARKET_REPORT_CORRUPT', `报告 ${source.report_id} 的 JSON 产物不是文件，请修复后重试`)
+    if (markdownStatus && !markdownStatus.isFile()) throw reportStorageError('MARKET_REPORT_CORRUPT', `报告 ${source.report_id} 的 Markdown 产物不是文件，请修复后重试`)
+    if (!jsonStatus && !markdownStatus) return 'absent'
+    if (!jsonStatus || !markdownStatus) throw reportStorageError('MARKET_REPORT_CORRUPT', `报告 ${source.report_id} 仅存在单边产物，请修复或移除不完整产物后重试`)
+    const [stored, markdown] = await Promise.all([
+      readJsonFile(jsonPath, '报告文件'),
+      readTextFile(markdownPath, '报告 Markdown 文件'),
+    ])
+    if (!isReport(stored, source.report_id)) throw reportStorageError('MARKET_REPORT_CORRUPT', `报告 ${source.report_id} 的 JSON 合同无效，请修复后重试`)
+    if (!isDeepStrictEqual(stored, source)) throw reportStorageError('MARKET_REPORT_CONFLICT', `报告 ${source.report_id} 已绑定不同内容，不能覆盖`)
+    if (markdown !== renderMarketReportMarkdown(stored)) throw reportStorageError('MARKET_REPORT_CORRUPT', `报告 ${source.report_id} 的 JSON 与 Markdown 不一致，请修复后重试`)
+    return 'idempotent'
+  }
+
   function saveSnapshot(snapshot) {
     const source = normalizeSnapshot(jsonSnapshot(snapshot, '快照'))
     return enqueue(coordinator, async () => {
@@ -257,11 +292,13 @@ export function createMarketStore(workspaceRoot) {
   function saveReport(report) {
     const source = normalizeReport(jsonSnapshot(report, '报告'))
     return enqueue(coordinator, async () => {
-      const markdown = renderMarketReportMarkdown(source)
       await ensureDataDirectory('reports', true)
+      const state = await existingReportState(source)
+      if (state === 'idempotent') return source
+      const markdown = renderMarketReportMarkdown(source)
       // 同一队列内先落 Markdown、再暴露 JSON，随后更新索引；同 report_id 的调用以调用顺序完成，最终产物同源。
-      await writeAtomically(reportPath(source.report_id, 'md'), markdown, '报告 Markdown 文件')
-      await writeAtomically(reportPath(source.report_id), `${JSON.stringify(source, null, 2)}\n`, '报告文件')
+      await writeAtomically(reportPath(source.report_id, 'md'), markdown, '报告 Markdown 文件', renameFile)
+      await writeAtomically(reportPath(source.report_id), `${JSON.stringify(source, null, 2)}\n`, '报告文件', renameFile)
       await refreshIndex()
       return source
     })

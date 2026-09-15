@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { createMarketStore } from './store.mjs'
@@ -140,19 +140,89 @@ test('快照异步写入期间调用方篡改输入时，索引和内容仍绑�
   assert.equal(index.latest_snapshot_id, '20260916T153000+0800')
 })
 
-test('同一报告 ID 的并发保存按调用顺序完成，JSON 与 Markdown 始终同源', async () => {
+test('同一报告 ID 的并发保存按调用顺序保护首个成功报告，后续不同内容拒绝覆盖', async () => {
   const root = await createRoot()
   const store = createMarketStore(root)
   const first = report({ report_id: 'market-report-race', snapshot_ids: ['20260916T153000+0800'], topic_metrics: [{ topic: '第一版', opportunity_score: 1, confidence: 'low', supply_count: 1, demand_strength: 0, growth_strength: 0, platform_coverage: 0 }] })
   const second = report({ report_id: 'market-report-race', snapshot_ids: ['20260916T160000+0800'], generated_at: '2026-09-16T16:00:00.000+08:00', topic_metrics: [{ topic: '第二版', opportunity_score: 2, confidence: 'high', supply_count: 2, demand_strength: 1, growth_strength: 1, platform_coverage: 1 }] })
-  await Promise.all([store.saveReport(first), store.saveReport(second)])
+  const firstSaving = store.saveReport(first)
+  const secondSaving = store.saveReport(second)
+  await firstSaving
+  await assert.rejects(secondSaving, /MARKET_REPORT_CONFLICT/)
   const saved = JSON.parse(await readFile(resolve(root, '.short-drama-market/reports/market-report-race.json'), 'utf8'))
   const markdown = await readFile(resolve(root, '.short-drama-market/reports/market-report-race.md'), 'utf8')
-  assert.deepEqual(saved.snapshot_ids, ['20260916T160000+0800'])
-  assert.equal(saved.topic_metrics[0].topic, '第二版')
-  assert.match(markdown, /20260916T160000\+0800/)
-  assert.match(markdown, /第二版/)
-  assert.doesNotMatch(markdown, /第一版/)
+  assert.deepEqual(saved.snapshot_ids, ['20260916T153000+0800'])
+  assert.equal(saved.topic_metrics[0].topic, '第一版')
+  assert.match(markdown, /20260916T153000\+0800/)
+  assert.match(markdown, /第一版/)
+  assert.doesNotMatch(markdown, /第二版/)
+})
+
+test('同内容报告重复保存幂等，不改写既有报告和索引', async () => {
+  const root = await createRoot()
+  const store = createMarketStore(root)
+  const value = report({ report_id: 'market-report-idempotent' })
+  await store.saveReport(value)
+  const jsonPath = resolve(root, '.short-drama-market/reports/market-report-idempotent.json')
+  const markdownPath = resolve(root, '.short-drama-market/reports/market-report-idempotent.md')
+  const indexPath = resolve(root, '.short-drama-market/index.json')
+  const before = await Promise.all([readFile(jsonPath, 'utf8'), readFile(markdownPath, 'utf8'), readFile(indexPath, 'utf8')])
+  await store.saveReport(structuredClone(value))
+  assert.deepEqual(await Promise.all([readFile(jsonPath, 'utf8'), readFile(markdownPath, 'utf8'), readFile(indexPath, 'utf8')]), before)
+})
+
+test('已保存报告 A 后，同 ID 的报告 B 被拒绝且 A 两份产物和索引保持不变', async () => {
+  const root = await createRoot()
+  const store = createMarketStore(root)
+  const first = report({ report_id: 'market-report-immutable', topic_metrics: [{ topic: 'A', opportunity_score: 1, confidence: 'low', supply_count: 1, demand_strength: 0, growth_strength: 0, platform_coverage: 0 }] })
+  const second = report({ report_id: 'market-report-immutable', snapshot_ids: ['20260916T160000+0800'], topic_metrics: [{ topic: 'B', opportunity_score: 2, confidence: 'high', supply_count: 2, demand_strength: 1, growth_strength: 1, platform_coverage: 1 }] })
+  await store.saveReport(first)
+  const paths = [
+    resolve(root, '.short-drama-market/reports/market-report-immutable.json'),
+    resolve(root, '.short-drama-market/reports/market-report-immutable.md'),
+    resolve(root, '.short-drama-market/index.json'),
+  ]
+  const before = await Promise.all(paths.map((path) => readFile(path, 'utf8')))
+  await assert.rejects(store.saveReport(second), /MARKET_REPORT_CONFLICT/)
+  assert.deepEqual(await Promise.all(paths.map((path) => readFile(path, 'utf8'))), before)
+})
+
+test('同内容 JSON 的配套 Markdown 被篡改时拒绝幂等保存而不覆盖恢复现场', async () => {
+  const root = await createRoot()
+  const store = createMarketStore(root)
+  const value = report({ report_id: 'market-report-markdown-corrupt' })
+  await store.saveReport(value)
+  const jsonPath = resolve(root, '.short-drama-market/reports/market-report-markdown-corrupt.json')
+  const markdownPath = resolve(root, '.short-drama-market/reports/market-report-markdown-corrupt.md')
+  const indexPath = resolve(root, '.short-drama-market/index.json')
+  await writeFile(markdownPath, '# 被篡改\n', 'utf8')
+  const before = await Promise.all([readFile(jsonPath, 'utf8'), readFile(markdownPath, 'utf8'), readFile(indexPath, 'utf8')])
+  await assert.rejects(store.saveReport(value), /MARKET_REPORT_CORRUPT/)
+  assert.deepEqual(await Promise.all([readFile(jsonPath, 'utf8'), readFile(markdownPath, 'utf8'), readFile(indexPath, 'utf8')]), before)
+})
+
+test('同 ID 仅剩单边产物时拒绝覆盖并保留恢复现场', async () => {
+  const root = await createRoot()
+  const store = createMarketStore(root)
+  const value = report({ report_id: 'market-report-partial' })
+  await store.saveReport(value)
+  const jsonPath = resolve(root, '.short-drama-market/reports/market-report-partial.json')
+  const markdownPath = resolve(root, '.short-drama-market/reports/market-report-partial.md')
+  const indexPath = resolve(root, '.short-drama-market/index.json')
+  const beforeJson = await readFile(jsonPath, 'utf8')
+  const beforeIndex = await readFile(indexPath, 'utf8')
+  await rm(markdownPath)
+  await assert.rejects(store.saveReport(value), /MARKET_REPORT_CORRUPT/)
+  assert.equal(await readFile(jsonPath, 'utf8'), beforeJson)
+  assert.equal(await readFile(indexPath, 'utf8'), beforeIndex)
+})
+
+test('报告 rename 失败时清理同目录临时文件', async () => {
+  const root = await createRoot()
+  const store = createMarketStore(root, { renameFile: async () => { throw new Error('注入 rename 失败') } })
+  await assert.rejects(store.saveReport(report({ report_id: 'market-report-rename-failure' })), /注入 rename 失败/)
+  const reportsDirectory = resolve(root, '.short-drama-market/reports')
+  assert.deepEqual((await readdir(reportsDirectory)).filter((name) => name.includes('.tmp-')), [])
 })
 
 test('同一规范工作区的多个存储实例并发更新索引时保留两类最新指针', async () => {
