@@ -13,11 +13,12 @@ import { invalidateShotAssets } from './asset-ledger.mjs'
 import { ANTI_GRID_CLAIM_ZH, ANTI_GRID_CLAIM_EN, hasAntiGridClaim } from './grid-detect.mjs'
 import { changedShotNumbers } from './shot-fingerprint.mjs'
 import { DEFAULT_WORKSPACE_ROOT, openStudio } from './studio.mjs'
-import { normalizeModelParameters, providerSetupCatalog } from './generation/providers.mjs'
+import { normalizeModelParameters, providerSetupCatalog, providerSupports } from './generation/providers.mjs'
 import { supportsPrevizMotionReference, validateMotionReferenceBinding } from './previz-contract.mjs'
 import { saveCustomArtStyle } from './art-styles.mjs'
 import { validateContinuityPlan } from './continuity-plan.mjs'
 import { migrateLegacyAudioPlan, NATIVE_AUDIO_FAILURE_REASONS, validateAudioPlan } from './audio-plan-contract.mjs'
+import { validateShotAudioPolicy } from './audio-prompt-policy.mjs'
 
 const root = process.argv[2] === 'init' ? resolve(DEFAULT_WORKSPACE_ROOT, process.argv[3] || 'short-drama') : resolve(process.argv[3] || process.cwd())
 const EPISODE_DOCUMENTS = new Set(['script-review', 'director-book', 'asset-plan', 'production-plan', 'storyboard', 'continuity-plan', 'video-prompts', 'audio-plan'])
@@ -292,6 +293,10 @@ export function validateVideoPrompts(document, episodeKey) {
     validatePromptRoute(shot, `video-prompts shot ${shot.shot_number}`)
     if (!Array.isArray(shot.references) || !Array.isArray(shot.errors)) throw new Error(`video-prompts shot ${shot.shot_number} references/errors 必须是数组`)
     if (!shot.continuity || typeof shot.continuity !== 'object' || Array.isArray(shot.continuity) || !shot.audio_policy || typeof shot.audio_policy !== 'object' || Array.isArray(shot.audio_policy)) throw new Error(`video-prompts shot ${shot.shot_number} continuity/audio_policy 必须是对象`)
+    if (shot.audio_policy.audio_strategy || shot.audio_policy.lines) {
+      validateShotAudioPolicy(shot.audio_policy)
+      if (shot.audio_policy.lines.some((line) => line.delivery_mode === 'native') && !providerSupports(shot.provider, 'video.native-audio')) throw new Error(`video-prompts shot ${shot.shot_number} 的 Provider 不支持 video.native-audio`)
+    } else if (shot.audio_policy.mode === 'native' && !providerSupports(shot.provider, 'video.native-audio')) throw new Error(`video-prompts shot ${shot.shot_number} 的 Provider 不支持 video.native-audio`)
     if (shot.continuity.mode === 'previous-tail') {
       if (!['first-last-frame', 'I2VA', 'FL2VA'].includes(shot.input_mode) || shot.continuity.required_provider_capability !== 'video.first-frame') throw new Error(`video-prompts shot ${shot.shot_number} previous-tail 要求 video.first-frame 能力`)
       if (!Number.isInteger(shot.continuity.source_shot_number) || shot.continuity.source_shot_number < 1 || shot.continuity.source_shot_number >= shot.shot_number) throw new Error(`video-prompts shot ${shot.shot_number} previous-tail 来源镜号无效`)

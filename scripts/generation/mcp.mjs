@@ -279,6 +279,9 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
   for (const [field, actual] of Object.entries({ provider: providerName, model_or_workflow: requestedModel, prompt_profile: args.prompt_profile, input_mode: args.input_mode, prompt: args.prompt, duration: args.duration })) {
     if (shot[field] !== actual) throw new Error(`实际视频参数与提示词文档 ${field} 不一致`)
   }
+  const nativeAudio = shot.audio_policy?.mode === 'native' || shot.audio_policy?.lines?.some((line) => line.delivery_mode === 'native')
+  if (nativeAudio && (!providerSupports(providerName, 'video.native-audio') || args.generate_audio !== true)) throw new Error('原生音频镜头必须使用声明 video.native-audio 能力的 Provider 并显式 generate_audio=true')
+  if (!nativeAudio && args.generate_audio === true) throw new Error('非原生音频镜头不得静默开启 generate_audio')
   const manifest = Array.isArray(args.reference_manifest) ? args.reference_manifest : []
   // 多参考 Provider 可把整张分镜板当语义参考；Comfly 单参考模式在下方强制改用可追溯的单格裁图。
   const boardRefs = (planShot?.image_strategy?.panel_grid_size ?? 1) > 1
@@ -434,6 +437,8 @@ async function planEpisodeVideos(projectRoot, episodeKey, shotNumbers = null) {
         prompt_version: selection.versionId, prompt: shot.prompt, duration: shot.duration,
         reference_manifest: effectiveShot.references || [], ...referenceArgs, confirmed: true,
       }
+      const nativeAudio = shot.audio_policy?.mode === 'native' || shot.audio_policy?.lines?.some((line) => line.delivery_mode === 'native')
+      providerArgs.generate_audio = nativeAudio
       applyRunninghubVideoDefaults(providerArgs)
       await validateProjectInputs(root, 'video', target, promptDocument, shot.provider, providerArgs)
       plans.push({

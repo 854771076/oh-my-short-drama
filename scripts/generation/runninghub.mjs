@@ -239,7 +239,7 @@ function taskResult(payload) {
 export const runninghub = {
   label: 'RunningHub', credentialEnv: 'RUNNINGHUB_API_KEY',
   catalog: { image: [...new Set([KREA2_MODEL, process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID].filter(Boolean))], video: [H3_MODEL, process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID].filter(Boolean), audio: [process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID].filter(Boolean), get transform() { return Object.values(transformWorkflows()).filter(Boolean) } },
-  capabilities: { text: false, image: true, video: true, audio: true, get 'transform.lip-sync'() { return Boolean(transformWorkflow('lip-sync')) }, get 'transform.video-inpaint'() { return Boolean(transformWorkflow('video-inpaint')) }, get 'transform.video-upscale'() { return Boolean(transformWorkflow('video-upscale')) } },
+  capabilities: { text: false, image: true, video: true, audio: true, 'video.native-audio': true, get 'transform.lip-sync'() { return Boolean(transformWorkflow('lip-sync')) }, get 'transform.video-inpaint'() { return Boolean(transformWorkflow('video-inpaint')) }, get 'transform.video-upscale'() { return Boolean(transformWorkflow('video-upscale')) } },
   async models() {
     return { provider: 'runninghub', image_models: [KREA2_MODEL], video_models: [H3_MODEL], workflows: { image: process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID || null, krea2_image: KREA2_WORKFLOW_ID, video: process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID || null, h3_video: H3_WORKFLOW_ID, audio: process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID || null, transforms: transformWorkflows() } }
   },
