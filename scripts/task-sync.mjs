@@ -79,5 +79,7 @@ export async function syncTaskResult(rootArg, taskId, result) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   if (process.argv[2] !== '--self-check') throw new Error('仅支持 --self-check')
   if (assetType({ type: 'image', target: 'board-ep001-001' }) !== 'storyboard' || nextVersion({ versions: [{ id: 'v002' }] }) !== 'v003') throw new Error('任务回写自检失败')
+  const operation = generationProvenance({ taskId: 'task-operation', provider: 'runninghub' }, { tool: 'submit_media_operation', modelOrWorkflow: 'workflow-upscale', promptDocument: null, arguments: { operation: 'video-upscale', source: { asset_key: 'shot-ep001-001', version_id: 'v001' }, parameters: {}, source_sha256: 'a'.repeat(64) } })
+  if (operation.origin !== 'transformed' || operation.source_assets[0]?.key !== 'shot-ep001-001') throw new Error('媒体操作回写来源自检失败')
   console.log('ok')
 }

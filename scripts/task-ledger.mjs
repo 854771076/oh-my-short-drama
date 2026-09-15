@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { dirname, relative, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { withFileLock } from './file-lock.mjs'
+import { validateMediaOperation } from './media-operation-contract.mjs'
 
 const ACTIVE = new Set(['submitting', 'queued', 'running'])
 const STATUSES = new Set([...ACTIVE, 'completed', 'failed', 'canceled'])
@@ -32,14 +33,20 @@ export function canonicalPromptDocument(value, tool) {
 }
 
 export function canonicalProvenanceParameters(request) {
+  if (request.tool === 'submit_media_operation') {
+    const args = request.arguments || {}
+    return canonical(Object.fromEntries(['operation', 'range', 'mask', 'parameters', 'source_sha256'].filter((key) => args[key] !== undefined).map((key) => [key, args[key]])))
+  }
   return canonical(Object.fromEntries(Object.entries(request.arguments || {}).filter(([key, value]) => value !== undefined && !NON_PROVENANCE_ARGUMENTS.has(key))))
 }
 
 export function generationProvenance(task, request) {
+  const mediaOperation = request.tool === 'submit_media_operation'
+  const operationSources = [request.arguments?.source, request.arguments?.audio, request.arguments?.mask].filter(Boolean).map((item) => ({ key: item.asset_key, version_id: item.version_id }))
   return {
-    origin: 'generated', created_by: 'provider', provider: task.provider, model_or_workflow: request.modelOrWorkflow,
+    origin: mediaOperation ? 'transformed' : 'generated', created_by: 'provider', provider: task.provider, model_or_workflow: request.modelOrWorkflow,
     task_id: task.taskId, prompt_document: canonicalPromptDocument(request.promptDocument, request.tool),
-    source_assets: (request.arguments?.reference_manifest || []).map((item) => ({ key: item.asset_key, version_id: item.version_id })),
+    source_assets: mediaOperation ? operationSources : (request.arguments?.reference_manifest || []).map((item) => ({ key: item.asset_key, version_id: item.version_id })),
     parameters: canonicalProvenanceParameters(request),
   }
 }
@@ -70,6 +77,11 @@ export function validateTaskOutput(task, request, asset, version, requireComplet
     const expectedSources = (request.arguments.reference_manifest || []).map((item) => ({ key: item.asset_key, version_id: item.version_id }))
     if (JSON.stringify(expectedSources) !== JSON.stringify(provenance.source_assets)) throw new Error('媒体资产上游版本与请求参考清单不一致')
   }
+  if (request.tool === 'submit_media_operation') {
+    if (provenance.origin !== 'transformed') throw new Error('媒体操作输出必须是 transformed 资产')
+    const expectedSources = [request.arguments.source, request.arguments.audio, request.arguments.mask].filter(Boolean).map((item) => ({ key: item.asset_key, version_id: item.version_id }))
+    if (JSON.stringify(expectedSources) !== JSON.stringify(provenance.source_assets)) throw new Error('媒体操作来源与 provenance 不一致')
+  }
   if (requireCompletedLink && (task.status !== 'completed' || task.outputVersionId !== version.id)) throw new Error('生成资产未绑定任务完成版本')
 }
 
@@ -86,9 +98,10 @@ export async function createRequestSnapshot(rootArg, input) {
   rejectSecrets(input)
   const required = ['tool', 'target', 'type', 'provider', 'arguments']
   for (const field of required) if (input[field] === undefined || input[field] === null || input[field] === '') throw new Error(`请求快照 ${field} 必填`)
-  if (!['generate_image', 'submit_video', 'generate_audio', 'generate_music'].includes(input.tool)) throw new Error(`请求工具无效：${input.tool}`)
+  if (!['generate_image', 'submit_video', 'generate_audio', 'generate_music', 'submit_media_operation'].includes(input.tool)) throw new Error(`请求工具无效：${input.tool}`)
   if (!TYPES.has(input.type)) throw new Error(`请求类型无效：${input.type}`)
   if (!input.arguments || typeof input.arguments !== 'object' || Array.isArray(input.arguments)) throw new Error('请求 arguments 必须是对象')
+  if (input.tool === 'submit_media_operation') validateMediaOperation(input.arguments)
   const raw = JSON.stringify(input.arguments)
   if (Buffer.byteLength(raw) > 1024 * 1024) throw new Error('请求快照超过 1MB，请使用文件路径或资产版本引用代替内联媒体')
   const requestId = `req-${randomUUID()}`
