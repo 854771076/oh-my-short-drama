@@ -16,7 +16,8 @@ import { selfCheck as checkLitterbox } from '../media-hosting/litterbox.mjs'
 import { selfCheck as checkTempfile } from '../media-hosting/tempfile.mjs'
 import { selfCheck as checkTmpfiles } from '../media-hosting/tmpfiles.mjs'
 import { selfCheck as checkUguu } from '../media-hosting/uguu.mjs'
-import { validateVideoReferenceBindings } from '../reference-bindings.mjs'
+import { validatePreviousTailBinding, validateVideoReferenceBindings } from '../reference-bindings.mjs'
+import { preparePreviousTail } from '../previous-tail.mjs'
 import { inspectStage, missingPrevizAssets, missingPrevizReviews, missingStoryboardAssets, missingStoryboardReviews, storyboardMedium } from '../workflow-gates.mjs'
 import { validateMotionReferenceBinding } from '../previz-contract.mjs'
 import { stages } from '../workflow-stages.mjs'
@@ -107,6 +108,9 @@ export const tools = [
   ['publish_reference_image', '把项目内 selected 图片临时发布为公开 HTTPS URL；上传前必须确认权利、公开风险和商业使用许可。', {
     service: { type: 'string', enum: mediaHostNames, default: 'tempfile' }, project_root: { type: 'string' }, asset_key: { type: 'string' }, version_id: { type: 'string', pattern: '^v\\d{3}$' }, expires_in: { type: 'string', enum: mediaHostExpiries, default: '24h' }, usage_scope: { type: 'string', enum: ['non-commercial', 'commercial-authorized'] }, force_reupload: { type: 'boolean' }, confirmed: { const: true }, rights_confirmed: { const: true }, public_exposure_confirmed: { const: true }, usage_terms_confirmed: { const: true },
   }, ['service', 'project_root', 'asset_key', 'version_id', 'expires_in', 'usage_scope', 'confirmed', 'rights_confirmed', 'public_exposure_confirmed', 'usage_terms_confirmed']],
+  ['prepare_previous_tail', '从上一镜当前选中且通过审核的视频提取尾帧，并登记为下一镜首帧资产。', {
+    project_root: { type: 'string' }, episode_key: { type: 'string', pattern: '^ep-\\d{3}$' }, shot_number: { type: 'integer', minimum: 2 }, continuity_version: { type: 'string', pattern: '^v\\d{3}$' },
+  }, ['project_root', 'episode_key', 'shot_number', 'continuity_version']],
   ['list_models', '读取指定 Provider 的模型或工作流目录。', { provider }, ['provider']],
   ['generate_image', '使用用户选择的 Provider 生成图片；付费和上传本地参考文件前必须确认。', {
     provider, model: { type: 'string' }, prompt: { type: 'string' }, size: { type: 'string' }, resolution: imageResolution, aspect_ratio: imageAspectRatio, seed: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1, maximum: 4 }, quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'] }, style: { type: 'string' }, background: { type: 'string', enum: ['auto', 'opaque', 'transparent'] }, moderation: { type: 'string', enum: ['auto', 'low'] }, output_format: { type: 'string', enum: ['png', 'jpeg', 'webp'] }, output_compression: { type: 'integer', minimum: 1 }, partial_images: { type: 'integer', minimum: 1 }, user: { type: 'string' }, reference_manifest: { type: 'array', maxItems: 9, items: referenceManifestItem }, confirmed: { const: true }, ...imageWorkflow, ...projectTracking,
@@ -265,6 +269,7 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
     const asset = assets.assets?.[reference.asset_key]
     if (asset?.selectedVersionId !== reference.version_id || asset.staleVersionIds?.includes(reference.version_id) || !asset.versions?.some((item) => item.id === reference.version_id)) throw new Error(`参考素材不是当前 selected 未失效版本：${reference.asset_key}@${reference.version_id}`)
   }
+  await validatePreviousTailBinding(root, shot, manifest)
   // 宫格输入 → 宫格输出：逐份参考做启发式检测；board-* 多格分镜板是允许直接输入的叙事参考（已过八维审计），
   // other-refpack-* 是按流程登记的身份合板，均豁免；分镜板的宫格风险由分镜板条款+成片侧 grid_suspect 兜底。
   for (const reference of manifest) {
@@ -586,6 +591,7 @@ function selfCheck() {
 export async function call(name, args = {}) {
   if (name === 'list_generation_providers') return providerCatalog()
   if (name === 'list_media_hosts') return mediaHostCatalog()
+  if (name === 'prepare_previous_tail') return preparePreviousTail({ projectRoot: args.project_root, episodeKey: args.episode_key, shotNumber: args.shot_number, continuityVersion: args.continuity_version })
   if (name === 'list_reference_uploads') {
     const { project_root: projectRoot, ...filters } = args
     return listReferenceUploads(projectRoot, filters)

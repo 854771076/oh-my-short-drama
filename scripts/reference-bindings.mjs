@@ -1,6 +1,7 @@
 import { readFile, realpath } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { validateTemporaryReferenceUrl } from './media-hosting/publish.mjs'
+import { selectedAssetVersion } from './asset-ledger.mjs'
 
 const compact = (values) => (values || []).filter((value) => typeof value === 'string' && value.trim())
 
@@ -31,6 +32,26 @@ function inputs(provider, args) {
       : compact([args.frame_url, ...(args.reference_image_urls || args.reference_urls || [])]),
     video: compact(args.reference_video_urls), audio: compact(args.reference_audio_urls),
   }
+}
+
+export async function validatePreviousTailBinding(rootArg, shot, manifest) {
+  if (shot?.continuity?.mode !== 'previous-tail') return
+  if (!['first-last-frame', 'I2VA', 'FL2VA'].includes(shot.input_mode)) throw new Error('previous-tail 要求模型与输入模式支持 video.first-frame')
+  if (shot.continuity.required_provider_capability !== 'video.first-frame' || !Number.isInteger(shot.continuity.source_shot_number) || shot.continuity.source_shot_number < 1) throw new Error('previous-tail 连续性合同缺少 video.first-frame 或有效来源镜号')
+  const firstImage = (manifest || []).filter((item) => item?.type === 'image').sort((left, right) => left.order - right.order)[0]
+  if (!firstImage || firstImage.order !== 1 || firstImage.role !== 'first_frame') throw new Error('previous-tail 必须是第一个 image 引用并使用 role=first_frame')
+  const match = /^other-transition-(ep\d{3})-(\d{3})$/.exec(firstImage.asset_key)
+  if (!match || Number(match[2]) !== shot.shot_number) throw new Error('previous-tail first_frame 资产与目标镜号不一致')
+
+  const root = await realpath(resolve(rootArg))
+  const tail = await selectedAssetVersion(root, firstImage.asset_key)
+  if (tail.version.id !== firstImage.version_id || tail.version.provenance?.origin !== 'transformed' || tail.version.provenance.created_by !== 'codex' || tail.version.provenance.model_or_workflow !== 'ffmpeg-extract-frame') throw new Error('previous-tail first_frame 必须是当前 selected 的确定性尾帧派生资产')
+  const sourceKey = `shot-${match[1]}-${String(shot.continuity.source_shot_number).padStart(3, '0')}`
+  const sourceReference = tail.version.provenance.source_assets?.find((item) => item.key === sourceKey)
+  const source = await selectedAssetVersion(root, sourceKey)
+  if (!sourceReference || sourceReference.version_id !== source.version.id || tail.version.provenance.parameters?.source_sha256 !== source.version.sha256) throw new Error('previous-tail 来源版本或 SHA-256 与上一镜当前 selected 版本不一致')
+  const promptReference = tail.version.provenance.prompt_document
+  if (promptReference?.kind !== 'continuity-plan' || promptReference.episode_key !== match[1].replace('ep', 'ep-') || promptReference.shot_number !== shot.shot_number) throw new Error('previous-tail 缺少匹配目标镜头的连续性计划来源')
 }
 
 export async function validateVideoReferenceBindings(rootArg, provider, args, manifest, { requireSelected = true, at = Date.now() } = {}) {

@@ -17,6 +17,8 @@ description: 把通过验收的本地分镜按实际视频模型编译为可执�
 
 每次模板编译统一输出严格 JSON `{prompt_profile,input_mode,prompt,duration,references,continuity,audio_policy,errors}`。Seedance 2.0 的 `prompt` 必须为中文自然语言，并让 `@图片N/@视频N/@音频N` 与引用清单及提交数组一一对应；总素材不超过 12 个，图片≤9、视频≤3且合计2–15秒、音频≤3且合计≤15秒，时长4–15秒，并禁止上传真实人物脸部参考。H3 使用 T2VA/I2VA/FL2VA/L2VA/Ref2VA 中与真实输入一致的模式；Ref2VA 的英文六段必须严格按 `subject_definitions → summary → retention_analysis → detailed_description → overall_soundscape → non_diegetic_music` 排列，仅对白、歌词和画内文字保留原语言。不得混用两套语法。
 
+`continuity.mode=previous-tail` 时，只能使用具备 `video.first-frame` 能力的 `first-last-frame`、`I2VA` 或 `FL2VA` 模式。由 `prepare_previous_tail` 生成的 `other-transition-*` 必须作为第一个图片引用并标记 `role=first_frame`；编译前核对其来源版本与 SHA-256 仍对应上一镜当前 selected 视频。提示词从该像素状态直接延续，逐项锁定人物位置、姿态、运动方向、持物状态、主光方向与轴线，不重新建立场景，也不把动作重置为起势。来源镜换版后必须重新派生尾帧。
+
 保存前把逐镜编译结果包装为顶层严格合同 `{episode_key,source_versions,shots,unresolved,approved}`；每个 `shots` 项在上述八个模板字段外，必须从已选制作计划原样补入 `shot_number`、`production_plan_version`、`storyboard_version`、`provider` 和 `model_or_workflow`。任一镜 `errors` 非空时同步写入 `unresolved` 且 `approved=false`，禁止省略 `errors`、伪造空数组或手写占位文档。
 
 提示词必须覆盖完整时长、人物动作、相机曲线、逐字台词/旁白、声音策略和镜尾转场，并原样保留连续性与声音合同。每个引用必须定义用途；没有参考素材时不得伪造标签。声音时间表放不下台词时回到剧本/分镜调整，不加速硬塞。

@@ -291,6 +291,13 @@ export function validateVideoPrompts(document, episodeKey) {
     validatePromptRoute(shot, `video-prompts shot ${shot.shot_number}`)
     if (!Array.isArray(shot.references) || !Array.isArray(shot.errors)) throw new Error(`video-prompts shot ${shot.shot_number} references/errors 必须是数组`)
     if (!shot.continuity || typeof shot.continuity !== 'object' || Array.isArray(shot.continuity) || !shot.audio_policy || typeof shot.audio_policy !== 'object' || Array.isArray(shot.audio_policy)) throw new Error(`video-prompts shot ${shot.shot_number} continuity/audio_policy 必须是对象`)
+    if (shot.continuity.mode === 'previous-tail') {
+      if (!['first-last-frame', 'I2VA', 'FL2VA'].includes(shot.input_mode) || shot.continuity.required_provider_capability !== 'video.first-frame') throw new Error(`video-prompts shot ${shot.shot_number} previous-tail 要求 video.first-frame 能力`)
+      if (!Number.isInteger(shot.continuity.source_shot_number) || shot.continuity.source_shot_number < 1 || shot.continuity.source_shot_number >= shot.shot_number) throw new Error(`video-prompts shot ${shot.shot_number} previous-tail 来源镜号无效`)
+      const firstImage = shot.references.filter((item) => item?.type === 'image').sort((left, right) => left.order - right.order)[0]
+      const expectedKey = `other-transition-${episodeKey.replace('-', '')}-${String(shot.shot_number).padStart(3, '0')}`
+      if (!firstImage || firstImage.order !== 1 || firstImage.role !== 'first_frame' || firstImage.asset_key !== expectedKey) throw new Error(`video-prompts shot ${shot.shot_number} previous-tail 必须是第一个 image/first_frame 引用`)
+    }
     if (!Number.isFinite(shot.duration) || shot.duration <= 0) throw new Error(`video-prompts shot ${shot.shot_number} duration 无效`)
     if (typeof shot.prompt !== 'string' || (!shot.prompt.trim() && shot.errors.length === 0)) throw new Error(`video-prompts shot ${shot.shot_number} prompt 为空且无错误`)
     if (shot.prompt_profile === 'seedance2' && (shot.duration < 4 || shot.duration > 15)) throw new Error(`video-prompts shot ${shot.shot_number} Seedance 2.0 时长必须为 4–15 秒`)
