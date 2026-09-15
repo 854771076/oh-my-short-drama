@@ -30,6 +30,31 @@ test('parseList 处理数组、JSON、普通分隔符和非法 JSON', () => {
   assert.deepEqual(parseList('{非法 JSON'), ['{非法 JSON'])
 })
 
+test('损坏 JSON 数组清洗括号、引号和字符串 null，并保留可恢复标签', () => {
+  const tags = parseList('["男频",null,"都市日常"')
+  assert.deepEqual(tags, ['男频', '都市日常'])
+
+  const observation = normalizeRankingItem('hot', {
+    title: '一部普通短剧',
+    tags: '["男频",null,"都市日常"',
+  })
+  assert.equal(observation.audience, '男频')
+  assert.deepEqual(observation.topics, ['都市日常'])
+  assert.deepEqual(observation.provenance.evidence.rawTags, ['男频', '都市日常'])
+})
+
+test('状态和形式标签不是题材证据，未知标签不会伪装成 source-tag', () => {
+  const observation = normalizeRankingItem('hot', {
+    title: '没有明确题材的作品',
+    tags: ['真人', '短剧', '已完结', '神秘标签'],
+  })
+
+  assert.deepEqual(observation.topics, ['未分类'])
+  assert.equal(observation.provenance.topicSource, 'unclassified')
+  assert.equal(observation.format, null)
+  assert.deepEqual(observation.provenance.evidence.rawTags, ['真人', '短剧', '已完结', '神秘标签'])
+})
+
 test('标题词根只推断受控题材，不从题材推断受众和时代', () => {
   const observation = normalizeRankingItem('hot', {
     name: '重生后我成了霸总的白月光',

@@ -16,6 +16,15 @@ const TITLE_ROOTS = Object.freeze([
   ['喜剧', ['喜剧']],
 ])
 
+const SOURCE_TOPIC_LABELS = new Set([
+  ...TITLE_ROOTS.flatMap(([, roots]) => roots.map((root) => compactLabel(root))),
+  '都市日常',
+])
+
+const NON_TOPIC_TAGS = new Set([
+  '真人', '短剧', '微短剧', '短视频', '已完结', '完结', '连载中', '连载', '热播', '新剧', '上新', '独播',
+])
+
 const AUDIENCE_LABELS = new Map([
   ['男频', '男频'],
   ['女频', '女频'],
@@ -59,6 +68,10 @@ function normalizedText(value) {
 
 function compactText(value) {
   return normalizedText(value).replace(/\s+/gu, '')
+}
+
+function compactLabel(value) {
+  return String(value).normalize('NFKC').trim().replace(/\s+/gu, '')
 }
 
 function sourceValue(item, aliases, accept = (value) => value !== undefined && value !== null && value !== '') {
@@ -123,8 +136,15 @@ function flattenListValue(value, result) {
   }
   if (value === null || value === undefined) return
   if (typeof value !== 'string' && typeof value !== 'number') return
-  const text = String(value).trim()
+  const text = cleanListToken(value)
   if (text) result.push(text)
+}
+
+function cleanListToken(value) {
+  let text = String(value).trim()
+  text = text.replace(/^[\[\]"'“”]+/u, '').replace(/[\[\]"'“”]+$/u, '').trim()
+  if (!text || /^(?:null|undefined)$/iu.test(text)) return null
+  return text
 }
 
 export function parseList(value) {
@@ -208,7 +228,14 @@ export function normalizeRankingItem(rankingType, item, context = {}) {
   const tagSource = sourceValues(source, FIELD_ALIASES.tags)
   const tags = tagSource.values.flatMap((value) => parseList(value))
   const uniqueTags = [...new Set(tags)]
-  const sourceTopics = uniqueTags.filter((tag) => !AUDIENCE_LABELS.has(compactText(tag)) && !ERA_LABELS.has(compactText(tag)) && detectFormat([tag], '') === null)
+  const sourceTopics = uniqueTags.filter((tag) => {
+    const label = compactLabel(tag)
+    return SOURCE_TOPIC_LABELS.has(label)
+      && !AUDIENCE_LABELS.has(label)
+      && !ERA_LABELS.has(label)
+      && !NON_TOPIC_TAGS.has(label)
+      && detectFormat([tag], '') === null
+  })
   const formatSource = sourceValue(source, FIELD_ALIASES.format)
   const formatValues = [...uniqueTags, ...(formatSource.value === undefined ? [] : parseList(formatSource.value))]
   const format = detectFormat(formatValues, rankingType)
@@ -269,6 +296,7 @@ export function normalizeRankingItem(rankingType, item, context = {}) {
       topicSource,
       sourceFields,
       evidence: {
+        rawTags: uniqueTags,
         sourceTags: uniqueTags,
         titleKeywords: inferredTopics,
       },
