@@ -243,6 +243,10 @@ const editingGuide = await readFile(resolve(root, 'references/editing-workflow.m
 for (const token of ['selected', 'J/L-cut', '6–12 帧', '-14 至 -16 LUFS', '-1 dBTP', 'SRT', 'ASS', 'freeze-edit-candidate.mjs', 'export-edit-subtitles.mjs']) if (!editingGuide.includes(token)) failures.push(`剪辑规范缺少：${token}`)
 const reviewSkill = await readFile(resolve(root, 'skills/review-drama-script/SKILL.md'), 'utf8')
 if (!reviewSkill.includes('../../references/writing/compliance-checklist.md')) failures.push('合规清单未接入剧本复核')
+const voiceDescriptionPrompt = await readFile(resolve(root, 'skills/design-drama-audio/assets/prompts/character_voice_description.zh.txt'), 'utf8')
+for (const token of ['50', '性别', '年龄段', '2–4', '人物名', '地名', '剧情', '台词', '声音描述：']) if (!voiceDescriptionPrompt.includes(token)) failures.push(`CosyVoice 声音描述合同缺少：${token}`)
+const voiceDescriptionContract = await readFile(resolve(root, 'scripts/generation/voice-description.mjs'), 'utf8')
+for (const token of ['weightedLength', '性别和年龄段', '2–4', '人物名', '剧情', '台词', 'voice_traits']) if (!voiceDescriptionContract.includes(token)) failures.push(`CosyVoice 声音描述校验缺少：${token}`)
 if (!map.stages?.['asset-analysis']?.includes('generate-drama-art-style')) failures.push('资产分析阶段缺少画风生成 Skill')
 for (const [prompt, tokens] of Object.entries({
   character_asset_sheet: ['脸部特写', '90 度侧面', '服装', '表情'],

@@ -14,6 +14,6 @@ occupation: {occupation}
 social_class: {social_class}
 era_period: {era_period}
 
-Use only evidenced long-term traits from the profile. Describe apparent age, pitch, timbre, pace, delivery intensity, and an accent only when required. Do not include the character name, plot, dialogue, a real-person imitation target, protected-identity inference, or one-shot emotion. When evidence is sparse, choose a neutral voice without regional or class stereotypes.
+Use only evidenced long-term traits from the profile and obey five hard rules: (1) output one natural description within 50 Chinese-weighted characters; (2) explicitly state gender and approximate age group; (3) include exactly 2–4 evidenced voice traits covering pitch, timbre, pace, delivery color, or texture; (4) never include a person name, place name, plot, dialogue, real-person imitation target, protected-identity inference, or one-shot emotion; (5) add no “Voice description:” prefix, heading, quotes, explanation, or Markdown. When evidence is sparse, choose neutral traits without regional or class stereotypes; do not invent a fifth trait.
 
-Output one natural English voice_prompt under 50 words. No heading, quotes, explanation, or Markdown.
+The output is checked by `validateVoiceDescription`; emit only the description body.

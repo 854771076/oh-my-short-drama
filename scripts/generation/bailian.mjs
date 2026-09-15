@@ -487,7 +487,7 @@ export async function selfCheck() {
   if (languageHintsFor('cosyvoice-v3-plus').length !== 7 || languageHintsFor('cosyvoice-v3.5-plus').length !== 11) throw new Error('语言矩阵错误')
   if (!supportsInstruction('cosyvoice-v3.5-plus') || supportsInstruction('cosyvoice-v3-plus') || !supportsInstruction('cosyvoice-v3-flash')) throw new Error('instruction 支持矩阵错误')
   if (inferModelFromVoiceId('cosyvoice-v3.5-plus-abc123') !== 'cosyvoice-v3.5-plus' || inferModelFromVoiceId('cosyvoice-v2') !== 'cosyvoice-v2' || inferModelFromVoiceId('longxiaochun') !== '') throw new Error('voiceId 前缀推断错误')
-  if (weightedLength('a你') !== 3) throw new Error('instruction 加权长度错误')
+  if (weightedLength('a你') !== 3 || weightedLength('声'.repeat(25)) !== 50 || weightedLength('声'.repeat(26)) !== 52) throw new Error('中文加权长度错误')
 
   // 校验器
   if (validateVoicePrompt('  ').valid || !validateVoicePrompt('低沉女声').valid || validateVoicePrompt('a'.repeat(501)).valid) throw new Error('声音提示词校验错误')
