@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createInterface } from 'node:readline'
+import { createHash } from 'node:crypto'
 import { readFile, realpath } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
 import { adapter, applyConfiguredModelParameters, providerCatalog, providerNames, providerSupports, selfCheck as checkProviders } from './providers.mjs'
@@ -7,7 +8,7 @@ import { selfCheck as checkStarRouter } from './starrouter.mjs'
 import { selfCheck as checkRunningHub } from './runninghub.mjs'
 import { selfCheck as checkComfly } from './comfly.mjs'
 import { selfCheck as checkBailian } from './bailian.mjs'
-import { designVoice, cloneVoice, listVoices, deleteVoice } from './voice-tools.mjs'
+import { designVoice, cloneVoice, deleteVoice, importExternalAudio, listVoices } from './voice-tools.mjs'
 import { createRequestSnapshot, getTask, listTasks, reserveTask, settleReservedTask } from '../task-ledger.mjs'
 import { validateGenerationDocumentReference } from '../document-reference.mjs'
 import { mediaHostCatalog, mediaHostNames, mediaHostExpiries } from '../media-hosting/providers.mjs'
@@ -28,6 +29,8 @@ import { selectedAssetVersion } from '../asset-ledger.mjs'
 import { operationCapability, validateMediaOperation } from '../media-operation-contract.mjs'
 import { executeLocalMediaOperation } from '../media-operations.mjs'
 import { putMediaOperationReview } from '../review-ledger.mjs'
+import { validateNativeAudioReview } from '../native-audio-audit.mjs'
+import { planAudioFallback } from '../audio-fallback.mjs'
 
 checkStarRouter()
 await checkRunningHub()
@@ -151,6 +154,13 @@ export const tools = [
   ['generate_audio', '使用用户选择的 Provider 生成语音或提交音频工作流。StarRouter 使用 model/input/voice，RunningHub 使用 prompt/workflow，百炼使用 CosyVoice/qwen TTS 与已登记音色。', {
     provider, model: { type: 'string' }, input: { type: 'string' }, voice: { type: 'string' }, instructions: { type: 'string' }, speed: { type: 'number', minimum: 0.5, maximum: 2 }, response_format: { type: 'string', enum: ['mp3', 'pcm', 'flac', 'wav', 'opus'] }, language_hints: { type: 'string' }, sample_rate: { type: 'integer' }, volume: { type: 'number', minimum: 0, maximum: 100 }, pitch: { type: 'number', minimum: 0.5, maximum: 2 }, instruction: { type: 'string', maxLength: 100 }, metadata: audioMetadata, prompt: { type: 'string' }, confirmed: { const: true }, ...workflow, ...projectTracking,
   }, ['provider', 'confirmed', 'project_root', 'target', 'prompt_document']],
+  ['import_external_audio', '把用户有权使用的本地音频复制或规范化为不可变候选资产；不自动选版。', {
+    project_root: { type: 'string' }, target: { type: 'string', pattern: '^audio-[a-z0-9]+(?:-[a-z0-9]+)*$' }, local_file: { type: 'string' }, name: { type: 'string' }, usage_scope: { type: 'string', enum: ['non-commercial', 'commercial-authorized'] }, rights_confirmed: { const: true }, confirmed: { const: true },
+  }, ['project_root', 'target', 'local_file', 'usage_scope', 'rights_confirmed', 'confirmed']],
+  ['generate_audio_fallback', '依据未通过的原生音频七维审核只生成失败区间；confirmed=false 仅返回费用与 provenance 摘要。', {
+    project_root: { type: 'string' }, episode_key: { type: 'string', pattern: '^ep-\\d{3}$' }, audio_plan_version: { type: 'string', pattern: '^v\\d{3}$' }, line_index: { type: 'integer', minimum: 1 }, source_video: assetVersionReference,
+    target: { type: 'string', pattern: '^audio-[a-z0-9]+(?:-[a-z0-9]+)*$' }, provider, model: { type: 'string' }, voice: { type: 'string' }, voice_binding: { type: 'object' }, reason: { type: 'string' }, range: mediaOperationProperties.range, mix_sources: { type: 'array', minItems: 1, items: { type: 'string' } }, response_format: { type: 'string' }, confirmed: { type: 'boolean' }, presentation: { type: 'string' },
+  }, ['project_root', 'episode_key', 'audio_plan_version', 'line_index', 'source_video', 'target', 'provider', 'model', 'voice', 'voice_binding', 'reason', 'range', 'mix_sources', 'confirmed']],
   ['transcribe_audio', '使用 StarRouter 对项目内音频执行语音转写。', asrInput, ['provider', 'model', 'file_path', 'project_root', 'confirmed']],
   ['translate_audio', '使用 StarRouter 对项目内音频执行语音翻译。', asrInput, ['provider', 'model', 'file_path', 'project_root', 'confirmed']],
   ['generate_music', '使用 StarRouter 异步生成 OP、ED、BGM 或音乐短视频配乐。', {
@@ -699,6 +709,63 @@ async function registerMediaOperationOutput(args) {
   return syncTaskResult(args.project_root, task.taskId, { provider: task.provider, status: 'completed', outputs: args.outputs.map((item) => ({ ...item, media_type: 'video' })) })
 }
 
+function validateFallbackBinding(presentation, binding, line) {
+  if (presentation === 'narration') {
+    const profile = binding?.cinematic_profile
+    const complete = profile && ['tone_arc', 'emotion_beats', 'pace', 'breath_and_pause', 'distance_and_space'].every((field) => field === 'emotion_beats' ? Array.isArray(profile[field]) && profile[field].length : typeof profile[field] === 'string' && profile[field].trim())
+    if (binding?.voice_role !== 'narrator' || !complete) throw new Error('旁白兜底必须使用独立 narrator 和完整电影感音色档案')
+    if (binding.character_key && !line?.narrator_is_character) throw new Error('剧本未声明角色兼任叙述者，不得复用角色音色')
+    if (line?.performance && JSON.stringify(profile) !== JSON.stringify(line.performance)) throw new Error('旁白 cinematic_profile 必须与 audio-plan 表演合同一致')
+  } else if (binding?.voice_role !== 'character') throw new Error('角色对白兜底必须绑定 character 音色')
+}
+
+async function prepareAudioFallback(args) {
+  if (args.presentation) validateFallbackBinding(args.presentation, args.voice_binding, null)
+  const root = await realpath(resolve(args.project_root))
+  if (!/^ep-\d{3}$/.test(args.episode_key || '') || !/^v\d{3}$/.test(args.audio_plan_version || '') || !Number.isInteger(args.line_index)) throw new Error('音频兜底计划引用无效')
+  const selection = JSON.parse(await readFile(resolve(root, 'episodes', args.episode_key, 'audio-plan', 'selected.json'), 'utf8'))
+  if (selection.versionId !== args.audio_plan_version) throw new Error('音频兜底必须引用当前 selected audio-plan')
+  const plan = JSON.parse(await readFile(resolve(root, selection.path), 'utf8'))
+  const line = plan.approved === true && !plan.unresolved?.length && plan.lines?.find((item) => item.line_index === args.line_index)
+  if (!line) throw new Error('音频兜底行不存在、未批准或仍有未决项')
+  if (line.delivery_mode !== 'native') throw new Error('只有原生音频行审核失败后才能执行音频兜底')
+  validateFallbackBinding(line.presentation, args.voice_binding, line)
+  if (args.presentation && args.presentation !== line.presentation) throw new Error('音频兜底 presentation 与 audio-plan 不一致')
+  if (line.presentation === 'narration' && line.fallback_mode !== 'cinematic-tts') throw new Error('旁白行未批准 cinematic-tts 兜底')
+  if (line.presentation !== 'narration' && line.fallback_mode !== 'post-dub') throw new Error('对白行未批准 post-dub 兜底')
+  const binding = plan.voice_bindings?.find((item) => item.speaker === line.speaker && item.provider === args.provider && item.model === args.model && item.voice_id === args.voice)
+  if (!binding || args.voice_binding?.provider !== args.provider || args.voice_binding?.model !== args.model || args.voice_binding?.voice_id !== args.voice) throw new Error('音频兜底 voice_binding 与已批准 audio-plan 不一致')
+
+  const assets = JSON.parse(await readFile(resolve(root, '.short-drama', 'assets.json'), 'utf8'))
+  const sourceAsset = assets.assets?.[args.source_video?.asset_key]
+  const sourceVersion = sourceAsset?.versions?.find((item) => item.id === args.source_video?.version_id)
+  if (sourceAsset?.type !== 'video' || !sourceVersion?.localPath || sourceAsset.staleVersionIds?.includes(sourceVersion.id)) throw new Error('音频兜底来源视频不存在或已失效')
+  const sourcePath = resolve(root, sourceVersion.localPath)
+  const sourceSha256 = createHash('sha256').update(await readFile(sourcePath)).digest('hex')
+  if (sourceSha256 !== sourceVersion.sha256) throw new Error('音频兜底来源视频文件已被篡改')
+  const audit = JSON.parse(await readFile(resolve(root, '.short-drama', 'audio-audits', `${args.source_video.asset_key}@${args.source_video.version_id}.json`), 'utf8'))
+  validateNativeAudioReview(audit)
+  if (audit.approved || audit.watched_full !== true || audit.sha256 !== sourceVersion.sha256 || audit.episode_key !== args.episode_key || audit.shot_number !== line.matched_shot?.shot_number || audit.asset_key !== args.source_video.asset_key || audit.version_id !== args.source_video.version_id) throw new Error('音频兜底必须绑定同一镜头、完整听看且未通过的原生音频审核')
+  const fallback = planAudioFallback(audit, [{ line_index: line.line_index, range: args.range }])
+  const replacement = fallback.replacements.find((item) => item.reason === args.reason && item.range.start_ms === args.range?.start_ms && item.range.end_ms === args.range?.end_ms)
+  if (!replacement) throw new Error('音频兜底 reason/range 不属于审核失败区间')
+  if (!Array.isArray(args.mix_sources) || !args.mix_sources.length) throw new Error('音频兜底必须记录最终混音来源')
+  const provenance = { native_audio_exception: { reason: args.reason, evidence: audit.dimensions[replacement.dimension].observation, range: { ...args.range } }, source_assets: [{ key: args.source_video.asset_key, version_id: args.source_video.version_id }], replaced_ranges: [{ ...args.range }], mix_sources: [...args.mix_sources] }
+  return { root, line, provenance, promptDocument: { kind: 'audio-plan', episode_key: args.episode_key, version_id: args.audio_plan_version, line_index: args.line_index } }
+}
+
+async function generateAudioFallback(args) {
+  const prepared = await prepareAudioFallback(args)
+  if (args.confirmed !== true) return { requires_confirmation: true, provider: args.provider, model: args.model, target: args.target, content: prepared.line.content, provenance: prepared.provenance }
+  const result = await call('generate_audio', {
+    provider: args.provider, model: args.model, input: prepared.line.content, voice: args.voice, response_format: args.response_format || 'wav', confirmed: true,
+    project_root: prepared.root, target: args.target, prompt_document: prepared.promptDocument,
+    reference_manifest: [{ type: 'video', order: 1, asset_key: args.source_video.asset_key, version_id: args.source_video.version_id, role: 'native-audio-source' }],
+    native_audio_exception: prepared.provenance.native_audio_exception, replaced_ranges: prepared.provenance.replaced_ranges, mix_sources: prepared.provenance.mix_sources,
+  })
+  return { ...result, provenance: prepared.provenance }
+}
+
 export async function call(name, args = {}) {
   if (name === 'list_generation_providers') return providerCatalog()
   if (name === 'list_media_hosts') return mediaHostCatalog()
@@ -710,6 +777,8 @@ export async function call(name, args = {}) {
     const { project_root: projectRoot, ...review } = args
     return putMediaOperationReview(projectRoot, review)
   }
+  if (name === 'import_external_audio') return importExternalAudio(args)
+  if (name === 'generate_audio_fallback') return generateAudioFallback(args)
   if (name === 'list_reference_uploads') {
     const { project_root: projectRoot, ...filters } = args
     return listReferenceUploads(projectRoot, filters)

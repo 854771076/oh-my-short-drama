@@ -201,6 +201,13 @@ export async function addAssetVersion(rootArg, key, input) {
   })
 }
 
+export async function nextAssetVersionId(rootArg, key) {
+  const ledger = await readLedger(resolve(rootArg))
+  const asset = get(ledger, key)
+  const latest = Math.max(0, ...(asset.versions || []).map((item) => Number(item.id.slice(1)) || 0))
+  return `v${String(latest + 1).padStart(3, '0')}`
+}
+
 export async function selectedAssetVersion(rootArg, key) {
   const root = resolve(rootArg)
   const ledger = await readLedger(root)
