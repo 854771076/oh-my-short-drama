@@ -169,3 +169,66 @@ test('来源标签在相同样本量和平台覆盖下比标题推断有更高�
   assert.equal(sourceTag.confidence, 'high')
   assert.equal(titleKeyword.confidence, 'low')
 })
+
+test('报告 ID 覆盖趋势、评分输入和筛选，并在相同输入下稳定', () => {
+  const base = {
+    items: [{ key: 'now', topics: ['题材'], rankingType: 'hot', ranking: 1, isNew: false, persistenceDays: 1 }],
+    successfulRankingTypes: ['hot'],
+    snapshotIds: ['now', 'before'],
+    previousItems: [{ key: 'before', topics: ['题材'], rankingType: 'hot', ranking: 1 }],
+    filters: fixedFilters,
+  }
+  const same = analyzeMarket(base)
+  assert.equal(analyzeMarket(base).report_id, same.report_id)
+  assert.notEqual(analyzeMarket({ ...base, previousItems: [] }).report_id, same.report_id)
+  assert.notEqual(analyzeMarket({ ...base, items: [{ ...base.items[0], isNew: true, persistenceDays: 2 }] }).report_id, same.report_id)
+  assert.notEqual(analyzeMarket({ ...base, filters: { ...fixedFilters, rankingTypes: ['hot'] } }).report_id, same.report_id)
+})
+
+test('历史成功榜单从筛选前 observation 推导，筛选不改变两期采集口径', () => {
+  const report = analyzeMarket({
+    items: [
+      { key: 'now-hot', audience: '女频', rankingType: 'hot' },
+      { key: 'now-douyin', audience: '男频', rankingType: 'douyin' },
+    ],
+    previousItems: [
+      { key: 'old-hot', audience: '女频', rankingType: 'hot' },
+      { key: 'old-douyin', audience: '男频', rankingType: 'douyin' },
+    ],
+    successfulRankingTypes: ['hot', 'douyin'],
+    snapshotIds: ['now', 'old'],
+    filters: { ...fixedFilters, audience: '女频' },
+  })
+  assert.notEqual(report.summary.trend, null)
+  assert.doesNotMatch(report.limitations.join(' '), /不可比/)
+})
+
+test('固定样本精确遵循机会分权重', () => {
+  const metrics = topicMetrics([
+    { key: 'a', topics: ['甲'], rankingType: 'hot', ranking: 1, heatValue: 100, growthValue: 100, isNew: true, persistenceDays: 15 },
+    { key: 'b', topics: ['乙'], rankingType: 'hot', ranking: 2, heatValue: 0, growthValue: 0, isNew: false, persistenceDays: 0 },
+  ], ['hot'])
+  assert.deepEqual(metrics.map(({ topic, rank_strength, demand_strength, growth_strength, new_title_rate, platform_coverage, persistence_strength, crowding, opportunity_score }) => ({ topic, rank_strength, demand_strength, growth_strength, new_title_rate, platform_coverage, persistence_strength, crowding, opportunity_score })), [
+    { topic: '甲', rank_strength: 1, demand_strength: 1, growth_strength: 1, new_title_rate: 1, platform_coverage: 1, persistence_strength: 0.5, crowding: 0.5, opportunity_score: 82 },
+    { topic: '乙', rank_strength: 0, demand_strength: 0, growth_strength: 0, new_title_rate: 0, platform_coverage: 1, persistence_strength: 0, crowding: 0.5, opportunity_score: 8 },
+  ])
+})
+
+test('深冻结的非空输入可分析且保持不变', () => {
+  const deepFreeze = (value) => {
+    if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+      Object.freeze(value)
+      for (const entry of Object.values(value)) deepFreeze(entry)
+    }
+    return value
+  }
+  const input = deepFreeze({
+    items: [{ key: 'a', topics: ['题材'], rankingType: 'hot', companies: { producer: ['甲'] }, provenance: { topicSource: 'source-tag' } }],
+    successfulRankingTypes: ['hot'],
+    snapshotIds: ['s1'],
+    filters: fixedFilters,
+  })
+  const before = structuredClone(input)
+  assert.doesNotThrow(() => analyzeMarket(input))
+  assert.deepEqual(input, before)
+})

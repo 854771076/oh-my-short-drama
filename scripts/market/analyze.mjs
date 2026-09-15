@@ -132,7 +132,7 @@ function matchesFilter(item, filters) {
 function appliedFilters(filters) {
   const result = {}
   for (const field of ['audience', 'era', 'format', 'topic', 'rankingTypes']) {
-    if (filters?.[field] !== undefined) result[field] = Array.isArray(filters[field]) ? [...filters[field]] : filters[field]
+    if (filters?.[field] !== undefined) result[field] = Array.isArray(filters[field]) ? [...filters[field]].sort(compareText) : filters[field]
   }
   return result
 }
@@ -147,10 +147,16 @@ function deterministicGeneratedAt(items, filters) {
   return observed.at(-1) ?? '1970-01-01T00:00:00.000Z'
 }
 
-function deterministicReportId(snapshotIds, generatedAt, items) {
-  const material = items.map(({ item, key }) => [key, item.rankingType ?? '', item.ranking ?? null, item.playletId ?? null])
-    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
-  const digest = createHash('sha256').update(JSON.stringify([snapshotIds, generatedAt, material])).digest('hex').slice(0, 16)
+function stableSerialize(value) {
+  if (Array.isArray(value)) return `[${value.map((entry) => stableSerialize(entry)).join(',')}]`
+  if (isRecord(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`).join(',')}}`
+  if (value === undefined) return 'null'
+  return JSON.stringify(value)
+}
+
+function deterministicReportId(payload) {
+  // 报告文件以 ID 为存储键，因此摘要完整规范化 payload（不含 report_id），避免趋势或筛选变化被旧报告覆盖。
+  const digest = createHash('sha256').update(stableSerialize(payload)).digest('hex').slice(0, 16)
   return `market-report-${digest}`
 }
 
@@ -211,14 +217,14 @@ export function topicMetrics(items, successfulRankingTypes) {
       return days === null ? 0 : clamp(days / PERSISTENCE_CAP_DAYS)
     }))
     const crowding = allKeys.size === 0 ? 0 : clamp(supplyCount / allKeys.size)
-    const opportunityScore = 100 * clamp(
+    const opportunityScore = Number((100 * clamp(
       0.28 * demandStrength
       + 0.22 * growthStrength
       + 0.16 * newTitleRate
       + 0.18 * platformCoverage
       + 0.16 * persistenceStrength
       - 0.20 * crowding,
-    )
+    )).toFixed(12))
     const sourceRatio = sourceTagRatio(entries)
     return {
       topic,
@@ -328,14 +334,15 @@ function newTitleWatch(items, fallbackSnapshotId) {
 
 export function analyzeMarket({ items, successfulRankingTypes, snapshotIds, previousItems = [], filters = {} } = {}) {
   const sourceItems = Array.isArray(items) ? items : []
+  const sourcePreviousItems = Array.isArray(previousItems) ? previousItems : []
   const filteredItems = sourceItems.filter((item) => isRecord(item) && matchesFilter(item, filters))
-  const filteredPreviousItems = (Array.isArray(previousItems) ? previousItems : []).filter((item) => isRecord(item) && matchesFilter(item, filters))
-  const successful = uniqueStrings(successfulRankingTypes)
-  const ids = uniqueStrings(snapshotIds)
+  const filteredPreviousItems = sourcePreviousItems.filter((item) => isRecord(item) && matchesFilter(item, filters))
+  const successful = uniqueStrings(successfulRankingTypes).sort(compareText)
+  const ids = uniqueStrings(snapshotIds).sort(compareText)
   const generatedAt = deterministicGeneratedAt(filteredItems, filters)
   const metrics = topicMetrics(filteredItems, successful)
-  // 历史成功榜单未知时，只能从历史 observation 推导，绝不能复用当前集合伪造可比性。
-  const previousSuccessful = filters?.previousSuccessfulRankingTypes ?? uniqueStrings(filteredPreviousItems.map((item) => item.rankingType))
+  // 采集口径属于快照元数据，筛选只改变分析样本，不能反推并缩窄历史成功榜单集合。
+  const previousSuccessful = filters?.previousSuccessfulRankingTypes ?? uniqueStrings(sourcePreviousItems.map((item) => item?.rankingType))
   const hasTwoContentSnapshots = ids.length >= 2 && filteredItems.length > 0 && filteredPreviousItems.length > 0
   const comparison = hasTwoContentSnapshots
     ? compareSnapshots({ items: filteredItems, successfulRankingTypes: successful }, { items: filteredPreviousItems, successfulRankingTypes: previousSuccessful })
@@ -349,9 +356,8 @@ export function analyzeMarket({ items, successfulRankingTypes, snapshotIds, prev
   if (!hasTwoContentSnapshots) limitations.push('趋势不可用：缺少两个同口径且有实际内容的快照。')
   if (failed.length > 0) limitations.push(`榜单覆盖受限：${failed.join('、')} 未成功采集。`)
   if (hasTwoContentSnapshots && !comparison.comparable) limitations.push('历史快照成功榜单集合不同，结果不可比，未生成趋势。')
-  return {
+  const payload = {
     schema_version: 'market-report.v1',
-    report_id: deterministicReportId(ids, generatedAt, dedupeObservations(filteredItems)),
     generated_at: generatedAt,
     snapshot_ids: ids,
     coverage: {
@@ -374,4 +380,5 @@ export function analyzeMarket({ items, successfulRankingTypes, snapshotIds, prev
     evidence,
     limitations,
   }
+  return { schema_version: payload.schema_version, report_id: deterministicReportId(payload), ...payload }
 }
