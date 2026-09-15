@@ -26,13 +26,15 @@ import { stages } from '../workflow-stages.mjs'
 import { validateProject, validateVideoPrompts } from '../project-store.mjs'
 import { syncTaskResult } from '../task-sync.mjs'
 import { detectMedia, hasPanelBoardClaim } from '../grid-detect.mjs'
-import { selectedAssetVersion } from '../asset-ledger.mjs'
+import { importAssetFile, selectedAssetVersion } from '../asset-ledger.mjs'
 import { operationCapability, validateMediaOperation } from '../media-operation-contract.mjs'
 import { executeLocalMediaOperation } from '../media-operations.mjs'
 import { putMediaOperationReview } from '../review-ledger.mjs'
 import { validateNativeAudioReview } from '../native-audio-audit.mjs'
 import { planAudioFallback } from '../audio-fallback.mjs'
 import { probeMedia } from '../media-tools.mjs'
+import { compileMusicSearch, listMusicCatalogs, searchMusicCatalog } from '../music-catalog/providers.mjs'
+import { putMusicLicense } from '../music-license-ledger.mjs'
 
 checkStarRouter()
 await checkRunningHub()
@@ -124,6 +126,13 @@ const voiceConfirmation = {
 }
 export const tools = [
   ['list_generation_providers', '列出已注册生成 Provider 与模态能力。', {}, []],
+  ['list_music_catalogs', '列出本地授权音乐与官方音乐目录入口；不登录、不抓取或下载站点内容。', {}, []],
+  ['search_music_catalog', '把剧情功能编译为选曲条件，并返回本地已授权结果或官方搜索页。', {
+    catalog: { type: 'string', enum: ['local-licensed', 'pixabay', 'youtube-audio-library', 'uppbeat'] }, project_root: { type: 'string' }, query: { type: 'string' }, purpose: { type: 'string', enum: ['op', 'ed', 'bgm', 'music-video'] }, dramatic_function: { type: 'string' }, pace: { type: 'string' }, dialogue_density: { type: 'string', enum: ['low', 'medium', 'high'] }, duration_seconds: { type: ['number', 'null'] },
+  }, ['catalog']],
+  ['register_licensed_music', '把用户已下载且获授权的音乐文件及许可证凭证登记为未选中的本地音频候选。', {
+    project_root: { type: 'string' }, target: { type: 'string', pattern: '^audio-[a-z0-9]+(?:-[a-z0-9]+)*$' }, name: { type: 'string' }, local_file: { type: 'string' }, receipt: { type: 'object' }, usage_scope: { type: 'string', enum: ['non-commercial', 'commercial-authorized'] }, rights_confirmed: { const: true }, confirmed: { const: true },
+  }, ['project_root', 'target', 'local_file', 'receipt', 'usage_scope', 'rights_confirmed', 'confirmed']],
   ['list_media_hosts', '列出把本地参考素材临时转换为公网 URL 的托管服务与时效。', {}, []],
   ['list_reference_uploads', '列出项目内临时发布收据及当前有效状态。', {
     project_root: { type: 'string' }, service: { type: 'string', enum: mediaHostNames }, asset_key: { type: 'string' }, version_id: { type: 'string', pattern: '^v\\d{3}$' }, state: { type: 'string', enum: ['active', 'expired'] },
@@ -804,8 +813,28 @@ async function generateAudioFallback(args) {
   return { ...result, provenance: prepared.provenance }
 }
 
+async function registerLicensedMusic(args) {
+  if (args.confirmed !== true || args.rights_confirmed !== true || !['non-commercial', 'commercial-authorized'].includes(args.usage_scope)) throw new Error('授权音乐导入必须确认本地文件、使用权和使用范围')
+  if (!/^audio-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(args.target || '')) throw new Error('授权音乐 target 必须是 audio-* key')
+  const root = await realpath(resolve(args.project_root))
+  await readFile(resolve(root, '.short-drama', 'project.json'))
+  const source = await realpath(resolve(args.local_file || '')).catch(() => { throw new Error('授权音乐本地文件不存在') })
+  let media
+  try { media = probeMedia(source) } catch { throw new Error('授权音乐必须包含可解码的真实音频流') }
+  if (!media.has_audio || media.duration_ms <= 0) throw new Error('授权音乐必须包含可解码的真实音频流')
+  const receipt = await putMusicLicense(root, args.receipt)
+  const provenance = { origin: 'imported', created_by: 'user', provider: null, model_or_workflow: null, task_id: null, prompt_document: null, source_assets: [], parameters: { music_license_receipt: receipt.receipt_key, usage_scope: args.usage_scope, rights_confirmed: true } }
+  return { ...await importAssetFile(root, args.target, source, provenance, args.name || receipt.title), receipt_key: receipt.receipt_key, probe: media, provenance }
+}
+
 export async function call(name, args = {}) {
   if (name === 'list_generation_providers') return providerCatalog()
+  if (name === 'list_music_catalogs') return listMusicCatalogs()
+  if (name === 'search_music_catalog') {
+    const compiled = args.query ? null : compileMusicSearch(args)
+    return { ...(compiled ? { compiled } : {}), ...await searchMusicCatalog({ ...args, query: args.query || compiled.query }) }
+  }
+  if (name === 'register_licensed_music') return registerLicensedMusic(args)
   if (name === 'list_media_hosts') return mediaHostCatalog()
   if (name === 'prepare_previous_tail') return preparePreviousTail({ projectRoot: args.project_root, episodeKey: args.episode_key, shotNumber: args.shot_number, continuityVersion: args.continuity_version })
   if (name === 'submit_media_operation') return submitMediaOperation(args)

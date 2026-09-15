@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createReadStream, createWriteStream } from 'node:fs'
-import { access, copyFile, link, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { access, copyFile, link, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { COPYFILE_EXCL } from 'node:constants'
 import { basename, dirname, extname, relative, resolve, sep } from 'node:path'
@@ -206,6 +206,26 @@ export async function nextAssetVersionId(rootArg, key) {
   const asset = get(ledger, key)
   const latest = Math.max(0, ...(asset.versions || []).map((item) => Number(item.id.slice(1)) || 0))
   return `v${String(latest + 1).padStart(3, '0')}`
+}
+
+export async function importAssetFile(rootArg, key, sourceArg, provenance, name = key) {
+  const root = resolve(rootArg), source = await realpath(resolve(sourceArg))
+  const type = Object.entries(TYPE_PREFIXES).find(([, prefix]) => key?.startsWith(prefix))?.[0]
+  if (!type) throw new Error('导入资产 key 前缀无效')
+  await putAsset(root, { key, type, name })
+  const versionId = await nextAssetVersionId(root, key)
+  const extension = extname(source).toLowerCase()
+  validateMediaExtension(type, extension)
+  const target = resolve(root, 'assets', TYPE_DIRECTORIES[type], key, `${versionId}${extension}`)
+  await mkdir(dirname(target), { recursive: true })
+  try {
+    await copyFile(source, target, COPYFILE_EXCL)
+    await addAssetVersion(root, key, { id: versionId, localPath: relative(root, target), provenance })
+    return { asset_key: key, version_id: versionId, output_path: target, selected: false }
+  } catch (error) {
+    await rm(target, { force: true })
+    throw error
+  }
 }
 
 export async function selectedAssetVersion(rootArg, key) {
