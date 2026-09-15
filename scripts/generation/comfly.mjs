@@ -105,7 +105,7 @@ function workflow(input) {
 
 export const comfly = {
   label: 'Comfly', credentialEnv: 'COMFLY_TOKEN', catalog: { image: [], video: [MODEL], audio: [] },
-  capabilities: { text: false, image: false, video: true, audio: false },
+  capabilities: { text: false, image: false, video: true, audio: false, 'transform.lip-sync': false, 'transform.video-inpaint': false, 'transform.video-upscale': false },
   async models() { return { provider: 'comfly', video_models: [MODEL], constraints: { images: '1..3', videos: '0..1', audios: 0, duration: '5..15', ratios: ['16:9', '9:16'], resolutions: ['720p', '1K', '2K'] } } },
   async testConnection() { await request('/internal/comfly/input-fields?model=comfyui&type=1518', { method: 'GET' }) },
   async text() { throw new Error('Comfly 不提供通用文本生成') },

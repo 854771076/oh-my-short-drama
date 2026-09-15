@@ -20,6 +20,12 @@ export function providerCatalog() {
   return Object.fromEntries(Object.entries(adapters).map(([name, value]) => [name, value.capabilities]))
 }
 
+export function providerSupports(name, capability) {
+  const selected = adapters[name]
+  if (!selected || typeof capability !== 'string' || !capability) return false
+  return selected.capabilities?.[capability] === true
+}
+
 const parameterCatalog = {
   bailian: {
     'cosyvoice-v3.5-plus': [
@@ -184,4 +190,5 @@ export function selfCheck() {
   try { normalizeModelParameters('bailian', 'cosyvoice-v3-plus', { instruction: '说' }); throw new Error('百炼无 instruction 字段未被拒绝') } catch (error) { if (!String(error.message).includes('不受支持')) throw error }
   try { normalizeModelParameters('bailian', 'cosyvoice-v3.5-plus', { instruction: 'a'.repeat(101) }); throw new Error('百炼 instruction 超长未被拒绝') } catch (error) { if (!String(error.message).includes('加权字符')) throw error }
   if (Object.keys(adapters)[0] !== 'bailian') throw new Error('百炼必须是注册顺序第一个 Provider')
+  if (!providerSupports('starrouter', 'video') || providerSupports('starrouter', 'transform.video-upscale')) throw new Error('Provider 细粒度能力自检失败')
 }

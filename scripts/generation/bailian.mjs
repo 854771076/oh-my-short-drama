@@ -432,7 +432,7 @@ export const bailian = {
   label: '阿里云百炼',
   credentialEnv: 'BAILIAN_API_KEY',
   catalog: { image: [], video: [], audio: BAILIAN_AUDIO_MODELS, music: [], asr: [] },
-  capabilities: { text: false, image: false, video: false, audio: true, music: false, transcription: false, translation: false, voice_design: true },
+  capabilities: { text: false, image: false, video: false, audio: true, music: false, transcription: false, translation: false, voice_design: true, 'transform.lip-sync': false, 'transform.video-inpaint': false, 'transform.video-upscale': false },
   async models() { return { catalog: bailian.catalog } },
   async testConnection() {
     await postJson(CUSTOMIZATION_PATH, { model: 'voice-enrollment', input: { action: 'list_voice', page_size: 1 } }, { timeout: 20000 })
