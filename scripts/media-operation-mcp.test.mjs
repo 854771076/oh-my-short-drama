@@ -31,7 +31,7 @@ async function fixture() {
 }
 
 test('媒体操作 MCP 注册统一工具', () => {
-  for (const name of ['submit_media_operation', 'get_media_operation', 'register_media_operation_output']) assert.ok(tools.some((tool) => tool.name === name), `缺少 ${name}`)
+  for (const name of ['submit_media_operation', 'get_media_operation', 'register_media_operation_output', 'review_media_operation']) assert.ok(tools.some((tool) => tool.name === name), `缺少 ${name}`)
 })
 
 test('未确认的远端媒体操作只返回摘要且不建任务', async () => {

@@ -27,6 +27,7 @@ import { detectMedia, hasPanelBoardClaim } from '../grid-detect.mjs'
 import { selectedAssetVersion } from '../asset-ledger.mjs'
 import { operationCapability, validateMediaOperation } from '../media-operation-contract.mjs'
 import { executeLocalMediaOperation } from '../media-operations.mjs'
+import { putMediaOperationReview } from '../review-ledger.mjs'
 
 checkStarRouter()
 await checkRunningHub()
@@ -134,6 +135,12 @@ export const tools = [
   ['register_media_operation_output', '为已完成但尚未下载的媒体变换任务登记 Provider 输出；会复核任务、请求和来源身份。', {
     project_root: { type: 'string' }, task_id: { type: 'string', minLength: 1 }, outputs: { type: 'array', minItems: 1, items: { type: 'object', properties: { url: { type: 'string' }, b64_json: { type: 'string' }, media_type: { const: 'video' } }, additionalProperties: false } },
   }, ['project_root', 'task_id', 'outputs']],
+  ['review_media_operation', '保存媒体操作专项审核；仅在 QC、完整观看和该操作所需观察全部通过后选择候选版本。', {
+    project_root: { type: 'string' }, asset_key: { type: 'string', pattern: '^shot-[a-z0-9]+(?:-[a-z0-9]+)*$' }, version_id: { type: 'string', pattern: '^v\\d{3}$' },
+    operation: mediaOperationProperties.operation, approved: { type: 'boolean' }, watched_full: { type: 'boolean' }, observations: { type: 'object', additionalProperties: { type: 'string', minLength: 1 } },
+    issues: { type: 'array', items: { type: 'object', properties: { severity: { type: 'string', enum: ['P0', 'P1', 'P2'] }, message: { type: 'string', minLength: 1 } }, required: ['severity', 'message'], additionalProperties: false } },
+    qc: { type: 'object' },
+  }, ['project_root', 'asset_key', 'version_id', 'operation', 'approved', 'observations', 'issues']],
   ['list_models', '读取指定 Provider 的模型或工作流目录。', { provider }, ['provider']],
   ['generate_image', '使用用户选择的 Provider 生成图片；付费和上传本地参考文件前必须确认。', {
     provider, model: { type: 'string' }, prompt: { type: 'string' }, size: { type: 'string' }, resolution: imageResolution, aspect_ratio: imageAspectRatio, seed: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1, maximum: 4 }, quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'] }, style: { type: 'string' }, background: { type: 'string', enum: ['auto', 'opaque', 'transparent'] }, moderation: { type: 'string', enum: ['auto', 'low'] }, output_format: { type: 'string', enum: ['png', 'jpeg', 'webp'] }, output_compression: { type: 'integer', minimum: 1 }, partial_images: { type: 'integer', minimum: 1 }, user: { type: 'string' }, reference_manifest: { type: 'array', maxItems: 9, items: referenceManifestItem }, confirmed: { const: true }, ...imageWorkflow, ...projectTracking,
@@ -694,6 +701,10 @@ export async function call(name, args = {}) {
   if (name === 'submit_media_operation') return submitMediaOperation(args)
   if (name === 'get_media_operation') return getMediaOperation(args)
   if (name === 'register_media_operation_output') return registerMediaOperationOutput(args)
+  if (name === 'review_media_operation') {
+    const { project_root: projectRoot, ...review } = args
+    return putMediaOperationReview(projectRoot, review)
+  }
   if (name === 'list_reference_uploads') {
     const { project_root: projectRoot, ...filters } = args
     return listReferenceUploads(projectRoot, filters)

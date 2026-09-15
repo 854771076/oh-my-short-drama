@@ -3,9 +3,10 @@ import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { dirname, resolve, sep } from 'node:path'
 import { withFileLock } from './file-lock.mjs'
-import { selectAssetVersion } from './asset-ledger.mjs'
+import { selectAssetVersion, selectedAssetVersion } from './asset-ledger.mjs'
 import { sameShotVersion } from './shot-fingerprint.mjs'
 import { fileSha256, probePrevizMedia, validatePrevizContract, validatePrevizMedia } from './previz-contract.mjs'
+import { validateMediaOperationReview } from './media-operation-review.mjs'
 
 const CHECKS = new Set(['passed', 'failed', 'not-applicable'])
 // 机器质量标记必须人工复核后才能放行；只能用带实际观察的误报判定覆盖。
@@ -68,6 +69,46 @@ async function save(root, value) {
   await rename(temporary, target)
 }
 
+export async function putMediaOperationReview(rootArg, input) {
+  const root = resolve(rootArg)
+  const record = structuredClone(input)
+  if (!/^shot-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(record?.asset_key || '')) throw new Error('媒体操作审核 asset_key 无效')
+  if (!/^v\d{3}$/.test(record?.version_id || '')) throw new Error('媒体操作审核 version_id 无效')
+  validateMediaOperationReview(record.operation, record)
+  return withFileLock(pathFor(root), async () => {
+    const assets = JSON.parse(await readFile(resolve(root, '.short-drama', 'assets.json'), 'utf8'))
+    const asset = assets.assets?.[record.asset_key]
+    const version = asset?.versions?.find((item) => item.id === record.version_id)
+    if (asset?.type !== 'video' || !version || asset.staleVersionIds?.includes(record.version_id)) throw new Error('媒体操作审核目标必须是未失效的视频候选版本')
+    if (version.provenance?.origin !== 'transformed' || version.provenance?.parameters?.operation !== record.operation) throw new Error('媒体操作审核类型必须与候选版本 provenance 一致')
+    const source = version.provenance.source_assets?.find((item) => item.key === record.asset_key)
+    if (!source || asset.selectedVersionId !== source.version_id) throw new Error('媒体操作审核只能替换当前 selected 来源版本')
+    const sourceVersion = asset.versions.find((item) => item.id === source.version_id)
+    if (!sourceVersion || version.provenance.parameters.source_sha256 !== sourceVersion.sha256) throw new Error('媒体操作候选记录的来源 SHA-256 与当前来源版本不一致')
+    await selectedAssetVersion(root, record.asset_key)
+    const local = resolve(root, version.localPath || '')
+    const [rootReal, localReal] = await Promise.all([realpath(root), realpath(local)])
+    if (localReal !== rootReal && !localReal.startsWith(`${rootReal}${sep}`)) throw new Error('媒体操作审核文件必须位于项目内')
+    const actualSha256 = createHash('sha256').update(await readFile(localReal)).digest('hex')
+    if (actualSha256 !== version.sha256 || record.qc?.video_sha256 && record.qc.video_sha256 !== version.sha256) throw new Error('媒体操作审核 QC 必须绑定当前候选文件 SHA-256')
+
+    const ledger = await read(root)
+    const key = `${record.asset_key}@${record.version_id}`
+    const previous = ledger.reviews[key]
+    const saved = { ...record, review_type: 'media-operation', reviewedAt: new Date().toISOString() }
+    ledger.reviews[key] = saved
+    await save(root, ledger)
+    if (record.approved) try { await selectAssetVersion(root, record.asset_key, record.version_id) }
+    catch (error) {
+      if (previous) ledger.reviews[key] = previous
+      else delete ledger.reviews[key]
+      await save(root, ledger)
+      throw error
+    }
+    return { ...saved, selected: record.approved }
+  })
+}
+
 async function main() {
   const [command, rootArg, inputPath] = process.argv.slice(2)
   if (command === '--self-check') {
@@ -82,7 +123,8 @@ async function main() {
   if (!rootArg) throw new Error('必须提供项目目录')
   const root = resolve(rootArg)
   if (command === 'list') return console.log(JSON.stringify(await read(root), null, 2))
-  if (command !== 'put' || !inputPath) throw new Error('用法：review-ledger.mjs put <项目目录> <验收 JSON> | list <项目目录>')
+  if (command === 'review-media-operation' && inputPath) return console.log(JSON.stringify(await putMediaOperationReview(root, JSON.parse(await readFile(resolve(inputPath), 'utf8'))), null, 2))
+  if (command !== 'put' || !inputPath) throw new Error('用法：review-ledger.mjs put <项目目录> <验收 JSON> | review-media-operation <项目目录> <专项审核 JSON> | list <项目目录>')
   return withFileLock(pathFor(root), async () => {
     const record = JSON.parse(await readFile(resolve(inputPath), 'utf8'))
     let approved = validate(record)
@@ -91,6 +133,7 @@ async function main() {
     if (!asset) throw new Error('验收资产不存在')
     const version = asset.versions?.find((item) => item.id === record.versionId)
     if (!version || asset.staleVersionIds?.includes(record.versionId)) throw new Error('验收目标必须是未失效的候选资产版本')
+    if (version.provenance?.origin === 'transformed' && version.provenance?.parameters?.operation) throw new Error('媒体操作候选必须使用 review-media-operation 专项审核，不得用普通镜头验收绕过')
     const blockingFlags = (version.quality_flags || []).filter((flag) => BLOCKING_QUALITY_FLAGS.has(flag))
     if (hasConfirmedGrid(blockingFlags) && approved) throw new Error('机器在多数抽样帧中高置信命中宫格/分屏，当前版本不得以误报方式批准；请判 failed 并重生单一连续画面')
     if (blockingFlags.length && approved && record.grid_check?.status !== 'false-positive') throw new Error(`版本带有机器质量标记 ${blockingFlags.join('、')}：必须实际观看素材，确认为误报时在 grid_check 写明观察再通过；确认宫格请判 failed 并重生`)
