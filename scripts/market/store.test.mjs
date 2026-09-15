@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { createMarketStore } from './store.mjs'
@@ -123,4 +123,88 @@ test('Markdown 将外部文本的换行折叠，表格和章节不会被注入�
   assert.match(markdown, /悬疑 \\#\\# 伪造章节/)
   assert.match(markdown, /公开样本 \\#\\# 伪造限制章节/)
   assert.deepEqual(markdown.match(/^## /gmu), ['## ', '## ', '## ', '## '])
+})
+
+test('快照异步写入期间调用方篡改输入时，索引和内容仍绑定初始快照', async () => {
+  const root = await createRoot()
+  const store = createMarketStore(root)
+  const value = { schema_version: 1, snapshot_id: '20260916T153000+0800', retrieved_at: '2026-09-16T15:30:00+08:00', rankings: { hot: [] }, failures: [] }
+  const saving = store.saveSnapshot(value)
+  value.snapshot_id = '20260916T160000+0800'
+  value.rankings = { douyin: [] }
+  await saving
+  const saved = JSON.parse(await readFile(resolve(root, '.short-drama-market/snapshots/20260916T153000+0800.json'), 'utf8'))
+  const index = JSON.parse(await readFile(resolve(root, '.short-drama-market/index.json'), 'utf8'))
+  assert.equal(saved.snapshot_id, '20260916T153000+0800')
+  assert.deepEqual(saved.rankings, { hot: [] })
+  assert.equal(index.latest_snapshot_id, '20260916T153000+0800')
+})
+
+test('同一报告 ID 的并发保存按调用顺序完成，JSON 与 Markdown 始终同源', async () => {
+  const root = await createRoot()
+  const store = createMarketStore(root)
+  const first = report({ report_id: 'market-report-race', snapshot_ids: ['20260916T153000+0800'], topic_metrics: [{ topic: '第一版', opportunity_score: 1, confidence: 'low', supply_count: 1, demand_strength: 0, growth_strength: 0, platform_coverage: 0 }] })
+  const second = report({ report_id: 'market-report-race', snapshot_ids: ['20260916T160000+0800'], generated_at: '2026-09-16T16:00:00.000+08:00', topic_metrics: [{ topic: '第二版', opportunity_score: 2, confidence: 'high', supply_count: 2, demand_strength: 1, growth_strength: 1, platform_coverage: 1 }] })
+  await Promise.all([store.saveReport(first), store.saveReport(second)])
+  const saved = JSON.parse(await readFile(resolve(root, '.short-drama-market/reports/market-report-race.json'), 'utf8'))
+  const markdown = await readFile(resolve(root, '.short-drama-market/reports/market-report-race.md'), 'utf8')
+  assert.deepEqual(saved.snapshot_ids, ['20260916T160000+0800'])
+  assert.equal(saved.topic_metrics[0].topic, '第二版')
+  assert.match(markdown, /20260916T160000\+0800/)
+  assert.match(markdown, /第二版/)
+  assert.doesNotMatch(markdown, /第一版/)
+})
+
+test('同一规范工作区的多个存储实例并发更新索引时保留两类最新指针', async () => {
+  const root = await createRoot()
+  const alias = `${root}-alias`
+  await symlink(root, alias)
+  const left = createMarketStore(root)
+  const right = createMarketStore(alias)
+  await Promise.all([
+    left.saveSnapshot({ schema_version: 1, snapshot_id: '20260915T153000+0800', retrieved_at: '2026-09-15T15:30:00+08:00', rankings: { hot: [] }, failures: [] }),
+    right.saveSnapshot({ schema_version: 1, snapshot_id: '20260916T153000+0800', retrieved_at: '2026-09-16T15:30:00+08:00', rankings: { douyin: [] }, failures: [] }),
+    left.saveReport(report({ report_id: 'market-report-old-race', generated_at: '2026-09-15T15:30:00.000+08:00', snapshot_ids: ['20260915T153000+0800'] })),
+    right.saveReport(report({ report_id: 'market-report-new-race', generated_at: '2026-09-16T15:30:00.000+08:00', snapshot_ids: ['20260916T153000+0800'] })),
+  ])
+  const index = JSON.parse(await readFile(resolve(root, '.short-drama-market/index.json'), 'utf8'))
+  assert.equal(index.latest_snapshot_id, '20260916T153000+0800')
+  assert.equal(index.latest_report_id, 'market-report-new-race')
+})
+
+test('readLatest 在损坏索引与较大坏文件存在时跳过无效合同并恢复有效历史', async () => {
+  const root = await createRoot()
+  const store = createMarketStore(root)
+  await store.saveSnapshot({ schema_version: 1, snapshot_id: '20260916T153000+0800', retrieved_at: '2026-09-16T15:30:00+08:00', rankings: { hot: [] }, failures: [] })
+  await store.saveReport(report({ report_id: 'market-report-valid-history' }))
+  await writeFile(resolve(root, '.short-drama-market/index.json'), '{ 损坏', 'utf8')
+  await writeFile(resolve(root, '.short-drama-market/snapshots/zzzz.json'), JSON.stringify({ schema_version: 999, snapshot_id: 'zzzz', rankings: {} }), 'utf8')
+  await writeFile(resolve(root, '.short-drama-market/reports/zzzz.json'), JSON.stringify({ schema_version: 'wrong', report_id: 'zzzz', generated_at: '2099-01-01T00:00:00.000Z', snapshot_ids: ['20260916T153000+0800'] }), 'utf8')
+  const latest = await store.readLatest()
+  assert.equal(latest.latestSnapshot.snapshot_id, '20260916T153000+0800')
+  assert.equal(latest.latestReport.report_id, 'market-report-valid-history')
+})
+
+test('readLatest 在记录缺少时间时以 ID 倒序作稳定恢复回退', async () => {
+  const root = await createRoot()
+  const store = createMarketStore(root)
+  await store.saveSnapshot({ schema_version: 1, snapshot_id: '20260915T153000+0800', rankings: { hot: [] }, failures: [] })
+  await store.saveSnapshot({ schema_version: 1, snapshot_id: '20260916T153000+0800', rankings: { douyin: [] }, failures: [] })
+  await store.saveReport(report({ report_id: 'market-report-fallback-a', generated_at: undefined }))
+  await store.saveReport(report({ report_id: 'market-report-fallback-b', generated_at: undefined }))
+  const latest = await store.readLatest()
+  assert.equal(latest.latestSnapshot.snapshot_id, '20260916T153000+0800')
+  assert.equal(latest.latestReport.report_id, 'market-report-fallback-b')
+})
+
+test('快照目录为符号链接时读写均拒绝，外部目录不会被写入', async () => {
+  const root = await createRoot()
+  const external = await createRoot()
+  await mkdir(resolve(root, '.short-drama-market'))
+  await symlink(external, resolve(root, '.short-drama-market/snapshots'))
+  const store = createMarketStore(root)
+  const value = { schema_version: 1, snapshot_id: '20260916T153000+0800', rankings: { hot: [] }, failures: [] }
+  await assert.rejects(store.readSnapshot(value.snapshot_id), /符号链接/)
+  await assert.rejects(store.saveSnapshot(value), /符号链接/)
+  assert.deepEqual(await readdir(external), [])
 })
