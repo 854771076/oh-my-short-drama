@@ -18,7 +18,7 @@ const PROVENANCE_ORIGINS = new Set(['imported', 'generated', 'transformed'])
 const PROVENANCE_CREATORS = new Set(['user', 'codex', 'provider'])
 const CONTENT_EXTENSIONS = { 'audio/mpeg': '.mp3', 'audio/wav': '.wav', 'audio/flac': '.flac', 'audio/x-flac': '.flac', 'audio/L16': '.pcm', 'audio/pcm': '.pcm', 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'video/mp4': '.mp4', 'video/webm': '.webm' }
 const TYPE_EXTENSIONS = { image: new Set(['.gif', '.jpeg', '.jpg', '.png', '.webp']), video: new Set(['.mp4', '.webm']), audio: new Set(['.flac', '.mp3', '.pcm', '.wav']) }
-const MUTATING = new Set(['put', 'add-version', 'revert', 'flag-version', 'restore'])
+const MUTATING = new Set(['revert', 'flag-version'])
 export const QUALITY_FLAGS = new Set(['grid_suspect', 'grid_high_confidence', 'grid_check_failed'])
 
 export function normalizeQualityFlags(value) {
@@ -151,6 +151,112 @@ function get(ledger, key) {
   return asset
 }
 
+function validateAssetRecord(record, previous) {
+  rejectSecrets(record)
+  if (!record || typeof record !== 'object' || Array.isArray(record) || !TYPES.has(record.type) || typeof record.name !== 'string' || !record.name.trim()) throw new Error('资产 type/name 无效')
+  validateAssetKey(record.key, record.type)
+  if (previous && previous.type !== record.type) throw new Error('资产 type 不可变')
+  if (['versions', 'selectedVersionId', 'selectedHistory'].some((field) => field in record)) throw new Error('put 不得直接写入版本或选版字段')
+}
+
+async function buildAssetVersion(root, asset, key, input) {
+  const version = structuredClone(input)
+  rejectSecrets(version)
+  versionKey(version.id)
+  if (!version.provenance) throw new Error('add-version 必须提供 provenance')
+  version.provenance = normalizeProvenance(version.provenance)
+  if (asset.versions.some((item) => item.id === version.id)) throw new Error(`版本已存在：${version.id}`)
+  const path = localPath(root, version.localPath)
+  validateMediaExtension(asset.type, extname(path))
+  validatePrevizVersion(asset, key, extname(path), version.provenance)
+  const expectedDirectory = resolve(root, 'assets', TYPE_DIRECTORIES[asset.type], key)
+  if (!path.startsWith(`${expectedDirectory}${sep}`)) throw new Error('版本 localPath 必须位于该资产的标准目录')
+  const fileStat = await stat(path)
+  if (!fileStat.isFile() || fileStat.size > MAX_MEDIA_BYTES) throw new Error('本地资产文件无效或超过大小限制')
+  return { ...version, sizeBytes: fileStat.size, sha256: await sha256(path), createdAt: version.createdAt || new Date().toISOString() }
+}
+
+export async function putAsset(rootArg, record) {
+  const root = resolve(rootArg)
+  return withFileLock(ledgerPath(root), async () => {
+    const ledger = await readLedger(root)
+    const previous = ledger.assets[record?.key]
+    validateAssetRecord(record, previous)
+    ledger.assets[record.key] = { ...previous, ...structuredClone(record), versions: previous?.versions || [], selectedHistory: previous?.selectedHistory || [], staleVersionIds: previous?.staleVersionIds || [], updatedAt: new Date().toISOString() }
+    await save(root, ledger)
+    return ledger.assets[record.key]
+  })
+}
+
+export async function addAssetVersion(rootArg, key, input) {
+  const root = resolve(rootArg)
+  return withFileLock(ledgerPath(root), async () => {
+    const ledger = await readLedger(root)
+    const asset = get(ledger, key)
+    const version = await buildAssetVersion(root, asset, key, input)
+    asset.versions.push(version)
+    asset.updatedAt = new Date().toISOString()
+    await save(root, ledger)
+    return asset
+  })
+}
+
+export async function selectedAssetVersion(rootArg, key) {
+  const root = resolve(rootArg)
+  const ledger = await readLedger(root)
+  const asset = get(ledger, key)
+  if (!asset.selectedVersionId) throw new Error(`资产没有 selected 版本：${key}`)
+  if (asset.staleVersionIds?.includes(asset.selectedVersionId)) throw new Error(`选中版本已因上游变更失效：${key}@${asset.selectedVersionId}`)
+  const version = asset.versions.find((item) => item.id === asset.selectedVersionId)
+  if (!version) throw new Error(`选中版本不存在：${key}@${asset.selectedVersionId}`)
+  const path = localPath(root, version.localPath)
+  const expectedDirectory = resolve(root, 'assets', TYPE_DIRECTORIES[asset.type], key)
+  if (!path.startsWith(`${expectedDirectory}${sep}`)) throw new Error(`选中版本不在标准资产目录：${key}@${version.id}`)
+  const fileStat = await stat(path)
+  if (!fileStat.isFile() || fileStat.size !== version.sizeBytes || await sha256(path) !== version.sha256) throw new Error(`本地文件哈希或大小不一致：${key}@${version.id}`)
+  return { asset, version, path }
+}
+
+export async function invalidateDerivedAssets(rootArg, source) {
+  const root = resolve(rootArg)
+  if (!source || typeof source !== 'object') throw new Error('必须提供上游资产版本')
+  validateAssetKey(source.key, Object.entries(TYPE_PREFIXES).find(([, prefix]) => source.key?.startsWith(prefix))?.[0])
+  versionKey(source.version_id)
+  return withFileLock(ledgerPath(root), async () => {
+    const ledger = await readLedger(root)
+    const queue = [`${source.key}@${source.version_id}`]
+    const visited = new Set(queue)
+    const invalidated = []
+    let changed = false
+    for (let index = 0; index < queue.length; index += 1) {
+      const upstream = queue[index]
+      for (const asset of Object.values(ledger.assets)) {
+        for (const version of asset.versions) {
+          const identity = `${asset.key}@${version.id}`
+          if (visited.has(identity) || !version.provenance?.source_assets?.some((item) => `${item.key}@${item.version_id}` === upstream)) continue
+          visited.add(identity)
+          queue.push(identity)
+          invalidated.push(identity)
+          asset.staleVersionIds ||= []
+          if (!asset.staleVersionIds.includes(version.id)) {
+            asset.staleVersionIds.push(version.id)
+            changed = true
+          }
+          if (asset.selectedVersionId === version.id) {
+            asset.selectedHistory ||= []
+            asset.selectedHistory.push(version.id)
+            asset.selectedVersionId = null
+            changed = true
+          }
+          asset.updatedAt = new Date().toISOString()
+        }
+      }
+    }
+    if (changed) await save(root, ledger)
+    return invalidated
+  })
+}
+
 function shotIdentity(key) {
   const match = /^(?:board|shot)-(ep\d{3})-(\d{3})$/.exec(key)
   return match ? { episodeKey: match[1].replace('ep', 'ep-'), shotNumber: Number(match[2]) } : null
@@ -242,44 +348,18 @@ async function main() {
   const root = resolve(rootArg)
   if (command === 'select') return console.log(JSON.stringify(await selectAssetVersion(root, args[0], args[1]), null, 2))
   if (command === 'restore') return console.log(JSON.stringify(await restoreAssetVersion(root, args[0], args[1]), null, 2))
-  const operate = async () => {
-  const ledger = await readLedger(root)
-  if (command === 'list') return console.log(JSON.stringify(args[0] ? get(ledger, args[0]) : ledger, null, 2))
   if (command === 'put') {
     if (!args[0]) throw new Error('用法：put <项目目录> <资产 JSON>')
-    const record = JSON.parse(await readFile(resolve(args[0]), 'utf8'))
-    rejectSecrets(record)
-    if (!TYPES.has(record.type) || typeof record.name !== 'string' || !record.name.trim()) throw new Error('资产 type/name 无效')
-    validateAssetKey(record.key, record.type)
-    const previous = ledger.assets[record.key]
-    if (previous && previous.type !== record.type) throw new Error('资产 type 不可变')
-    if (['versions', 'selectedVersionId', 'selectedHistory'].some((field) => field in record)) throw new Error('put 不得直接写入版本或选版字段')
-    ledger.assets[record.key] = { ...previous, ...record, versions: previous?.versions || [], selectedHistory: previous?.selectedHistory || [], staleVersionIds: previous?.staleVersionIds || [], updatedAt: new Date().toISOString() }
-    await save(root, ledger)
-    return console.log(JSON.stringify(ledger.assets[record.key], null, 2))
+    return console.log(JSON.stringify(await putAsset(root, JSON.parse(await readFile(resolve(args[0]), 'utf8'))), null, 2))
   }
   if (command === 'add-version') {
     const [key, file] = args
     if (!key || !file) throw new Error('用法：add-version <项目目录> <资产 key> <版本 JSON>')
-    const asset = get(ledger, key)
-    const version = JSON.parse(await readFile(resolve(file), 'utf8'))
-    rejectSecrets(version)
-    versionKey(version.id)
-    if (!version.provenance) throw new Error('add-version 必须提供 provenance')
-    version.provenance = normalizeProvenance(version.provenance)
-    if (asset.versions.some((item) => item.id === version.id)) throw new Error(`版本已存在：${version.id}`)
-    const path = localPath(root, version.localPath)
-    validateMediaExtension(asset.type, extname(path))
-    validatePrevizVersion(asset, key, extname(path), version.provenance)
-    const expectedDirectory = resolve(root, 'assets', TYPE_DIRECTORIES[asset.type], key)
-    if (!path.startsWith(`${expectedDirectory}${sep}`)) throw new Error('版本 localPath 必须位于该资产的标准目录')
-    const fileStat = await stat(path)
-    if (!fileStat.isFile() || fileStat.size > MAX_MEDIA_BYTES) throw new Error('本地资产文件无效或超过大小限制')
-    asset.versions.push({ ...version, sizeBytes: fileStat.size, sha256: await sha256(path), createdAt: version.createdAt || new Date().toISOString() })
-    asset.updatedAt = new Date().toISOString()
-    await save(root, ledger)
-    return console.log(JSON.stringify(asset, null, 2))
+    return console.log(JSON.stringify(await addAssetVersion(root, key, JSON.parse(await readFile(resolve(file), 'utf8'))), null, 2))
   }
+  const operate = async () => {
+  const ledger = await readLedger(root)
+  if (command === 'list') return console.log(JSON.stringify(args[0] ? get(ledger, args[0]) : ledger, null, 2))
   if (command === 'flag-version') {
     const [key, versionId, flagsPath] = args
     if (!key || !versionId || !flagsPath) throw new Error('用法：flag-version <项目目录> <资产 key> <版本 id> <标记 JSON 数组文件>')
