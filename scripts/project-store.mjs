@@ -17,6 +17,7 @@ import { normalizeModelParameters, providerSetupCatalog } from './generation/pro
 import { supportsPrevizMotionReference, validateMotionReferenceBinding } from './previz-contract.mjs'
 import { saveCustomArtStyle } from './art-styles.mjs'
 import { validateContinuityPlan } from './continuity-plan.mjs'
+import { migrateLegacyAudioPlan, NATIVE_AUDIO_FAILURE_REASONS, validateAudioPlan } from './audio-plan-contract.mjs'
 
 const root = process.argv[2] === 'init' ? resolve(DEFAULT_WORKSPACE_ROOT, process.argv[3] || 'short-drama') : resolve(process.argv[3] || process.cwd())
 const EPISODE_DOCUMENTS = new Set(['script-review', 'director-book', 'asset-plan', 'production-plan', 'storyboard', 'continuity-plan', 'video-prompts', 'audio-plan'])
@@ -333,7 +334,7 @@ function validateDocument(kind, document, episodeKey) {
     'director-book': ['episode_key', 'source_script_version', 'scenes', 'continuity_ledger', 'open_questions'],
     'production-plan': ['episode_key', 'source_versions', 'shots', 'totals', 'unresolved', 'approved'],
     'art-style': ['mode', 'style', 'decision_reason', 'approved'],
-    'audio-plan': document.music_tracks === undefined ? ['episode_key', 'source_versions', 'lines', 'voice_bindings', 'unresolved', 'approved'] : ['episode_key', 'source_versions', 'lines', 'voice_bindings', 'music_tracks', 'unresolved', 'approved'],
+    'audio-plan': document.music_tracks === undefined ? ['episode_key', 'source_versions', 'audio_strategy', 'lines', 'voice_bindings', 'unresolved', 'approved'] : ['episode_key', 'source_versions', 'audio_strategy', 'lines', 'voice_bindings', 'music_tracks', 'unresolved', 'approved'],
   }
   if (contracts[kind]) exactKeys(document, contracts[kind], kind)
   if (kind === 'source-analysis' && !['original', 'faithful_adaptation', 'authorized_adaptation'].includes(document.adaptation_mode)) throw new Error('source-analysis adaptation_mode 无效')
@@ -354,10 +355,11 @@ function validateDocument(kind, document, episodeKey) {
   if (kind === 'audio-plan') {
     if (document.episode_key !== episodeKey || !document.source_versions || typeof document.source_versions !== 'object' || Array.isArray(document.source_versions) || !Array.isArray(document.lines) || !Array.isArray(document.voice_bindings) || !Array.isArray(document.unresolved) || typeof document.approved !== 'boolean') throw new Error('audio-plan 合同无效')
     document.lines.forEach((line, index) => {
-      const fields = ['line_index', 'speaker', 'line_type', 'content', 'emotion', 'emotion_strength', 'pronunciation_notes', 'matched_shot']
-      for (const field of fields) if (!(field in line)) throw new Error(`audio-plan lines[${index}] 缺少 ${field}`)
+      const fields = ['line_index', 'speaker', 'line_type', 'content', 'emotion', 'emotion_strength', 'pronunciation_notes', 'matched_shot', 'delivery_mode', 'presentation', 'fallback_mode', 'source_audio', 'voice_binding', 'native_audio_exception', 'performance']
+      exactKeys(line, fields, `audio-plan lines[${index}]`)
       if (line.line_index !== index + 1 || typeof line.speaker !== 'string' || !line.speaker || typeof line.content !== 'string' || !line.content || !Array.isArray(line.pronunciation_notes) || typeof line.emotion_strength !== 'number' || line.emotion_strength < 0.1 || line.emotion_strength > 0.5) throw new Error(`audio-plan lines[${index}] 无效`)
     })
+    validateAudioPlan(document, episodeKey)
     if (document.music_tracks !== undefined) {
       if (!Array.isArray(document.music_tracks)) throw new Error('audio-plan music_tracks 必须是数组')
       document.music_tracks.forEach((track, index) => {
@@ -533,7 +535,7 @@ async function main() {
     try { validateAssetPlan({ ...assetPlan, characters: [{ ...assetPlan.characters[0], evidence: [{}] }] }); throw new Error('资产证据自检失败') } catch (error) { if (!String(error.message).includes('顶层字段')) throw error }
     validateDocument('outline', { episodes: [{ key: 'ep-001', order: 1 }], coverage_check: {}, continuity_check: {} })
     validateDocument('continuity-plan', { episode_key: 'ep-001', source_versions: { storyboard: 'v001', 'director-book': 'v001', 'production-plan': 'v001' }, scenes: [{ scene_key: 'scene-001', coordinate_mode: 'semantic', axis_id: 'axis-a', axis_description: '门到窗形成主轴线', camera_side: 'north', anchors: ['door', 'window'], lighting_anchor: 'window-left' }], shots: [{ shot_number: 1, scene_key: 'scene-001', camera_setup_id: 'cam-a', start_state: { actors: [], props: [], axis_id: 'axis-a', camera_side: 'north', lighting_anchor: 'window-left' }, end_state: { actors: [], props: [], axis_id: 'axis-a', camera_side: 'north', lighting_anchor: 'window-left' }, transition_link: { mode: 'independent', source_shot_number: null, source_camera_setup_id: null, enabled: false, reason: '首镜建立空间', required_provider_capability: null }, inherited_fields: ['axis_id', 'camera_side', 'lighting_anchor'], allowed_changes: [], evidence: ['director-book:scene-001'] }], unresolved: [], approved: true }, 'ep-001')
-    validateDocument('audio-plan', { episode_key: 'ep-001', source_versions: {}, lines: [], voice_bindings: [], music_tracks: [{ key: 'op', purpose: 'op', title: '片头曲', prompt: '紧张悬疑电子乐', tags: 'cinematic,electronic', lyrics: '', make_instrumental: true, provider: 'starrouter', model: 'suno_music', matched_shots: [1] }], unresolved: [], approved: true }, 'ep-001')
+    validateDocument('audio-plan', { episode_key: 'ep-001', source_versions: {}, audio_strategy: { mode: 'native-first', provider_selection: 'prefer-native', fallback_allowed: true, fallback_reasons: [...NATIVE_AUDIO_FAILURE_REASONS] }, lines: [], voice_bindings: [], music_tracks: [{ key: 'op', purpose: 'op', title: '片头曲', prompt: '紧张悬疑电子乐', tags: 'cinematic,electronic', lyrics: '', make_instrumental: true, provider: 'starrouter', model: 'suno_music', matched_shots: [1] }], unresolved: [], approved: true }, 'ep-001')
     validateVideoPrompts({ episode_key: 'ep-001', source_versions: {}, unresolved: [], approved: true, shots: [{ shot_number: 1, production_plan_version: 'v001', storyboard_version: 'v001', provider: 'runninghub', model_or_workflow: 'minimax-h3-reference-to-video', prompt_profile: 'h3', input_mode: 'Ref2VA', prompt: `subject_definitions:\nA\nsummary:\nA\nretention_analysis:\nA\ndetailed_description:\n${ANTI_GRID_CLAIM_EN}\nA\n${ANTI_GRID_CLAIM_EN}\noverall_soundscape:\nA\nnon_diegetic_music:\nN/A`, duration: 5, references: [], continuity: {}, audio_policy: {}, errors: [] }] }, 'ep-001')
     const seedance = { episode_key: 'ep-001', source_versions: {}, unresolved: [], approved: true, shots: [{ shot_number: 1, production_plan_version: 'v001', storyboard_version: 'v001', provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: 'first-last-frame', prompt: `${ANTI_GRID_CLAIM_ZH}\n[0–5s] 人物走到门口。[5–15s] 人物停下并回头。\n${ANTI_GRID_CLAIM_ZH}`, duration: 15, references: [], continuity: {}, audio_policy: {}, errors: [] }] }
     validateVideoPrompts(seedance, 'ep-001')
@@ -839,7 +841,8 @@ async function main() {
     validateEpisodeKey(episodeKey)
     const versionId = requestedVersion || (await readJson(resolve(episodeRoot(episodeKey), kind, 'selected.json'))).versionId
     versionKey(versionId, `${kind} version`)
-    return console.log(JSON.stringify(await readJson(resolve(episodeRoot(episodeKey), kind, `${versionId}.json`)), null, 2))
+    const document = await readJson(resolve(episodeRoot(episodeKey), kind, `${versionId}.json`))
+    return console.log(JSON.stringify(kind === 'audio-plan' ? migrateLegacyAudioPlan(document).document : document, null, 2))
   }
   throw new Error('用法：project-store.mjs init|project|validate-project-config|migrate-project-config|update-project|put-source|select-source|put-document|put-episode|update-episode|list-episodes|put-script|select-script|script|put-episode-document|validate-episode-document|select-episode-document|episode-document ...')
 }

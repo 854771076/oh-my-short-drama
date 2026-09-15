@@ -5,7 +5,11 @@ description: 设计并在本地管理短剧声音资产。用于角色声音分�
 
 # 制作短剧声音
 
-只处理制作计划标记为 post-dub/independent 的镜头，或 Provider 明确不支持原生音频的模型。`audio_strategy.mode=native` 的 MiniMax H3 镜头由视频模型一次生成声音，本 Skill 不重复安排 TTS。
+新声音计划默认 `audio_strategy.mode=native-first`：先选择同时满足画面资产约束与原生音频能力的视频 Provider，一次生成对白、电影感旁白、环境声和动作声；背景音在这里仅指环境声与动作声，BGM 始终走独立配乐与许可证流程。只有 Provider 不支持原生音频，或原生结果出现受控失败证据时才安排局部兜底，本 Skill 不对合格原声重复执行 TTS。
+
+每条声音把三类语义分开保存：`delivery_mode ∈ native|post_dub|external_audio` 表示来源，`presentation ∈ visible-dialogue|offscreen-dialogue|narration` 表示画面关系，`fallback_mode ∈ none|post-dub|cinematic-tts|sound-design` 表示失败预案。兜底 reason 只能是 `provider-no-native-audio`、`voice-identity-drift`、`speech-intelligibility-failed`、`narration-performance-failed`、`audio-sync-failed`、`native-ambience-failed`，并记录证据、精确替换区间与最终混音来源。旧 `narration/offscreen` 只迁移 presentation，来源进入 unresolved，不能冒充已经完成配音。
+
+旁白不论原生还是兜底都必须有电影感表演合同：逐项写 `tone_arc`、`emotion_beats[]`、`pace`、`breath_and_pause`、`distance_and_space`。旁白兜底使用独立 narrator 音色；除非剧本明确角色兼任叙述者，不得复用角色 voice_id。
 
 独立音频依次执行：由 Codex 使用 `assets/prompts/voice_analysis.{zh,en}.txt` 分离说话人和台词。Provider 返回受控标签时使用 `character_voice_recommend`；Provider 接受自然语言音色描述时使用 `character_voice_description`。自然语言声音描述必须先通过 `validateVoiceDescription`：不超过 50 个中文加权字符，明确性别和年龄段，只含 2–4 个有人物档案证据的长期声音特征；禁止人物名、地名、剧情、台词、真人模仿与“声音描述：”前缀，禁止补造地域、阶层和受保护身份刻板印象。配音默认推荐阿里云百炼：先调用 `design_voice`（声音描述）或 `clone_voice`（已授权参考音频；必须传 usage_scope 与三项权利确认）取得真实音色 ID，本地登记可通过 `list_voices` 跨集查看、`delete_voice` 收敛；设计或克隆得到真实音色 ID 后，把台词、来源版本、音色绑定、未决项和批准状态保存为 `episodes/<ep>/audio-plan/vNNN.json` 并显式选版，再按逐字文本生成语音。克隆前确认参考音频权利与具体文件，目标模型必须接受该音色 ID。逐条试听语言、说话者、文本、读音、语速、音高、时长、静音与破音，选版后才允许口型同步。
 

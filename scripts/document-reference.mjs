@@ -1,5 +1,6 @@
 import { readFile, readdir, realpath } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
+import { migrateLegacyAudioPlan } from './audio-plan-contract.mjs'
 
 async function json(path) { return JSON.parse(await readFile(path, 'utf8')) }
 
@@ -18,7 +19,8 @@ async function referencedDocument(root, reference, requireSelected) {
     const marker = await json(resolve(directory, 'selected.json'))
     if (marker.versionId !== reference.version_id || resolve(root, marker.path) !== resolve(directory, `${reference.version_id}.json`)) throw new Error(`${reference.kind} 必须引用当前 selected 版本`)
   }
-  return json(resolve(directory, `${reference.version_id}.json`))
+  const document = await json(resolve(directory, `${reference.version_id}.json`))
+  return reference.kind === 'audio-plan' ? migrateLegacyAudioPlan(document).document : document
 }
 
 async function requireImagePromptRun(root, target, prompt, requireCurrent) {
