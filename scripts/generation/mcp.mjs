@@ -2,13 +2,13 @@
 import { createInterface } from 'node:readline'
 import { readFile, realpath } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
-import { adapter, applyConfiguredModelParameters, providerCatalog, providerNames, selfCheck as checkProviders } from './providers.mjs'
+import { adapter, applyConfiguredModelParameters, providerCatalog, providerNames, providerSupports, selfCheck as checkProviders } from './providers.mjs'
 import { selfCheck as checkStarRouter } from './starrouter.mjs'
 import { selfCheck as checkRunningHub } from './runninghub.mjs'
 import { selfCheck as checkComfly } from './comfly.mjs'
 import { selfCheck as checkBailian } from './bailian.mjs'
 import { designVoice, cloneVoice, listVoices, deleteVoice } from './voice-tools.mjs'
-import { createRequestSnapshot, listTasks, reserveTask, settleReservedTask } from '../task-ledger.mjs'
+import { createRequestSnapshot, getTask, listTasks, reserveTask, settleReservedTask } from '../task-ledger.mjs'
 import { validateGenerationDocumentReference } from '../document-reference.mjs'
 import { mediaHostCatalog, mediaHostNames, mediaHostExpiries } from '../media-hosting/providers.mjs'
 import { listReferenceUploads, publishReferenceImage } from '../media-hosting/publish.mjs'
@@ -24,6 +24,9 @@ import { stages } from '../workflow-stages.mjs'
 import { validateProject, validateVideoPrompts } from '../project-store.mjs'
 import { syncTaskResult } from '../task-sync.mjs'
 import { detectMedia, hasPanelBoardClaim } from '../grid-detect.mjs'
+import { selectedAssetVersion } from '../asset-ledger.mjs'
+import { operationCapability, validateMediaOperation } from '../media-operation-contract.mjs'
+import { executeLocalMediaOperation } from '../media-operations.mjs'
 
 checkStarRouter()
 await checkRunningHub()
@@ -74,6 +77,19 @@ const referenceManifestItem = {
   required: ['type', 'order', 'asset_key', 'version_id', 'role'],
   additionalProperties: false,
 }
+const assetVersionReference = {
+  type: 'object',
+  properties: { asset_key: { type: 'string', pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' }, version_id: { type: 'string', pattern: '^v\\d{3}$' } },
+  required: ['asset_key', 'version_id'], additionalProperties: false,
+}
+const mediaOperationProperties = {
+  project_root: { type: 'string' }, target: { type: 'string', pattern: '^shot-[a-z0-9]+(?:-[a-z0-9]+)*$' },
+  operation: { type: 'string', enum: ['trim', 'replace-audio', 'stabilize', 'denoise', 'color-match', 'mask-blur', 'frame-interpolate', 'lip-sync', 'video-inpaint', 'video-upscale'] },
+  provider: { type: 'string', enum: ['local', ...providerNames] }, model: { type: 'string' }, workflow_id: { type: 'string' },
+  source: assetVersionReference, audio: assetVersionReference, mask: assetVersionReference,
+  range: { type: 'object', properties: { start_ms: { type: 'integer', minimum: 0 }, end_ms: { type: 'integer', minimum: 1 } }, required: ['start_ms', 'end_ms'], additionalProperties: false },
+  parameters: { type: 'object' }, node_info_list: { type: 'array', items: { type: 'object' } }, confirmed: { type: 'boolean' },
+}
 const projectTracking = {
   project_root: { type: 'string', description: '短剧项目绝对路径；生成请求和任务会自动保存在项目内。' },
   target: { type: 'string', description: '本次生成对应的本地资产 key。' },
@@ -111,6 +127,13 @@ export const tools = [
   ['prepare_previous_tail', '从上一镜当前选中且通过审核的视频提取尾帧，并登记为下一镜首帧资产。', {
     project_root: { type: 'string' }, episode_key: { type: 'string', pattern: '^ep-\\d{3}$' }, shot_number: { type: 'integer', minimum: 2 }, continuity_version: { type: 'string', pattern: '^v\\d{3}$' },
   }, ['project_root', 'episode_key', 'shot_number', 'continuity_version']],
+  ['submit_media_operation', '校验并执行本地媒体修复，或在确认后提交具备细粒度能力的远端变换任务。confirmed=false 只返回摘要。', mediaOperationProperties, ['project_root', 'target', 'operation', 'provider', 'source', 'parameters', 'confirmed']],
+  ['get_media_operation', '查询远端媒体变换任务；完成时按请求快照自动登记不可变候选版本。', {
+    project_root: { type: 'string' }, task_id: { type: 'string', minLength: 1 },
+  }, ['project_root', 'task_id']],
+  ['register_media_operation_output', '为已完成但尚未下载的媒体变换任务登记 Provider 输出；会复核任务、请求和来源身份。', {
+    project_root: { type: 'string' }, task_id: { type: 'string', minLength: 1 }, outputs: { type: 'array', minItems: 1, items: { type: 'object', properties: { url: { type: 'string' }, b64_json: { type: 'string' }, media_type: { const: 'video' } }, additionalProperties: false } },
+  }, ['project_root', 'task_id', 'outputs']],
   ['list_models', '读取指定 Provider 的模型或工作流目录。', { provider }, ['provider']],
   ['generate_image', '使用用户选择的 Provider 生成图片；付费和上传本地参考文件前必须确认。', {
     provider, model: { type: 'string' }, prompt: { type: 'string' }, size: { type: 'string' }, resolution: imageResolution, aspect_ratio: imageAspectRatio, seed: { type: 'integer', minimum: 1 }, n: { type: 'integer', minimum: 1, maximum: 4 }, quality: { type: 'string', enum: ['auto', 'low', 'medium', 'high'] }, style: { type: 'string' }, background: { type: 'string', enum: ['auto', 'opaque', 'transparent'] }, moderation: { type: 'string', enum: ['auto', 'low'] }, output_format: { type: 'string', enum: ['png', 'jpeg', 'webp'] }, output_compression: { type: 'integer', minimum: 1 }, partial_images: { type: 'integer', minimum: 1 }, user: { type: 'string' }, reference_manifest: { type: 'array', maxItems: 9, items: referenceManifestItem }, confirmed: { const: true }, ...imageWorkflow, ...projectTracking,
@@ -588,10 +611,89 @@ function selfCheck() {
   if (out.missing.join() !== 'missing-a@v001' || out.args.metadata.content.some((item) => item.type !== 'text')) throw new Error('参考缺失登记自检失败')
 }
 
+async function validateProjectMediaOperation(args) {
+  const root = await realpath(resolve(args.project_root))
+  const state = JSON.parse(await readFile(resolve(root, '.short-drama/state.json'), 'utf8'))
+  if (!['media-production', 'editing'].includes(state.stage)) throw new Error(`媒体操作只能在 media-production 或 editing 阶段执行；当前阶段为 ${state.stage}`)
+  const request = validateMediaOperation({ operation: args.operation, target: args.target, source: args.source, ...(args.audio ? { audio: args.audio } : {}), ...(args.mask ? { mask: args.mask } : {}), ...(args.range ? { range: args.range } : {}), parameters: args.parameters })
+  const source = await selectedAssetVersion(root, request.source.asset_key)
+  if (source.version.id !== request.source.version_id || source.asset.type !== 'video' || args.target !== source.asset.key) throw new Error('媒体操作 target 必须是来源的当前 selected 视频资产')
+  const references = [{ role: 'source', requested: request.source, selected: source }]
+  for (const [role, expectedType] of [['audio', 'audio'], ['mask', null]]) {
+    if (!request[role]) continue
+    const selected = await selectedAssetVersion(root, request[role].asset_key)
+    if (selected.version.id !== request[role].version_id || expectedType && selected.asset.type !== expectedType) throw new Error(`媒体操作 ${role} 必须是当前 selected 资产版本`)
+    if (role === 'mask' && (!['other', 'storyboard'].includes(selected.asset.type) || !/\.(?:jpe?g|png|webp)$/i.test(selected.path))) throw new Error('媒体操作 mask 必须是当前 selected 本地图像资产')
+    references.push({ role, requested: request[role], selected })
+  }
+
+  const capability = operationCapability(request.operation)
+  const remote = args.provider !== 'local'
+  if (!remote && capability !== 'transform.local') throw new Error(`${request.operation} 需要远端 ${capability} 能力`)
+  if (remote && capability === 'transform.local') throw new Error(`${request.operation} 是确定性本地操作，不得伪装为远端任务`)
+  if (remote && !providerSupports(args.provider, capability)) throw new Error(`${args.provider} 未声明 ${capability} 能力`)
+  const modelOrWorkflow = args.workflow_id || args.model || null
+  if (remote && !modelOrWorkflow) throw new Error('远端媒体操作必须显式提供 model 或 workflow_id')
+  if (remote && args.provider === 'runninghub' && (!Array.isArray(args.node_info_list) || !args.node_info_list.length)) throw new Error('RunningHub 媒体操作 node_info_list 必填')
+  return {
+    root, target: args.target, provider: args.provider, remote, capability, modelOrWorkflow,
+    request: { ...request, source_sha256: source.version.sha256 },
+    referencePaths: references.map((item) => item.selected.path),
+    uploads: references.map((item) => ({ role: item.role, asset_key: item.requested.asset_key, version_id: item.requested.version_id, sha256: item.selected.version.sha256 })),
+    workflow_id: args.workflow_id, node_info_list: args.node_info_list,
+  }
+}
+
+async function submitProviderMediaOperation(normalized) {
+  const selected = adapter(normalized.provider)
+  if (typeof selected.transform !== 'function') throw new Error(`${normalized.provider} 未实现媒体变换提交`)
+  const providerArgs = { ...normalized.request, workflow_id: normalized.workflow_id, node_info_list: normalized.node_info_list, reference_paths: normalized.referencePaths, confirmed: true }
+  const snapshot = await createRequestSnapshot(normalized.root, { tool: 'submit_media_operation', target: normalized.target, type: 'video', provider: normalized.provider, modelOrWorkflow: normalized.modelOrWorkflow, promptDocument: null, arguments: providerArgs })
+  await reserveTask(normalized.root, { taskId: snapshot.requestId, target: normalized.target, type: 'video', provider: normalized.provider, requestPath: snapshot.requestPath })
+  let result
+  try { result = await selected.transform(providerArgs) }
+  catch (error) {
+    await settleReservedTask(normalized.root, snapshot.requestId, { status: 'failed' })
+    throw error
+  }
+  const taskId = result.task_id || snapshot.requestId
+  await settleReservedTask(normalized.root, snapshot.requestId, { taskId, status: result.status === 'submitted' ? 'queued' : 'running' })
+  const tracked = { ...result, task_id: taskId, request_id: snapshot.requestId, request_path: snapshot.requestPath, request_sha256: snapshot.requestSha256 }
+  return result.status === 'completed' ? syncTaskResult(normalized.root, taskId, tracked) : tracked
+}
+
+async function submitMediaOperation(args) {
+  const normalized = await validateProjectMediaOperation(args)
+  if (args.confirmed !== true) return { requires_confirmation: normalized.remote, remote: normalized.remote, operation: normalized.request.operation, capability: normalized.capability, source: normalized.request.source, uploads: normalized.uploads, provider: normalized.provider, model_or_workflow: normalized.modelOrWorkflow }
+  if (normalized.remote) return submitProviderMediaOperation(normalized)
+  const result = await executeLocalMediaOperation(normalized.root, normalized.request)
+  return { status: 'completed', provider: 'local', operation: normalized.request.operation, ...result }
+}
+
+async function getMediaOperation(args) {
+  const task = await getTask(args.project_root, args.task_id)
+  const request = JSON.parse(await readFile(resolve(args.project_root, task.requestPath), 'utf8'))
+  if (request.tool !== 'submit_media_operation') throw new Error('任务不是媒体操作任务')
+  const result = await adapter(task.provider).task({ task_id: task.taskId, media_type: task.type })
+  return syncTaskResult(args.project_root, task.taskId, result)
+}
+
+async function registerMediaOperationOutput(args) {
+  const task = await getTask(args.project_root, args.task_id)
+  if (task.status === 'completed' || task.outputVersionId) throw new Error('媒体操作任务输出已经登记')
+  if (!['queued', 'running'].includes(task.status)) throw new Error(`媒体操作任务当前状态不能登记输出：${task.status}`)
+  const request = JSON.parse(await readFile(resolve(args.project_root, task.requestPath), 'utf8'))
+  if (request.tool !== 'submit_media_operation' || task.type !== 'video' || !Array.isArray(args.outputs) || !args.outputs.length) throw new Error('媒体操作任务或输出无效')
+  return syncTaskResult(args.project_root, task.taskId, { provider: task.provider, status: 'completed', outputs: args.outputs.map((item) => ({ ...item, media_type: 'video' })) })
+}
+
 export async function call(name, args = {}) {
   if (name === 'list_generation_providers') return providerCatalog()
   if (name === 'list_media_hosts') return mediaHostCatalog()
   if (name === 'prepare_previous_tail') return preparePreviousTail({ projectRoot: args.project_root, episodeKey: args.episode_key, shotNumber: args.shot_number, continuityVersion: args.continuity_version })
+  if (name === 'submit_media_operation') return submitMediaOperation(args)
+  if (name === 'get_media_operation') return getMediaOperation(args)
+  if (name === 'register_media_operation_output') return registerMediaOperationOutput(args)
   if (name === 'list_reference_uploads') {
     const { project_root: projectRoot, ...filters } = args
     return listReferenceUploads(projectRoot, filters)

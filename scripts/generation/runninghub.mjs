@@ -10,6 +10,9 @@ const H3_TEMPLATE = JSON.parse(await readFile(new URL('./minimax-h3-workflow.jso
 const KREA2_MODEL = 'krea2-normal-v1'
 const KREA2_WORKFLOW_ID = process.env.RUNNINGHUB_KREA2_WORKFLOW_ID || '2096515700701929473'
 const KREA2_TEMPLATE = JSON.parse(await readFile(new URL('./krea2-normal-v1-workflow.json', import.meta.url), 'utf8'))
+const TRANSFORM_WORKFLOW_ENVS = { 'lip-sync': 'RUNNINGHUB_LIP_SYNC_WORKFLOW_ID', 'video-inpaint': 'RUNNINGHUB_VIDEO_INPAINT_WORKFLOW_ID', 'video-upscale': 'RUNNINGHUB_VIDEO_UPSCALE_WORKFLOW_ID' }
+const transformWorkflow = (operation) => process.env[TRANSFORM_WORKFLOW_ENVS[operation]] || null
+const transformWorkflows = () => Object.fromEntries(Object.keys(TRANSFORM_WORKFLOW_ENVS).map((operation) => [operation, transformWorkflow(operation)]))
 const KREA2_DIMENSIONS = {
   '1K': { '1:1': [1024, 1024], '16:9': [1024, 576], '9:16': [576, 1024], '3:4': [768, 1024], '4:3': [1024, 768], '2:3': [680, 1024], '3:2': [1024, 680] },
   '2K': { '1:1': [2048, 2048], '16:9': [2048, 1152], '9:16': [1152, 2048], '3:4': [1536, 2048], '4:3': [2048, 1536], '2:3': [1360, 2048], '3:2': [2048, 1360] },
@@ -235,10 +238,10 @@ function taskResult(payload) {
 
 export const runninghub = {
   label: 'RunningHub', credentialEnv: 'RUNNINGHUB_API_KEY',
-  catalog: { image: [...new Set([KREA2_MODEL, process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID].filter(Boolean))], video: [H3_MODEL, process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID].filter(Boolean), audio: [process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID].filter(Boolean) },
-  capabilities: { text: false, image: true, video: true, audio: true, 'transform.lip-sync': false, 'transform.video-inpaint': false, 'transform.video-upscale': false },
+  catalog: { image: [...new Set([KREA2_MODEL, process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID].filter(Boolean))], video: [H3_MODEL, process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID].filter(Boolean), audio: [process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID].filter(Boolean), get transform() { return Object.values(transformWorkflows()).filter(Boolean) } },
+  capabilities: { text: false, image: true, video: true, audio: true, get 'transform.lip-sync'() { return Boolean(transformWorkflow('lip-sync')) }, get 'transform.video-inpaint'() { return Boolean(transformWorkflow('video-inpaint')) }, get 'transform.video-upscale'() { return Boolean(transformWorkflow('video-upscale')) } },
   async models() {
-    return { provider: 'runninghub', image_models: [KREA2_MODEL], video_models: [H3_MODEL], workflows: { image: process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID || null, krea2_image: KREA2_WORKFLOW_ID, video: process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID || null, h3_video: H3_WORKFLOW_ID, audio: process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID || null } }
+    return { provider: 'runninghub', image_models: [KREA2_MODEL], video_models: [H3_MODEL], workflows: { image: process.env.RUNNINGHUB_IMAGE_WORKFLOW_ID || null, krea2_image: KREA2_WORKFLOW_ID, video: process.env.RUNNINGHUB_VIDEO_WORKFLOW_ID || null, h3_video: H3_WORKFLOW_ID, audio: process.env.RUNNINGHUB_AUDIO_WORKFLOW_ID || null, transforms: transformWorkflows() } }
   },
   async testConnection() {
     const value = apiKey()
@@ -257,6 +260,13 @@ export const runninghub = {
   async audio(input) {
     confirm(input)
     return withSubmissionSlot(apiKey(), () => submit(input, 'audio'))
+  },
+  async transform(input) {
+    confirm(input)
+    const workflowId = transformWorkflow(input.operation)
+    if (!workflowId) throw new Error(`RunningHub 未配置 ${input.operation} 变换工作流`)
+    if (input.workflow_id && input.workflow_id !== workflowId) throw new Error(`RunningHub ${input.operation} 必须使用已配置工作流`)
+    return withSubmissionSlot(apiKey(), () => submit({ ...input, workflow_id: workflowId }, 'video'))
   },
   async task(input) {
     if (!input.task_id?.trim()) throw new Error('task_id 必填')
