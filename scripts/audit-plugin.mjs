@@ -21,6 +21,10 @@ for (const path of ['README.md', 'LICENSE', '.codex-plugin/plugin.json', '.claud
   try { await access(resolve(root, path)) } catch { failures.push(`缺少项目规范组件：${path}`) }
 }
 
+for (const path of ['skills/plan-shot-continuity/SKILL.md', 'skills/plan-shot-continuity/agents/openai.yaml', 'skills/plan-shot-continuity/assets/prompts/continuity_plan.zh.txt', 'skills/plan-shot-continuity/assets/prompts/continuity_plan.en.txt']) {
+  try { await access(resolve(root, path)) } catch { failures.push(`跨镜连续性能力缺少：${path}`) }
+}
+
 const codexManifest = JSON.parse(await readFile(resolve(root, '.codex-plugin/plugin.json'), 'utf8'))
 const claudeManifest = JSON.parse(await readFile(resolve(root, '.claude-plugin/plugin.json'), 'utf8'))
 const claudeMarketplace = JSON.parse(await readFile(resolve(root, '.claude-plugin/marketplace.json'), 'utf8'))
@@ -204,6 +208,17 @@ for (const token of ['STARROUTER_AUDIO_MODELS', 'STARROUTER_ASR_MODELS', '/v1/au
 for (const token of ['最多两张', '图片 9、视频 3、音频 3 或总数 12']) if (!starrouter.includes(token)) failures.push(`StarRouter 素材上限校验缺少：${token}`)
 const generationMcp = await readFile(resolve(root, 'scripts/generation/mcp.mjs'), 'utf8')
 for (const token of ['assetRoot', 'enforceGenerationStage', 'inspectStage', 'missingStoryboardAssets', 'missingStoryboardReviews', 'missingPrevizAssets', 'missingPrevizReviews', 'validateMotionReferenceBinding', '视频生成前必须先完成图片分镜镜头的生成与选版', '视频生成前必须先通过图片分镜镜头的多维审计', '视频生成前必须先完成已启用的 Blender 白模分镜', '视频生成前必须先通过 Blender 白模分镜导演验收', 'validateVideoPrompts', '视频生成必须引用有效的 episode/version/shot', 'selected 提示词版本', '实际视频参数与提示词文档', 'project.json 已确认配置一致', 'imageWorkflow', 'referenceManifestItem', "required: ['type', 'order', 'asset_key', 'version_id', 'role']", 'maxItems: 12', 'transcribe_audio', 'translate_audio', 'list_media_hosts', 'list_reference_uploads', 'publish_reference_image', 'ensure_reference_urls', 'submit_episode_videos', 'await_episode_tasks', '整集校验未通过', 'submitVideoOnce', 'reserveTask']) if (!generationMcp.includes(token)) failures.push(`生成入口边界校验缺少：${token}`)
+for (const token of ['prepare_previous_tail', 'preparePreviousTail', 'validatePreviousTailBinding']) if (!generationMcp.includes(token)) failures.push(`上一镜尾帧 MCP 缺少：${token}`)
+const continuityPlanScript = await readFile(resolve(root, 'scripts/continuity-plan.mjs'), 'utf8')
+for (const token of ['camera_setup_id', 'start_state', 'end_state', 'previous-tail', 'recommendTailLink']) if (!continuityPlanScript.includes(token)) failures.push(`连续性计划实现缺少：${token}`)
+try {
+  const continuitySkill = await readFile(resolve(root, 'skills/plan-shot-continuity/SKILL.md'), 'utf8')
+  for (const token of ['recommendTailLink', 'unresolved', 'project-store.mjs', 'select-episode-document', '语义位置', 'Blender', '不得推断']) if (!continuitySkill.includes(token)) failures.push(`跨镜连续性 Skill 缺少：${token}`)
+} catch {}
+const continuityIndex = map.workflow.indexOf('plan-shot-continuity')
+if (continuityIndex <= map.workflow.indexOf('plan-drama-production') || continuityIndex >= map.workflow.indexOf('write-drama-video-prompts') || !map.stages?.['production-plan']?.includes('plan-shot-continuity')) failures.push('plan-shot-continuity 必须位于制作计划与视频提示词之间并登记到 production-plan 阶段')
+const pipelineGuide = await readFile(resolve(root, 'references/pipeline.md'), 'utf8')
+if (pipelineGuide.indexOf('plan-shot-continuity') < pipelineGuide.indexOf('production-plan') || pipelineGuide.indexOf('plan-shot-continuity') > pipelineGuide.indexOf('video prompts')) failures.push('流水线文档必须把 plan-shot-continuity 放在制作计划与视频提示词之间')
 const nativeAudioAudit = await readFile(resolve(root, 'scripts/native-audio-audit.mjs'), 'utf8')
 for (const token of ['audit-episode', 'auditVersion', '已审计']) if (!nativeAudioAudit.includes(token)) failures.push(`原生音频批量审计缺少：${token}`)
 const litterbox = await readFile(resolve(root, 'scripts/media-hosting/litterbox.mjs'), 'utf8')

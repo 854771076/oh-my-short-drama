@@ -1,0 +1,4 @@
+interface:
+  display_name: "规划跨镜连续性"
+  short_description: "建立逐镜空间、轴线、人物与道具状态的可审计承接合同。"
+  default_prompt: "使用 $plan-shot-continuity 为当前分集建立跨镜连续性计划。"

@@ -4,7 +4,7 @@
     "plan-drama-assets", "generate-drama-art-style", "generate-character-profiles", "generate-character-images",
     "generate-scene-assets", "generate-prop-assets",
     "build-drama-storyboard", "revise-drama-storyboards", "plan-drama-production", "generate-storyboard-images",
-    "review-drama-shots", "direct-blender-previz", "generate-blender-previz", "write-drama-video-prompts", "generate-drama-videos", "design-drama-audio",
+    "review-drama-shots", "direct-blender-previz", "generate-blender-previz", "plan-shot-continuity", "write-drama-video-prompts", "generate-drama-videos", "design-drama-audio",
     "remotion-best-practices", "edit-drama-timeline", "edit-deliver-drama"
   ],
   "support": [
@@ -19,7 +19,7 @@
     "director-book": ["write-drama-director-book"],
     "asset-analysis": ["plan-drama-assets", "generate-drama-art-style"],
     "asset-generation": ["manage-drama-assets"],
-    "production-plan": ["build-drama-storyboard", "plan-drama-production", "write-drama-video-prompts"],
+    "production-plan": ["build-drama-storyboard", "plan-drama-production", "plan-shot-continuity", "write-drama-video-prompts"],
     "media-production": ["drama-generation-service", "review-drama-shots", "generate-drama-videos", "monitor-drama-tasks"],
     "editing": ["remotion-best-practices", "edit-drama-timeline"],
     "delivery": ["edit-deliver-drama"]
@@ -43,6 +43,7 @@
     "drama_brief": "define-drama-brief",
     "director_book": "write-drama-director-book",
     "production_plan": "plan-drama-production",
+    "continuity_plan": "plan-shot-continuity",
     "config_generation": "generate-drama-art-style",
     "character_image_to_description": "generate-character-images",
     "character_asset_sheet": "generate-character-images",

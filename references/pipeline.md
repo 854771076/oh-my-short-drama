@@ -2,7 +2,7 @@
 
 标准流程固定为：
 
-`analysis → script → director-book → asset-analysis → asset-generation → production-plan → per-shot image or Blender storyboard → videos/audio → editing → delivery`
+`analysis → script → director-book → asset-analysis → asset-generation → production-plan → per-shot image or Blender storyboard → plan-shot-continuity → video prompts → videos/audio → editing → delivery`
 
 所有状态、文本、分镜和媒体都以用户指定的本地项目目录为事实来源，不调用或回写任何业务系统 API。
 
@@ -30,6 +30,7 @@
 │   ├── director-book/<version>.json
 │   ├── asset-plan/<version>.json
 │   ├── production-plan/<version>.json
+│   ├── continuity-plan/<version>.json
 │   ├── video-prompts/<version>.json
 │   ├── audio-plan/<version>.json
 │   └── storyboard/<version>.json
@@ -49,6 +50,8 @@
 剧本阶段的 `short-drama` 必须绑定实际分集剧本版本；人物分析必须绑定 `assets/characters/profiles.json`。新项目默认 `storyboard.preferred_medium=blender`，制作计划仍逐镜选择：复杂空间、多人调度、动作接触、轴线风险和连续运镜优先白模；静态特写、细腻表演和画风确认使用图片。旧计划缺少 `storyboard_strategy` 时按图片分镜兼容。
 
 图片分镜镜头要求对应 `board-epNNN-NNN` 已生成、选版并通过八维审计。白模分镜镜头先由 `direct-blender-previz` 写入 `episodes/<episode>/previz/shot-NNN-vNNN.json` 导演合同，再由 `generate-blender-previz` 渲染为 `other-previz-epNNN-NNN`，登记、完整观看、按七项 100 分合同验收并选版；总分低于 85 或任一单项低于 70% 时不得提交正式视频。两类分镜都不能替代正式视频所需的人物、场景和道具资产。
+
+分镜与白模审计完成后，由 `plan-shot-continuity` 汇总 selected 分镜、导演本和制作计划，生成并显式选定 `continuity-plan/vNNN.json`。计划逐镜固定机位、轴线、人物/道具起止状态与转场方式；只有同场景同机位且状态连续时才允许 previous-tail。媒体阶段用 `prepare_previous_tail` 从上一镜当前 selected 且已审核的视频派生下一镜首帧，正式提交前再次比对来源版本和 SHA-256。
 
 资产计划中的人物、场景或道具若已有 selected、未失效且不是 Provider 产出的本地版本，可直接复用；缺失、失效或由 Provider 生成/变换时，动态要求对应生成 Skill 与 `drama-generation-service`，防止 Provider 变换资产绕过执行凭证。
 

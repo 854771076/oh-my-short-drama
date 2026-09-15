@@ -13,6 +13,7 @@
 | 人物、场景、道具分析 | `plan-drama-assets`、三类资产 Skills | 证据化提取、版本和未决项门禁 |
 | 人物/场景/道具设定板 | 各资产生成 Skill | 人物含脸部、三主视图与辅助设定；场景含九视角、平面/轴测；道具含主视图、三视图与结构细节 |
 | 分镜与镜头修订 | storyboard/revision Skills | 资产白名单、来源覆盖、连续性与版本化 |
+| 跨镜空间与尾帧承接 | `plan-shot-continuity`、`continuity-plan.mjs`、`prepare_previous_tail` | 独立记录起止状态、轴线和机位；只从已审核 selected 上一镜派生带 SHA-256 来源链的首帧 |
 | 分镜图、视频提示词、镜头视频 | storyboard image/video Skills | 视频提示词按 Seedance 2.0、MiniMax H3 或已确认通用协议编译并本地版本化；由 Provider 实时能力控制参数 |
 | 配音与声音方案 | `design-drama-audio` | 台词抽取、音色选择/描述、TTS 工作流和本地选版 |
 | 生成服务 | `drama-generation-service` | StarRouter 图片/视频/语音、RunningHub 通用及内置 H3 workflow、Comfly H3；每个媒体版本保留完整 provenance |

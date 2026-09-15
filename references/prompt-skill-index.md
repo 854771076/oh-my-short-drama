@@ -12,6 +12,7 @@
 | 场次导演本 | `write-drama-director-book` | `director_book` |
 | 剧本质量复核 | `review-drama-script` | `review_drama_script` |
 | 逐镜制作计划 | `plan-drama-production` | `production_plan` |
+| 跨镜连续性计划 | `plan-shot-continuity` | `continuity_plan` |
 | 艺术风格确认与配置 | `generate-drama-art-style` | `art_style_decision`、`config_generation` |
 | 故事扩写 | `design-drama-bible` | `ai_story_expand` |
 | 分集拆分 | `outline-drama-series` | `episode_split` |
