@@ -49,6 +49,8 @@
 
 声音采用 `native-first`：先选同时满足画面引用和 `video.native-audio` 的 Provider，原生生成对白、电影感旁白、环境声和动作声；BGM 始终走独立配乐与许可证流程。每个原生声候选必须完成 `speech_intelligibility`、`speaker_identity`、`narration_performance`、`ambience_action_sync`、`lip_sync`、`technical_audio`、`undeclared_music` 七维审核。失败时把受控 reason、证据、精确区间和混音来源写入 `native_audio_exception`，只替换失败段。只有可见且使用 selected 独立音频的对白才能按需调用 `transform.lip-sync`；本地 MuseTalk 需用户配置 `MUSETALK_ROOT`，输出经专项审核通过后才能进入时间线。
 
+媒体能力内部顺序固定为 `character-appeal → continuity-plan → previous-tail → native-audio → native-audio-review → audio-fallback → lip-sync → licensed-music → media-editing → video-upscale → delivery`。previous-tail、audio-fallback、lip-sync 和 video-upscale 都是有前置证据的可选节点：不符合条件时跳过，不能为了填满流程伪造任务。超分只接受当前 selected 视频，Provider 原始输出与保音轨派生版同时留证，完整复看和专项审核通过后才能替换选版。
+
 配乐分为 `music.generate` 与 `music.catalog`。生成曲保持现有 `generate_music` 流程；目录曲只返回本地已授权结果或 Pixabay、YouTube Audio Library、Uppbeat 官方搜索页，不自动登录或下载。用户试听并取得文件与许可证证据后，`register_licensed_music` 先写不可变收据，再登记未选音频候选。audio-plan 绑定精确资产、`license_receipt` 与项目用途，时间线再次验证选版和 allowed uses；普通视频页面、无同步权与母带权凭证的热曲不能进入资产库。
 
 剧本阶段的 `short-drama` 必须绑定实际分集剧本版本；人物分析必须绑定 `assets/characters/profiles.json`。人物链路固定为：年龄证据 → `audience_appeal` 校验 → 人物定妆候选 → 人物专项审核与选版 → 分镜/白模/正式视频引用绑定 → 跨镜一致性复核。明确成年人物使用 `adult-charisma`，必须有专属 `grooming_and_makeup`、`costume_signature` 和角色级 `memory_anchors`；儿童只使用 `child-cuteness`，任何成人化或性化处理都是不可由总分抵消的硬失败。未知年龄停在人物档案阶段。新生成角色候选只能经 `validateCharacterAppealReview` 和 `review-character` 选版，正式视频人物引用还要通过 `assertCharacterReadyForVisuals` 及档案 SHA、appearance 与可见身份约束校验。

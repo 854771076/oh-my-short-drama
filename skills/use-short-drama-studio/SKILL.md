@@ -11,7 +11,7 @@ description: 使用本地标准短剧插件的总入口。用于了解每个 Ski
 
 项目 `automation_mode` 默认开启；开启后 agent 自主处理常规确认，不重复打断用户，但不能伪造权限、素材权利或绕过安全门禁。
 
-标准顺序是：初始化与环境预检 → Codex 分析小说与要求 → `short-drama` 方法论 + 剧本初稿 → `humanizer` 自然化新版本 → 剧本复核批准 → 导演本落盘 → 资产分析 → 资产生成落盘 → 制作规划（逐镜选择图片或 Blender 白模分镜、拍摄计划、模型和提示词协议）→ 图片镜头生成/选版/八维审计，白模镜头编导/生成/评分 → Seedance 2.0/H3/通用逐镜提示词落盘 → 素材视频与按需配音 → `remotion-best-practices` + Remotion 剪辑 → 成片交付。新项目默认推荐白模，但静态特写、细腻表演和画风确认仍优先图片。每阶段必须先用 `skill-runs.mjs required` 获取原子 Skill，完整读取并执行，再用 `skill-runs.mjs record` 记录项目内产物；仅生成文件但没有 Skill 凭证不能通过阶段门禁。
+标准顺序是：初始化与环境预检 → Codex 分析小说与要求 → `short-drama` 方法论 + 剧本初稿 → `humanizer` 自然化新版本 → 剧本复核批准 → 导演本落盘 → 资产分析 → 人物吸引力/儿童保护审核与资产生成落盘 → 制作规划（逐镜选择图片或 Blender 白模分镜、拍摄计划、模型和提示词协议）→ 图片镜头生成/选版/八维审计，白模镜头编导/生成/评分 → 空间连续性与可选尾帧承接 → Seedance 2.0/H3/通用逐镜提示词落盘 → 原生声音生成和复听 → 仅对失败区间兜底、按需口型 → 授权配乐与媒体修复 → 对已选视频按需超分并复审 → `remotion-best-practices` + Remotion 剪辑 → 成片交付。新项目默认推荐白模，但静态特写、细腻表演和画风确认仍优先图片。每阶段必须先用 `skill-runs.mjs required` 获取原子 Skill，完整读取并执行，再用 `skill-runs.mjs record` 记录项目内产物；仅生成文件但没有 Skill 凭证不能通过阶段门禁。
 
 文本资产全部由 Codex 直接创作和校验，不调用任何文本生成 Provider；媒体生成统一交给 `drama-generation-service`，由用户选择 Provider。Provider 只接受公网 URL 时，另行路由 `publish-drama-references`；Litterbox 免费但公开、临时且受用途条款约束。项目 `automation_mode=true` 时，已配置范围内的生成、上传、选版、覆盖、回退和切换按合同自动继续，不为常规步骤重复询问；`false` 时才逐项等待确认。真实付费、素材权利、安全事实和删除项目仍需明确确认，不能由 agent 代替授权；缺少这些条件时一次说明缺口并停在安全边界。阶段交付前再次运行项目校验。
 

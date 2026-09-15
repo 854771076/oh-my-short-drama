@@ -21,6 +21,7 @@
 | 临时参考图发布 | `publish-drama-references`、Litterbox 适配器 | 免费匿名短期 HTTPS URL、逐项确认、哈希绑定、本地上传收据、有效收据复用、并发去重和跨会话查询；不作为资产库 |
 | 异步任务与恢复 | task ledger、monitor/recover Skills | 跨进程安全账本、输入去重、统一输出和结果对账 |
 | 剪辑与交付 | `remotion-best-practices`、timeline/delivery Skills | 吸收成熟 CLI 的选镜、切点、字幕、角标、转场、响度与完整审片规则，并用 Remotion 实现 |
+| 媒体能力主编排 | `workflow-stages.mjs`、`orchestrate-short-drama` | 明确人物门禁、连续性/尾帧、原生声音、受控兜底/口型、授权音乐、媒体修复、超分和交付的唯一顺序与可选边 |
 | 跨会话恢复与环境 | SessionStart hook、`RESUME.md`、`AGENTS.md`、`preflight.mjs` | 项目内恢复当前阶段、选版和任务；初始化及媒体/剪辑阶段留下无密钥环境报告 |
 
 ## 从原系统能力转换而来

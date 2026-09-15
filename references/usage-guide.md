@@ -10,10 +10,11 @@
 4. **导演本落盘**：`write-drama-director-book` 形成场次级导演执行意图。
 5. **资产分析与画风**：`plan-drama-assets`、`generate-character-profiles` 确认资产范围，`generate-drama-art-style` 确认或生成项目统一画风。
 6. **资产生成落盘**：人物完整原画设定板、场景多视角设定板、道具设定板通过 `drama-generation-service` 调用用户选择的 Provider；结果全部进入本地资产账本。
-7. **制作规划**：构建/修订结构化分镜，`plan-drama-production` 逐镜判断单图/故事版/分镜板及实际格数，并锁定模型、`prompt_profile`、输入模式、参考顺序和预算；`write-drama-video-prompts` 再按 Seedance 2.0、MiniMax H3 或已确认的通用协议编译并保存提示词版本。
-8. **分镜与素材制作**：按制作计划逐镜执行。图片分镜生成、选版并做八维审计；白模分镜先编导，再生成、完整观看并达到 85 分。对应镜头通过后才允许生成正式视频。声音按 native-first 执行：原生声七维复听，失败仅替换有证据的区间；可见独立对白才按需对口型。任务和文件全部本地对账。
-9. **剪辑**：`remotion-best-practices` 约束 Remotion 工程与帧确定实现，`edit-drama-timeline` 按本地剪辑方案完成粗剪、字幕、转场、声音和渲染。
-10. **成片**：`edit-deliver-drama` 逐集完整审片并输出 `delivery/<episode-key>/`。
+7. **制作规划**：构建/修订结构化分镜，`plan-drama-production` 逐镜判断单图/故事版/分镜板及实际格数，并锁定模型、`prompt_profile`、输入模式、参考顺序和预算。
+8. **分镜与素材制作**：按制作计划逐镜执行。图片分镜生成、选版并做八维审计；白模分镜先编导，再生成、完整观看并达到 85 分。对应镜头通过后先由 `plan-shot-continuity` 建立空间连续性，只有同场景同机位且状态连续时才使用上一镜尾帧作为下一镜首帧；然后由 `write-drama-video-prompts` 按 Seedance 2.0、MiniMax H3 或已确认的通用协议编译并保存提示词版本。声音按 native-first 执行：原生声七维复听，失败仅替换有证据的区间；可见独立对白才按需对口型。任务和文件全部本地对账。
+9. **授权音乐、修复与超分**：许可证用途验证通过后才把目录音乐放入时间线；局部修复保留来源、范围和专项审核。只对当前 selected 视频按需超分，RunningHub SeedVR2.5 保留 Provider 原始输出，成品完整复看后才替换选版。
+10. **剪辑**：`remotion-best-practices` 约束 Remotion 工程与帧确定实现，`edit-drama-timeline` 按本地剪辑方案完成粗剪、字幕、转场、声音和渲染。
+11. **成片**：`edit-deliver-drama` 逐集完整审片并输出 `delivery/<episode-key>/`。
 
 文本资产默认由 Codex 直接生成，不使用外部文本模型。图片、视频、音频才进入生成 Provider 路由。
 

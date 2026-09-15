@@ -15,6 +15,8 @@ description: 编排从创意到成片的短剧生产流程。用于新建、继�
 
 每阶段必须在本地留下可回读产物和验收结论，再执行 `advance`，且只能进入紧邻下一阶段。资产分析阶段先确认画风；资产 Skill 按已选计划动态要求，有人物、场景或道具才加载对应完整设定板 Skill。上游修改导致返工时使用 `rewind`。模型任务提交后写入本地任务账本；图片、音频和视频必须下载或复制到本地资产库后才能完成。付费范围、素材含义或交付目标不明确时只做只读检查。
 
+媒体阶段内部按唯一顺序编排：`character-appeal → continuity-plan → previous-tail → native-audio → native-audio-review → audio-fallback → lip-sync → licensed-music → media-editing → video-upscale → delivery`。其中 previous-tail 只用于同场景同机位且状态连续的相邻镜；audio-fallback 只能来自未通过的原生音频维度与精确区间；lip-sync 只用于可见且绑定 selected 独立音频的对白；video-upscale 只处理已选视频候选，输出仍须完整复看和专项审核。缺少前置证据时跳过可选能力或回退其所属原子 Skill，不得靠总体评分补偿硬失败。
+
 媒体阶段开始前必须确认当前任务确实暴露 `drama-generation` MCP 工具；缺失时流程阻断，并要求使用 `⌘Q` 完全退出 Codex 后重新打开。不能创建 placeholder 媒体文件，也不能把 Codex 文本输出当作图片、视频或音频生成结果。
 
 剪辑阶段不得把旧的“候选通过”记录当作正式审片；上游镜头、提示词或选版变化会使下游时间线和审片失效，必须回退到对应阶段重新执行并记录 Skill 凭证。最终候选需同时保留原始成片、修复版、时间线、逐镜观察、全片六维审片和 manifest，明确标记尚未通过的限制，不以视觉包装掩盖叙事缺口。

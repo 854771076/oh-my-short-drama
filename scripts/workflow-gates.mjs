@@ -3,7 +3,7 @@ import { access, readFile, readdir, realpath } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { stages } from './workflow-stages.mjs'
+import { mediaPipelineStages, stages } from './workflow-stages.mjs'
 import { validateManifest, validateReview, validateTimeline } from './editing-store.mjs'
 import { readSkillRuns, requiredSkills } from './skill-runs.mjs'
 import { PREVIZ_REVIEW_CRITERIA, STORYBOARD_REVIEW_CRITERIA, validPrevizScore } from './review-ledger.mjs'
@@ -14,6 +14,7 @@ import { PREVIZ_REQUIRED_HARD_GATES, fileSha256, probePrevizMedia, validatePrevi
 const pluginRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const skillMap = JSON.parse(await readFile(resolve(pluginRoot, 'references/skill-map.json'), 'utf8'))
 const providerPrompts = new Set(skillMap.provider_prompts || [])
+export const MEDIA_PIPELINE_GATE_ORDER = mediaPipelineStages()
 
 async function exists(path) { try { await access(path); return true } catch { return false } }
 async function json(path) { return JSON.parse(await readFile(path, 'utf8')) }

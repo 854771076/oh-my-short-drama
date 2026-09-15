@@ -36,7 +36,8 @@
     "design-drama-audio": ["voice_analysis"]
   },
   "quality_gates": {
-    "character_visual": ["audience_appeal", "assertCharacterReadyForVisuals", "validateCharacterAppealReview", "identity_binding", "identity_constraints", "visual_identity"]
+    "character_visual": ["audience_appeal", "assertCharacterReadyForVisuals", "validateCharacterAppealReview", "identity_binding", "identity_constraints", "visual_identity"],
+    "media_pipeline": ["character-appeal", "continuity-plan", "previous-tail", "native-audio", "native-audio-review", "audio-fallback", "lip-sync", "licensed-music", "media-editing", "video-upscale", "delivery"]
   },
   "prompts": {
     "art_style_decision": "generate-drama-art-style",
