@@ -25,6 +25,8 @@ description: 把通过验收的本地分镜按实际视频模型编译为可执�
 
 声音编译前按已批准 audio-plan 的 `audio_strategy` 选择 Provider：未锁定时，在满足全部画面参考能力的候选中优先 `video.native-audio`；用户锁定的 Provider 不支持时记录 `provider-no-native-audio`，不得静默转 TTS。逐镜 `audio_policy` 原样复制匹配本镜的三层声音行及时间范围。native 行生成逐字对白或旁白，旁白必须编译 tone arc、每个 emotion beat、pace、breath and pause、distance and space；post_dub/external_audio 行只生成环境声和动作声。所有原生声音提示词明确 no undeclared BGM；BGM 始终走独立授权配乐流程。正式提交原生音频镜头必须显式 `generate_audio=true`，非原生镜头不得开启。
 
+视频提示词只决定声音生成意图，不把 `post_dub` 或 `external_audio` 偷换成模型直出对白，也不在提示词阶段假定后续一定能对口型。需要口型时保留可见说话者、无歧义脸部归属和精确台词范围，生成后再由声音与媒体变换流程依据实际 selected 音频决定是否调用 `transform.lip-sync`；旁白、画外音和合格原生对白不预留虚假的对口型任务。
+
 分镜构图合同（`visual_plan.composition`、`composition_contract` 或 `photographyPlan.composition`）只作为编译输入：按 [导演构图模式参考](../../references/director-composition.md) 中该模式的画面结构与竖屏提示，把 primary/secondary code 翻译为主体位置、视线留白、前中后景、光源方向与剧内来源、遮挡比例、动作屏幕方向、镜尾状态等可见几何和逐时间点动作；仅在拿不准 code 含义、证据要求或 ai_risks 时按需查阅该参考。禁止把构图 code、模式名称或模式目录抄进任何模型提示词，也不得只复读名称而不给可见执行项。
 
 人物离画后，把离画边、最后姿态、运动方向和持物状态作为画外连续性继续传递，直到其重新入画或场景明确重置。重新入画不得仅凭当前画面任意选边，必须与该记录、当前轴线和空间入口相容。

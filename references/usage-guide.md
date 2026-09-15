@@ -11,7 +11,7 @@
 5. **资产分析与画风**：`plan-drama-assets`、`generate-character-profiles` 确认资产范围，`generate-drama-art-style` 确认或生成项目统一画风。
 6. **资产生成落盘**：人物完整原画设定板、场景多视角设定板、道具设定板通过 `drama-generation-service` 调用用户选择的 Provider；结果全部进入本地资产账本。
 7. **制作规划**：构建/修订结构化分镜，`plan-drama-production` 逐镜判断单图/故事版/分镜板及实际格数，并锁定模型、`prompt_profile`、输入模式、参考顺序和预算；`write-drama-video-prompts` 再按 Seedance 2.0、MiniMax H3 或已确认的通用协议编译并保存提示词版本。
-8. **分镜与素材制作**：按制作计划逐镜执行。图片分镜生成、选版并做八维审计；白模分镜先编导，再生成、完整观看并达到 85 分。对应镜头通过后才允许生成正式视频。音频按声音策略执行，任务和文件全部本地对账。
+8. **分镜与素材制作**：按制作计划逐镜执行。图片分镜生成、选版并做八维审计；白模分镜先编导，再生成、完整观看并达到 85 分。对应镜头通过后才允许生成正式视频。声音按 native-first 执行：原生声七维复听，失败仅替换有证据的区间；可见独立对白才按需对口型。任务和文件全部本地对账。
 9. **剪辑**：`remotion-best-practices` 约束 Remotion 工程与帧确定实现，`edit-drama-timeline` 按本地剪辑方案完成粗剪、字幕、转场、声音和渲染。
 10. **成片**：`edit-deliver-drama` 逐集完整审片并输出 `delivery/<episode-key>/`。
 
@@ -53,8 +53,8 @@
 | `generate-storyboard-images` | 为选择图片媒介的镜头生成单图、故事版或分镜板 | 制作计划批准后、图片分镜镜头的视频生成前 | Provider、AI 已判断的类型/格数、尺寸、候选数、参考图、费用、选版 |
 | `direct-blender-previz` / `generate-blender-previz` | 为选择白模媒介的镜头编导、生成并评分 | 制作计划批准后、白模分镜镜头的视频生成前 | 剧情节拍、调度、轴线、运镜、评分与选版 |
 | `generate-drama-videos` | 生成并下载逐镜视频 | 对应图片/白模分镜与视频提示词确认后 | Provider、模型/工作流、时长、分辨率、参考素材、声音、费用、重试 |
-| `design-drama-audio` | 为 post-dub/independent 镜头做声音分析、音色、TTS、配音和口型；H3 原生音频不重复调用 | 制作计划或逐镜视频阶段 | 音频 Provider、声音权利、MiniMax voice_id/工作流、文本、语速、格式、费用、选版 |
-| `transform-drama-media` | 改图、二维转真人、宫格拆分、裁剪和抽帧 | 媒体生产中按需 | 生成式变换的 Provider/费用；裁剪和覆盖范围 |
+| `design-drama-audio` | 原生音频优先；做七维复听、局部 TTS/外部音频兜底和符合条件的对口型；合格原声不重复调用 | 制作计划或逐镜视频阶段 | 音频 Provider、声音权利、voice_id、文本、失败区间、MuseTalk 本地配置、费用、选版 |
+| `transform-drama-media` | 改图、二维转真人、宫格拆分、裁剪、抽帧、对口型和超分等版本化媒体操作 | 媒体生产中按需 | 生成式变换的 Provider/费用；来源资产、裁剪或替换范围；口型唯一人脸与专项审核 |
 | `monitor-drama-tasks` | 本地登记、去重、查询异步任务并校验完成文件 | 媒体生产贯穿执行 | 取消任务、扩大重试或重新付费 |
 | `recover-drama-pipeline` | 恢复中断任务、缺失下载和 stale 下游 | 失败或续作时 | 重提、换 Provider/模型、重新付费、回退阶段 |
 | `review-drama-shots` | 审计图片分镜八维逻辑、按导演合同评分白模，并验收正式视频 | 分镜选版后、视频生成前必做；视频落盘后再次执行 | 接受 P2 缺陷、重生成或选用替代版本 |

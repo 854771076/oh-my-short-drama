@@ -7,7 +7,7 @@ description: 统一路由短剧图片、视频和音频生成 Provider。用于�
 
 标准流程中的剧本、导演本、资产描述、制作规划和视频提示词由 Codex 直接生成并落盘，不调用外部文本模型。图片、视频或音频生成前先调用 `list_generation_providers`，按用户明确选择的 Provider 和模态能力路由；未选择时停止，不自动使用默认供应商。
 
-如果当前任务的 MCP 工具列表没有 `list_generation_providers`、`list_models`、`generate_image`、`submit_video`、`ensure_reference_urls`、`submit_episode_videos`、`await_episode_tasks`、`generate_audio`、`design_voice`、`clone_voice`、`list_voices`、`delete_voice` 或需要配乐时没有 `generate_music`，必须停止对应媒体生产并提示用户使用 `⌘Q` 完全退出 Codex 后重新打开；仅新建任务不会刷新桌面进程的插件 MCP 快照。禁止用占位文件、虚构成功响应或纯文本替代媒体结果。
+如果当前任务的 MCP 工具列表没有 `list_generation_providers`、`list_models`、`generate_image`、`submit_video`、`ensure_reference_urls`、`submit_episode_videos`、`await_episode_tasks`、`generate_audio`、`submit_media_operation`、`review_media_operation`、`design_voice`、`clone_voice`、`list_voices`、`delete_voice` 或需要配乐时没有 `generate_music`，必须停止对应媒体生产并提示用户使用 `⌘Q` 完全退出 Codex 后重新打开；仅新建任务不会刷新桌面进程的插件 MCP 快照。禁止用占位文件、虚构成功响应或纯文本替代媒体结果。
 
 整集视频按批量流程执行：`ensure_reference_urls` 一次发布公开参考（一次四项确认）、`submit_episode_videos` 先 `confirmed:false` 出逐镜费用摘要，同一集同一选版和镜头范围只需一次费用确认后以 `confirmed:true` 并发提交整集，`await_episode_tasks` 服务端并发等待回写；不得逐镜循环确认或逐镜轮询。选版、模型、参数、镜头范围或费用范围变化时必须重新确认。
 
@@ -24,6 +24,7 @@ description: 统一路由短剧图片、视频和音频生成 Provider。用于�
 - Comfly：当前只接入 `minimax-h3` 的 Ref2VA 视频；固定 `input_mode=Ref2VA`，支持 1–3 张公开 HTTPS 参考图片或 1 段公开视频，二者互斥，不支持参考音频。工作流按素材数与尺寸确定，不能让用户直接填写内部编号。
 - 临时公开 URL：目标 Provider 不支持本地上传时路由 `publish-drama-references`。Litterbox 免费匿名但公开、短期且受使用条款约束，必须单独确认，不能自动上传或充当最终资产库。
 - 音频：仅当 Provider 声明 audio 能力时调用。StarRouter 生成前必须确认模型、台词、音色 ID、语速、格式、MiniMax metadata 和费用；当前同步接口禁止 `stream=true`。RunningHub 继续承载用户自定义音频工作流。
+- MuseTalk：是可选本地媒体变换 Provider，只声明 `transform.lip-sync`。用户自行设置 `MUSETALK_ROOT`，可选 `MUSETALK_PYTHON` 与 `MUSETALK_ENTRYPOINT`；插件绝不自动安装代码、下载模型或修改外部目录。提交前仍走统一媒体操作门禁：只接收当前 audio-plan 已批准的可见独立对白、唯一可见人脸、同镜 selected 视频/音频和精确毫秒范围。同步输出按请求快照登记为未选中的 transformed 候选。
 
 生成 MCP 会在调用 Provider 前自动把实际 MCP 入参保存为不可变 `.short-drama/requests/<request-id>.json`，并先在 `tasks.json` 原子登记 `submitting`，杜绝并发重复付费。快照包含完整提示词、Provider、模型/工作流、全部模型参数、引用 URL/路径与清单、提示词文档引用、目标资产和输入指纹；API Key、Token、Authorization、密码和内联媒体禁止写入。视频的每个实际本地路径必须等于清单资产版本；Litterbox URL 必须有提交时间点有效的同版本收据。Provider 调用成功或失败后任务再结算为远端 ID 或失败状态。完成查询统一返回 `outputs[]`；全部结果逐项用 `asset-ledger.mjs fetch|decode` 保存并校验哈希。provenance 必须关联 Provider、模型/工作流、任务 ID、提示词文档和上游资产版本。本地文件存在且账本登记成功前，不得把任务标记 completed。
 

@@ -15,7 +15,7 @@
 | 分镜与镜头修订 | storyboard/revision Skills | 资产白名单、来源覆盖、连续性与版本化 |
 | 跨镜空间与尾帧承接 | `plan-shot-continuity`、`continuity-plan.mjs`、`prepare_previous_tail` | 独立记录起止状态、轴线和机位；只从已审核 selected 上一镜派生带 SHA-256 来源链的首帧 |
 | 分镜图、视频提示词、镜头视频 | storyboard image/video Skills | 视频提示词按 Seedance 2.0、MiniMax H3 或已确认通用协议编译并本地版本化；由 Provider 实时能力控制参数 |
-| 配音与声音方案 | `design-drama-audio` | 台词抽取、音色选择/描述、TTS 工作流和本地选版 |
+| 原生声音、配音与口型 | `design-drama-audio`、`native-audio-audit.mjs`、MuseTalk 可选连接器 | native-first 路由、电影感旁白、七维复听、受控区间兜底、外部音频和专项审核后的对口型 |
 | 生成服务 | `drama-generation-service` | StarRouter 图片/视频/语音、RunningHub 通用及内置 H3 workflow、Comfly H3；每个媒体版本保留完整 provenance |
 | 临时参考图发布 | `publish-drama-references`、Litterbox 适配器 | 免费匿名短期 HTTPS URL、逐项确认、哈希绑定、本地上传收据、有效收据复用、并发去重和跨会话查询；不作为资产库 |
 | 异步任务与恢复 | task ledger、monitor/recover Skills | 跨进程安全账本、输入去重、统一输出和结果对账 |
@@ -45,7 +45,7 @@
 ## 当前边界
 
 - StarRouter 当前声明图片、视频、同步语音、语音转写和翻译能力；长文本异步语音返回 TAR，尚未开放为可直接剪辑的音频资产。RunningHub 继续支持用户自定义音频工作流。
-- 口型同步没有绑定某个厂商接口；需要用户提供具备该能力的 Provider 工作流，并在制作计划中明确参考视频、音频和费用。
+- 口型同步可使用 RunningHub 用户工作流或本地 MuseTalk 1.5 连接器。MuseTalk 仅在用户配置 `MUSETALK_ROOT` 后声明 `transform.lip-sync`，插件不携带、安装或下载外部模型；两条路径都必须使用统一媒体操作请求快照、来源版本和专项审核，不能直接覆盖 selected 镜头。
 - 插件不内置大型模型价格表或替用户估价；生成前读取实时 Provider 目录并要求用户确认费用影响。
 - Litterbox 免费匿名接口仅用于临时参考图传输，文件公开且受 Catbox 使用条款约束；不保证长期可用，也不替代本地资产。
 - Remotion 工程按项目创建，不在插件里复制固定业务工程；这样可保持素材路径、画幅、字幕和交付规格可追溯。
