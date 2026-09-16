@@ -32,6 +32,11 @@ async function fixture({ presentation = 'visible-dialogue', delivery = 'post_dub
   await addAssetVersion(root, 'shot-ep001-001', { id: 'v001', localPath: 'assets/videos/shot-ep001-001/v001.mp4', provenance: { origin: 'generated', created_by: 'provider', provider: 'test', model_or_workflow: 'video', task_id: 'video-1', prompt_document: { episode_key: 'ep-001', version_id: 'v001', shot_number: 1 }, source_assets: [], parameters: {} } })
   await selectAssetVersion(root, 'shot-ep001-001', 'v001')
   const sourceVideoSha = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8')).assets['shot-ep001-001'].versions[0].sha256
+  const timingDirectory = resolve(root, 'episodes/ep-001/speech-timing')
+  await mkdir(resolve(timingDirectory, 'selected-sources/shot-ep001-001/v001'), { recursive: true })
+  const timingDocument = { episode_key: 'ep-001', source_asset: { asset_key: 'shot-ep001-001', version_id: 'v001', sha256: sourceVideoSha }, method: 'manual-direction', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, speaker: '林晚', text: '别回头', start_ms: 0, end_ms: 1000, pauses: [{ start_ms: 420, end_ms: 480 }], review_evidence: { speaker_checked: true, text_checked: true, visible_mouth_checked: true, notes: '人工核对说话人与可见口型' }, words: [{ text: '别', start_ms: 0, end_ms: 420 }, { text: '回头', start_ms: 480, end_ms: 1000 }], evidence: '人工核对原声起止与停顿' }] }
+  await writeFile(resolve(timingDirectory, 'v001.json'), `${JSON.stringify(timingDocument)}\n`)
+  await writeFile(resolve(timingDirectory, 'selected-sources/shot-ep001-001/v001/selected.json'), `${JSON.stringify({ versionId: 'v001', source_asset_sha256: sourceVideoSha })}\n`)
   await putAsset(root, { key: 'audio-ep001-dialogue-001', type: 'audio', name: '对白 1' })
   await addAssetVersion(root, 'audio-ep001-dialogue-001', { id: 'v001', localPath: 'assets/audio/audio-ep001-dialogue-001/v001.wav', provenance: { origin: 'imported', created_by: 'user', provider: null, model_or_workflow: null, task_id: null, prompt_document: null, source_assets: [], parameters: {} } })
   await selectAssetVersion(root, 'audio-ep001-dialogue-001', 'v001')
@@ -87,6 +92,17 @@ test('口型入口拒绝最终对齐绑定错误的源 timing', async () => {
   const root = await fixture({ alignmentSourceVersion: 'v002' })
   try {
     await assert.rejects(call('submit_media_operation', request(root)), /最终对齐.*源 timing/)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('口型入口拒绝合同与最终对齐共同引用已换版的旧源 timing', async () => {
+  const root = await fixture()
+  try {
+    const replacement = resolve(root, 'assets/videos/shot-ep001-001/v002.mp4')
+    media(replacement, 'video')
+    await addAssetVersion(root, 'shot-ep001-001', { id: 'v002', localPath: 'assets/videos/shot-ep001-001/v002.mp4', provenance: { origin: 'imported', created_by: 'user', provider: null, model_or_workflow: null, task_id: null, prompt_document: null, source_assets: [], parameters: {} } })
+    await selectAssetVersion(root, 'shot-ep001-001', 'v002')
+    await assert.rejects(call('submit_media_operation', { ...request(root), source: { asset_key: 'shot-ep001-001', version_id: 'v002' } }), /源 speech-timing|当前 selected/)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 

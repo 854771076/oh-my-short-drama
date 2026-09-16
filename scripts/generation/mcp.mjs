@@ -732,6 +732,8 @@ async function validateLipSyncEligibility(root, request, source, audio) {
   const alignmentSource = alignment.document.source_timing
   const contractSource = resolvedContract.contract.timing_source
   if (alignmentSource.version_id !== contractSource?.version_id || alignmentSource.line_index !== contractSource?.line_index || JSON.stringify(alignmentSource.source_asset) !== JSON.stringify(contractSource?.source_asset)) throw new Error('对口型最终对齐未绑定当前配音合同的源 timing')
+  // 合同与最终对齐可能同时保留旧引用；提交口型前必须重新核实源 timing 仍绑定当前来源资产。
+  await selectedSourceSpeechTiming(root, contractSource)
   if (resolvedContract.source === 'audio-plan') {
     if (!['post_dub', 'external_audio'].includes(line.delivery_mode)) throw new Error('合格原生对白不得执行对口型；仅独立音频可用')
     if (!sameReference(line.source_audio, request.audio)) throw new Error('对口型音频必须与 audio-plan 行的 selected 独立音频完全一致')
@@ -963,7 +965,7 @@ async function buildTrustedSubtitles(args) {
   if (!line?.dubbing_contract?.timing_source) throw new Error('字幕必须绑定当前已批准配音合同')
   const sourceTiming = await selectedSourceSpeechTiming(root, line.dubbing_contract.timing_source)
   const sourceLine = sourceTiming.document.lines.find((item) => item.line_index === args.line_index)
-  if (!sourceLine || !Array.isArray(sourceLine.words) || !sourceLine.words.length) throw new Error('字幕必须绑定合同指定的已复核词级 speech-timing')
+  validateSubtitleSourceTiming(line.dubbing_contract.mode, sourceLine)
   const assets = JSON.parse(await readFile(resolve(root, '.short-drama', 'assets.json'), 'utf8'))
   const reviews = JSON.parse(await readFile(resolve(root, '.short-drama', 'dubbing-reviews.json'), 'utf8').catch((error) => error?.code === 'ENOENT' ? '{"reviews":{}}' : Promise.reject(error)))
   const approvedCandidates = Object.values(reviews.reviews || {}).filter((review) => {
@@ -1007,6 +1009,12 @@ async function buildTrustedSubtitles(args) {
     fps: args.fps,
     timeline_end_ms: args.timeline_end_ms,
   })
+}
+
+export function validateSubtitleSourceTiming(mode, sourceLine) {
+  if (!sourceLine) throw new Error('字幕必须绑定合同指定的已复核 speech-timing 行')
+  if (mode === 'native-preserve' && (!Array.isArray(sourceLine.words) || !sourceLine.words.length)) throw new Error('原生声轨字幕必须绑定含词级边界的已复核 speech-timing')
+  return sourceLine
 }
 
 async function compileCurrentDubbingRequest(args) {

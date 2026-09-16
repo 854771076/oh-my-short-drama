@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { addAssetVersion, putAsset, selectAssetVersion } from './asset-ledger.mjs'
 import { createRequestSnapshot, generationProvenance, listTasks, reserveTask, settleReservedTask, updateTaskStatus } from './task-ledger.mjs'
-import { call, compileGeneratedAudioArguments, tools } from './generation/mcp.mjs'
+import { call, compileGeneratedAudioArguments, tools, validateSubtitleSourceTiming } from './generation/mcp.mjs'
 
 const contract = {
   mode: 'generated',
@@ -181,6 +181,12 @@ test('字幕 MCP 拒绝调用者伪造资产、SHA 和 timing 证据', async () 
       timeline_end_ms: 1000,
     },
   }), /项目|project_root|selected|资产/)
+})
+
+test('人工计划可用最终配音对齐生成字幕，只有原生声轨强制要求源词边界', () => {
+  const manualLine = { line_index: 1, words: [] }
+  assert.equal(validateSubtitleSourceTiming('generated', manualLine), manualLine)
+  assert.throws(() => validateSubtitleSourceTiming('native-preserve', manualLine), /词级边界/)
 })
 
 test('native-preserve 字幕直接绑定合同来源视频的原生声轨', async () => {
