@@ -26,6 +26,11 @@ function speechTimingDirectory(rootArg, episode) {
   return resolve(rootArg, 'episodes', episodeKey(episode), 'speech-timing')
 }
 
+function sourceSelectionPath(rootArg, episode, sourceAsset) {
+  validateSourceAsset(sourceAsset)
+  return resolve(speechTimingDirectory(rootArg, episode), 'selected-sources', sourceAsset.asset_key, sourceAsset.version_id, 'selected.json')
+}
+
 function validateSourceAsset(value) {
   exactKeys(value, ['asset_key', 'version_id', 'sha256'], 'speech-timing.source_asset')
   if (typeof value.asset_key !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.asset_key) || !VERSION.test(value.version_id) || typeof value.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.sha256)) throw new Error('speech-timing.source_asset 无效')
@@ -114,8 +119,16 @@ function sameSourceAsset(left, right) {
 
 export async function selectedSourceSpeechTiming(rootArg, reference) {
   if (!reference || typeof reference !== 'object') throw new Error('源 speech-timing 引用无效')
+  const root = resolve(rootArg)
   const episode = episodeKey(reference.episode_key)
-  const selected = await readVersion(resolve(rootArg), episode, reference.version_id)
+  const scopedPath = sourceSelectionPath(root, episode, reference.source_asset)
+  let marker = await readFile(scopedPath, 'utf8').then(JSON.parse).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error))
+  if (marker === null) {
+    const legacyPath = resolve(speechTimingDirectory(root, episode), 'selected.json')
+    marker = await readFile(legacyPath, 'utf8').then(JSON.parse).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error))
+  }
+  if (!marker || marker.versionId !== reference.version_id || marker.source_asset_sha256 !== reference.source_asset?.sha256) throw new Error('源 speech-timing 不是该来源的当前选版')
+  const selected = await readVersion(root, episode, reference.version_id)
   if (selected.document.reviewed !== true || !sameSourceAsset(selected.document.source_asset, reference.source_asset)) throw new Error('源 speech-timing 必须绑定已复核版本及精确来源资产')
   if (!selected.document.lines.some((line) => line.line_index === reference.line_index)) throw new Error('源 speech-timing 行不存在')
   return selected
@@ -226,12 +239,15 @@ async function writeNextVersion(rootArg, document, options = {}) {
     if (options.select) {
       const reviewedBy = options.reviewed_by
       if (typeof reviewedBy !== 'string' || !reviewedBy.trim()) throw new Error('speech-timing.reviewed_by 必填')
-      await writeJsonAtomically(resolve(directory, 'selected.json'), {
+      const marker = {
         versionId: next,
         path: relative(root, target),
         source_asset_sha256: checked.source_asset.sha256,
         reviewed_by: reviewedBy,
-      }, { overwrite: true })
+      }
+      // 每个来源单独维护当前证据，避免多个镜头/音轨竞争剧集唯一 selected；全局标记仅保留旧调用兼容。
+      await writeJsonAtomically(sourceSelectionPath(root, checked.episode_key, checked.source_asset), marker, { overwrite: true })
+      await writeJsonAtomically(resolve(directory, 'selected.json'), marker, { overwrite: true })
     }
     return { version_id: next, document: checked }
   })

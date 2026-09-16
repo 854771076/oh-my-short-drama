@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { finalSpeechAlignment, putFinalSpeechAlignment, putSpeechTimingCandidate, reviewSpeechTiming, selectedSourceSpeechTiming, selectedSpeechTiming, validateSpeechTiming } from './speech-timing.mjs'
@@ -145,6 +145,18 @@ test('逐来源引用读取已复核源 timing，不依赖剧集唯一 selected 
     const secondSource = await selectedSourceSpeechTiming(root, { episode_key: 'ep-001', version_id: reviewed.version_id, line_index: 1, source_asset: otherSource })
     assert.equal(firstSource.document.source_asset.asset_key, sourceAsset.asset_key)
     assert.equal(secondSource.document.source_asset.asset_key, otherSource.asset_key)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('逐来源 timing 即使文档已复核，未建立当前选版标记也不能使用', async () => {
+  const root = await temporaryRoot()
+  try {
+    const saved = await putSpeechTimingCandidate(root, timing())
+    const path = resolve(root, `episodes/ep-001/speech-timing/${saved.version_id}.json`)
+    const document = JSON.parse(await readFile(path, 'utf8'))
+    document.reviewed = true
+    await writeFile(path, `${JSON.stringify(document, null, 2)}\n`)
+    await assert.rejects(() => selectedSourceSpeechTiming(root, { episode_key: 'ep-001', version_id: saved.version_id, line_index: 1, source_asset: sourceAsset }), /当前选版/)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
