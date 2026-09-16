@@ -23,6 +23,13 @@ function fitInput(errorMs, fps) {
   }
 }
 
+function finalizationAlignment(overrides = {}) {
+  return {
+    words: [{ text: '别', start_ms: 300, end_ms: 500 }],
+    ...overrides,
+  }
+}
+
 function ffmpeg(args) {
   const result = spawnSync('ffmpeg', ['-nostdin', '-loglevel', 'error', ...args], { encoding: 'utf8' })
   if (result.error) throw result.error
@@ -66,8 +73,32 @@ test('第三轮失败后阻塞且不产生第四次付费动作', () => {
 test('拒绝超过 3% tempo、非合同停顿及超出声明时长的静音', () => {
   assert.equal(buildFinalizationPlan({ contract: contract(), tempo_percent: -3, silence: [] }).atempo, 0.97)
   assert.throws(() => buildFinalizationPlan({ contract: contract(), tempo_percent: 3.1, silence: [] }), /3%/)
-  assert.throws(() => buildFinalizationPlan({ contract: contract(), tempo_percent: 0, silence: [{ after: '未声明', duration_ms: 80, at_ms: 400 }] }), /停顿合同/)
-  assert.throws(() => buildFinalizationPlan({ contract: contract(), tempo_percent: 0, silence: [{ after: '别', duration_ms: 81, at_ms: 400 }] }), /停顿合同/)
+  assert.throws(() => buildFinalizationPlan({ contract: contract(), alignment: finalizationAlignment(), tempo_percent: 0, silence: [{ pause_index: 1, duration_ms: 80, at_ms: 500 }] }), /停顿合同/)
+  assert.throws(() => buildFinalizationPlan({ contract: contract(), alignment: finalizationAlignment(), tempo_percent: 0, silence: [{ pause_index: 0, duration_ms: 81, at_ms: 500 }] }), /停顿合同/)
+})
+
+test('静音必须精确绑定合同停顿的唯一对齐锚点', () => {
+  const input = { contract: contract(), alignment: finalizationAlignment(), tempo_percent: 0 }
+  assert.throws(() => buildFinalizationPlan({ ...input, silence: [{ pause_index: 0, duration_ms: 80, at_ms: 499 }] }), /alignment 锚点/)
+  assert.throws(() => buildFinalizationPlan({
+    ...input,
+    silence: [
+      { pause_index: 0, duration_ms: 40, at_ms: 500 },
+      { pause_index: 0, duration_ms: 40, at_ms: 500 },
+    ],
+  }), /重复锚点/)
+})
+
+test('同一合同停顿不能通过多段静音累计超过声明时长', () => {
+  assert.throws(() => buildFinalizationPlan({
+    contract: contract(),
+    alignment: finalizationAlignment(),
+    tempo_percent: 0,
+    silence: [
+      { pause_index: 0, duration_ms: 41, at_ms: 500 },
+      { pause_index: 0, duration_ms: 41, at_ms: 500 },
+    ],
+  }), /重复锚点|累计.*停顿合同/)
 })
 
 test('收口生成 WAV、保留音频流并只将容器时长作为技术探测', async () => {
@@ -78,8 +109,9 @@ test('收口生成 WAV、保留音频流并只将容器时长作为技术探测'
     ffmpeg(['-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=1', '-c:a', 'pcm_s16le', '-y', input])
     const plan = buildFinalizationPlan({
       contract: contract(),
+      alignment: finalizationAlignment(),
       tempo_percent: 3,
-      silence: [{ after: '别', duration_ms: 80, at_ms: 500 }],
+      silence: [{ pause_index: 0, duration_ms: 80, at_ms: 500 }],
     })
     const result = finalizeDubbingAudio({ input, output, plan })
     assert.equal(result.output, output)

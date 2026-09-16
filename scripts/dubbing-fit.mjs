@@ -86,29 +86,62 @@ function tempoLimit(contract) {
   return policyLimit
 }
 
-export function buildFinalizationPlan({ contract, tempo_percent = 0, silence = [] } = {}) {
+function alignmentWords(alignment) {
+  if (!plainObject(alignment) || !Array.isArray(alignment.words) || alignment.words.length === 0) throw new Error('插入静音必须提供最终 alignment 词级锚点')
+  let previousEnd = -1
+  return alignment.words.map((word, index) => {
+    if (!plainObject(word) || typeof word.text !== 'string' || !word.text.trim()) throw new Error(`alignment.words[${index}] 无效`)
+    const start = integer(word.start_ms, `alignment.words[${index}].start_ms`)
+    const end = integer(word.end_ms, `alignment.words[${index}].end_ms`, 1)
+    if (end <= start || start < previousEnd) throw new Error(`alignment.words[${index}] 时间边界无效`)
+    previousEnd = end
+    return { text: word.text, start_ms: start, end_ms: end }
+  })
+}
+
+function pauseAnchors(declaredPauses, alignment) {
+  const words = alignmentWords(alignment)
+  const consumedWords = new Set()
+  return declaredPauses.map((pause, pauseIndex) => {
+    const matches = words
+      .map((word, wordIndex) => ({ word, wordIndex }))
+      .filter(({ word }) => word.text === pause.after)
+    if (matches.length !== 1 || consumedWords.has(matches[0]?.wordIndex)) throw new Error(`停顿合同[${pauseIndex}] 缺少唯一 alignment 锚点`)
+    consumedWords.add(matches[0].wordIndex)
+    return { pause_index: pauseIndex, after: pause.after, at_ms: matches[0].word.end_ms }
+  })
+}
+
+export function buildFinalizationPlan({ contract, alignment, tempo_percent = 0, silence = [] } = {}) {
   if (!plainObject(contract)) throw new Error('配音合同必填')
   const limit = tempoLimit(contract)
   const tempoPercent = finiteNumber(tempo_percent, 'tempo_percent')
   if (Math.abs(tempoPercent) > limit) throw new Error(`tempo 修正不得超过 ${limit}%`)
   if (!Array.isArray(silence)) throw new Error('silence 必须是数组')
   const declaredPauses = pausePlan(contract)
+  const anchors = silence.length === 0 ? [] : pauseAnchors(declaredPauses, alignment)
+  const consumedPauseIndexes = new Set()
   let previousAt = -1
   const normalizedSilence = silence.map((item, index) => {
-    if (!plainObject(item) || typeof item.after !== 'string' || !item.after.trim()) throw new Error(`silence[${index}] 无效`)
-    const declared = declaredPauses.find((pause) => pause.after === item.after)
-    if (!declared) throw new Error(`silence[${index}] 不在停顿合同中`)
+    if (!plainObject(item) || !Number.isInteger(item.pause_index) || item.pause_index < 0) throw new Error(`silence[${index}] 无效`)
+    const declared = declaredPauses[item.pause_index]
+    const anchor = anchors[item.pause_index]
+    if (!declared || !anchor) throw new Error(`silence[${index}] 不在停顿合同中`)
+    if (consumedPauseIndexes.has(item.pause_index)) throw new Error(`silence[${index}] 重复锚点会重复消费同一停顿合同`)
+    consumedPauseIndexes.add(item.pause_index)
     const duration = integer(item.duration_ms, `silence[${index}].duration_ms`, 1)
     if (duration > declared.duration_ms) throw new Error(`silence[${index}] 超出停顿合同声明时长`)
     const at = integer(item.at_ms, `silence[${index}].at_ms`, 1)
+    if (at !== anchor.at_ms) throw new Error(`silence[${index}] 必须等于最终 alignment 锚点`)
     if (at <= previousAt) throw new Error('静音插入位置必须严格递增')
     previousAt = at
-    return { after: item.after, duration_ms: duration, at_ms: at }
+    return { pause_index: item.pause_index, after: declared.after, duration_ms: duration, at_ms: at }
   })
   const atempo = Number((1 + tempoPercent / 100).toFixed(6))
   if (atempo < 0.97 || atempo > 1.03) throw new Error('atempo 必须位于 0.97–1.03')
   return {
     contract: structuredClone(contract),
+    ...(silence.length ? { alignment: structuredClone(alignment) } : {}),
     tempo_percent: tempoPercent,
     atempo,
     silence: normalizedSilence,
