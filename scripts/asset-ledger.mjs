@@ -244,6 +244,22 @@ export async function selectedAssetVersion(rootArg, key) {
   return { asset, version, path }
 }
 
+export async function verifiedAssetVersion(rootArg, key, versionId) {
+  const root = resolve(rootArg)
+  const ledger = await readLedger(root)
+  const asset = get(ledger, key)
+  versionKey(versionId)
+  const version = asset.versions.find((item) => item.id === versionId)
+  if (!version) throw new Error(`版本不存在：${key}@${versionId}`)
+  if (asset.staleVersionIds?.includes(versionId)) throw new Error(`版本已因上游变更失效：${key}@${versionId}`)
+  const path = localPath(root, version.localPath)
+  const expectedDirectory = resolve(root, 'assets', TYPE_DIRECTORIES[asset.type], key)
+  if (!path.startsWith(`${expectedDirectory}${sep}`)) throw new Error(`版本不在标准资产目录：${key}@${version.id}`)
+  const fileStat = await stat(path)
+  if (!fileStat.isFile() || fileStat.size !== version.sizeBytes || await sha256(path) !== version.sha256) throw new Error(`本地文件哈希或大小不一致：${key}@${version.id}`)
+  return { asset, version, path }
+}
+
 export async function invalidateDerivedAssets(rootArg, source) {
   const root = resolve(rootArg)
   if (!source || typeof source !== 'object') throw new Error('必须提供上游资产版本')
@@ -281,6 +297,55 @@ export async function invalidateDerivedAssets(rootArg, source) {
     }
     if (changed) await save(root, ledger)
     return invalidated
+  })
+}
+
+export async function selectAudioVersionAndInvalidateDerived(rootArg, key, versionId) {
+  const root = resolve(rootArg)
+  return withFileLock(ledgerPath(root), async () => {
+    const ledger = await readLedger(root)
+    const asset = get(ledger, key)
+    if (asset.type !== 'audio') throw new Error('配音审核选版只允许 audio 资产')
+    versionKey(versionId)
+    const version = asset.versions.find((item) => item.id === versionId)
+    if (!version) throw new Error(`版本不存在：${versionId}`)
+    if (asset.staleVersionIds?.includes(versionId)) throw new Error(`版本已因上游变更失效：${key}@${versionId}`)
+    const path = localPath(root, version.localPath)
+    const fileStat = await stat(path)
+    if (!fileStat.isFile() || fileStat.size !== version.sizeBytes || await sha256(path) !== version.sha256) throw new Error(`本地文件哈希或大小不一致：${key}@${versionId}`)
+
+    const previous = asset.selectedVersionId || null
+    const invalidated = []
+    if (previous && previous !== versionId) {
+      const queue = [`${key}@${previous}`]
+      const visited = new Set(queue)
+      for (let index = 0; index < queue.length; index += 1) {
+        const upstream = queue[index]
+        for (const downstream of Object.values(ledger.assets)) {
+          for (const child of downstream.versions) {
+            const identity = `${downstream.key}@${child.id}`
+            if (visited.has(identity) || !child.provenance?.source_assets?.some((item) => `${item.key}@${item.version_id}` === upstream)) continue
+            visited.add(identity)
+            queue.push(identity)
+            invalidated.push(identity)
+            downstream.staleVersionIds ||= []
+            if (!downstream.staleVersionIds.includes(child.id)) downstream.staleVersionIds.push(child.id)
+            if (downstream.selectedVersionId === child.id) {
+              downstream.selectedHistory ||= []
+              downstream.selectedHistory.push(child.id)
+              downstream.selectedVersionId = null
+            }
+            downstream.updatedAt = new Date().toISOString()
+          }
+        }
+      }
+      asset.selectedHistory ||= []
+      asset.selectedHistory.push(previous)
+    }
+    asset.selectedVersionId = versionId
+    asset.updatedAt = new Date().toISOString()
+    await save(root, ledger)
+    return { asset: structuredClone(asset), previous_version_id: previous, invalidated }
   })
 }
 
