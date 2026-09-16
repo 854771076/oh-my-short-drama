@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-import { stat } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { analyzeMarket } from './market/analyze.mjs'
 import { createJuchachaClient, rankingDefinitions } from './market/juchacha-client.mjs'
 import { normalizeRankings } from './market/normalize.mjs'
@@ -55,9 +57,18 @@ function nowInShanghai(now = new Date()) {
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}.000+08:00`
 }
 
-function snapshotId(now = new Date()) {
-  const parts = shanghaiParts(now)
-  return `${parts.year}${parts.month}${parts.day}T${parts.hour}${parts.minute}${parts.second}+0800`
+function stableSerialize(value) {
+  if (Array.isArray(value)) return `[${value.map((entry) => stableSerialize(entry)).join(',')}]`
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`).join(',')}}`
+  return value === undefined ? 'null' : JSON.stringify(value)
+}
+
+function snapshotId(now = new Date(), content = {}) {
+  if (!(now instanceof Date) || Number.isNaN(now.getTime())) throw new TypeError('快照时间必须是有效日期')
+  const milliseconds = now.getTime().toString(36)
+  const digest = createHash('sha256').update(stableSerialize(content)).digest('hex')
+  // 毫秒时间和完整内容摘要共同构成写入键：不同响应不会覆盖同一快照；完全相同响应稳定复用键，属于幂等刷新。
+  return `m${milliseconds}-${digest}`
 }
 
 function failuresForSnapshot(failures) {
@@ -94,22 +105,31 @@ async function selectedSnapshot(store, selectedId) {
   return { snapshot, latestReport: latest.latestReport }
 }
 
-async function previousSnapshot(store, currentSnapshotId, latestReport) {
+function retrievedAt(snapshot) {
+  const value = Date.parse(snapshot?.retrieved_at)
+  return Number.isFinite(value) ? value : null
+}
+
+async function previousSnapshot(store, currentSnapshot, latestReport) {
   // 存储层只暴露有效报告历史；从最近报告引用中回读快照，可避免扫描未校验的目录候选。
+  const currentTime = retrievedAt(currentSnapshot)
+  if (currentTime === null) return null
   const candidates = [
     ...(latestReport?.snapshot_ids ?? []),
     ...((await store.listHistory()).flatMap((report) => report.snapshot_ids ?? [])),
   ]
-  for (const candidate of [...new Set(candidates)].sort().reverse()) {
-    if (candidate === currentSnapshotId) continue
+  const earlier = []
+  for (const candidate of new Set(candidates)) {
+    if (candidate === currentSnapshot.snapshot_id) continue
     const snapshot = await store.readSnapshot(candidate)
-    if (snapshot) return snapshot
+    const time = retrievedAt(snapshot)
+    if (snapshot && time !== null && time < currentTime) earlier.push({ snapshot, time })
   }
-  return null
+  return earlier.sort((left, right) => right.time - left.time || String(left.snapshot.snapshot_id).localeCompare(String(right.snapshot.snapshot_id), 'en'))[0]?.snapshot ?? null
 }
 
 async function analyzeSnapshot({ root, store, snapshot, latestReport }) {
-  const previous = await previousSnapshot(store, snapshot.snapshot_id, latestReport)
+  const previous = await previousSnapshot(store, snapshot, latestReport)
   const report = analyzeMarket({
     items: normalizedSnapshot(snapshot),
     successfulRankingTypes: successfulRankingTypes(snapshot),
@@ -137,13 +157,14 @@ async function refresh(root, dependencies) {
   if (Object.keys(rankings).length === 0) throw new CliError(3, '剧查查所有公开榜单采集失败，未创建空快照')
   const collectedAt = dependencies.now()
   const retrievedAt = dependencies.nowInShanghai(collectedAt)
+  const failures = failuresForSnapshot(collected?.failures)
   const snapshot = {
     schema_version: 1,
-    snapshot_id: dependencies.snapshotId(collectedAt),
+    snapshot_id: dependencies.snapshotId(collectedAt, { rankings, failures }),
     retrieved_at: retrievedAt,
     source: { provider: 'dataeye-juchacha', coverage: 'public-top-30' },
     rankings,
-    failures: failuresForSnapshot(collected?.failures),
+    failures,
   }
   try {
     const saved = await store.saveSnapshot(snapshot)
@@ -235,4 +256,15 @@ async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await main()
+async function isMainModule() {
+  if (!process.argv[1]) return false
+  const current = fileURLToPath(import.meta.url)
+  const requested = resolve(process.argv[1])
+  try {
+    return await realpath(current) === await realpath(requested)
+  } catch {
+    return import.meta.url === pathToFileURL(requested).href
+  }
+}
+
+if (await isMainModule()) await main()
