@@ -32,11 +32,13 @@ import { executeLocalMediaOperation } from '../media-operations.mjs'
 import { putMediaOperationReview } from '../review-ledger.mjs'
 import { validateNativeAudioReview } from '../native-audio-audit.mjs'
 import { planAudioFallback } from '../audio-fallback.mjs'
+import { resolveGeneratedDubbingContract } from '../dubbing-contract-resolution.mjs'
 import { probeMedia } from '../media-tools.mjs'
 import { compileMusicSearch, listMusicCatalogs, searchMusicCatalog } from '../music-catalog/providers.mjs'
 import { putMusicLicense } from '../music-license-ledger.mjs'
 import { compileDubbingRequest } from '../dubbing-compiler.mjs'
-import { finalSpeechAlignment, putSpeechTimingCandidate, reviewSpeechTiming } from '../speech-timing.mjs'
+import { finalSpeechAlignment, putFinalSpeechAlignment, putSpeechTimingCandidate, reviewSpeechTiming, selectedSourceSpeechTiming } from '../speech-timing.mjs'
+import { evaluateDubbingFit } from '../dubbing-fit.mjs'
 import { putDubbingPerformanceReview } from '../dubbing-performance-review.mjs'
 import { buildSubtitlesFromAudio } from '../subtitles-from-audio.mjs'
 
@@ -945,28 +947,50 @@ async function buildTrustedSubtitles(args) {
   const planMarker = JSON.parse(await readFile(resolve(root, 'episodes', args.episode_key, 'audio-plan', 'selected.json'), 'utf8'))
   const plan = JSON.parse(await readFile(resolve(root, planMarker.path || `episodes/${args.episode_key}/audio-plan/${planMarker.versionId}.json`), 'utf8'))
   const line = plan.approved === true && !plan.unresolved?.length && plan.lines?.find((item) => item.line_index === args.line_index)
-  if (!line || line.dubbing_contract?.mode !== 'generated') throw new Error('字幕必须绑定当前已批准 generated 配音合同')
-  const timingMarker = JSON.parse(await readFile(resolve(root, 'episodes', args.episode_key, 'speech-timing', 'selected.json'), 'utf8'))
-  const timing = JSON.parse(await readFile(resolve(root, timingMarker.path || `episodes/${args.episode_key}/speech-timing/${timingMarker.versionId}.json`), 'utf8'))
-  const timingLine = timing.reviewed === true && timing.lines?.find((item) => item.line_index === args.line_index)
-  if (!timingLine || !Array.isArray(timingLine.words) || !timingLine.words.length || line.dubbing_contract.timing_source?.version_id !== timingMarker.versionId) throw new Error('字幕必须绑定当前已复核且含词级边界的 selected speech-timing')
-  const timingSource = await selectedAssetVersion(root, timing.source_asset?.asset_key)
-  if (timingSource.version.id !== timing.source_asset.version_id || timingSource.version.sha256 !== timing.source_asset.sha256 || timingMarker.source_asset_sha256 !== timing.source_asset.sha256) throw new Error('selected speech-timing 的来源资产或 SHA 已过期')
+  if (!line?.dubbing_contract?.timing_source) throw new Error('字幕必须绑定当前已批准配音合同')
+  const sourceTiming = await selectedSourceSpeechTiming(root, line.dubbing_contract.timing_source)
+  const sourceLine = sourceTiming.document.lines.find((item) => item.line_index === args.line_index)
+  if (!sourceLine || !Array.isArray(sourceLine.words) || !sourceLine.words.length) throw new Error('字幕必须绑定合同指定的已复核词级 speech-timing')
   const assets = JSON.parse(await readFile(resolve(root, '.short-drama', 'assets.json'), 'utf8'))
-  const reviews = JSON.parse(await readFile(resolve(root, '.short-drama', 'dubbing-reviews.json'), 'utf8'))
-  const approved = Object.values(reviews.reviews || {}).find((review) => review.approved === true && review.episode_key === args.episode_key && review.line_index === args.line_index && review.audio_plan_version === planMarker.versionId)
+  const reviews = JSON.parse(await readFile(resolve(root, '.short-drama', 'dubbing-reviews.json'), 'utf8').catch((error) => error?.code === 'ENOENT' ? '{"reviews":{}}' : Promise.reject(error)))
+  const approvedCandidates = Object.values(reviews.reviews || {}).filter((review) => {
+    const candidate = assets.assets?.[review.asset_key]
+    return review.approved === true && review.episode_key === args.episode_key && review.line_index === args.line_index && review.audio_plan_version === planMarker.versionId && candidate?.type === 'audio' && candidate.selectedVersionId === review.version_id && !candidate.staleVersionIds?.includes(review.version_id)
+  })
+  const sourceOffset = (sourceLine.timeline_mapping?.timeline_at_ms || 0) - (sourceLine.timeline_mapping?.source_in_ms || 0)
+  const mappedSourceLine = { ...sourceLine, start_ms: sourceLine.start_ms + sourceOffset, end_ms: sourceLine.end_ms + sourceOffset, words: sourceLine.words.map((word) => ({ ...word, start_ms: word.start_ms + sourceOffset, end_ms: word.end_ms + sourceOffset })) }
+  if (line.dubbing_contract.mode === 'native-preserve' && approvedCandidates.length === 0) {
+    const source = line.dubbing_contract.timing_source.source_asset
+    const asset = assets.assets?.[source.asset_key]
+    const version = asset?.versions?.find((item) => item.id === source.version_id)
+    if (asset?.type !== 'video' || asset.selectedVersionId !== source.version_id || asset.staleVersionIds?.includes(source.version_id) || version?.sha256 !== source.sha256) throw new Error('原生声轨字幕必须绑定当前 selected、未失效的 timing 来源视频')
+    return buildSubtitlesFromAudio({
+      audio: { ...source, line_index: args.line_index },
+      timing: { version_id: sourceTiming.version_id, lines: [mappedSourceLine] },
+      contracts: [{ line_index: args.line_index, content: line.content, speaker: line.speaker, dubbing_contract_version: planMarker.versionId, dubbing_contract: line.dubbing_contract }],
+      fps: args.fps,
+      timeline_end_ms: args.timeline_end_ms,
+    })
+  }
+  if (!['generated', 'native-preserve'].includes(line.dubbing_contract.mode)) throw new Error('字幕合同模式无效')
+  if (approvedCandidates.length !== 1) throw new Error('字幕必须精确命中一个当前 selected 配音及其八维审核')
+  const [approved] = approvedCandidates
   const asset = approved && assets.assets?.[approved.asset_key]
   const version = asset?.versions?.find((item) => item.id === approved.version_id)
   if (asset?.type !== 'audio' || asset.selectedVersionId !== approved.version_id || asset.staleVersionIds?.includes(approved.version_id) || version?.sha256 !== approved.asset_sha256) throw new Error('字幕必须来自当前 selected、未失效且已通过八维审核的配音')
+  const resolvedContract = await resolveGeneratedDubbingContract(root, { plan, planVersion: planMarker.versionId, line, audioVersion: version })
   const alignment = await finalSpeechAlignment(root, { asset_key: approved.asset_key, version_id: approved.version_id, sha256: approved.asset_sha256 })
   if (approved.timing_version_id !== alignment.version_id || alignment.document.audio_plan_version !== planMarker.versionId || alignment.document.line_index !== args.line_index) throw new Error('字幕必须绑定当前配音的最终词级对齐')
+  const alignmentSource = alignment.document.source_timing
+  const contractSource = resolvedContract.contract.timing_source
+  if (alignmentSource.version_id !== contractSource.version_id || alignmentSource.line_index !== contractSource.line_index || alignmentSource.source_asset.asset_key !== contractSource.source_asset.asset_key || alignmentSource.source_asset.version_id !== contractSource.source_asset.version_id || alignmentSource.source_asset.sha256 !== contractSource.source_asset.sha256) throw new Error('最终词级对齐未绑定合同指定源 timing')
   const offset = alignment.document.timeline_mapping.timeline_at_ms - alignment.document.timeline_mapping.audio_in_ms
   const alignedWords = alignment.document.words.map((word) => ({ ...word, start_ms: word.start_ms + offset, end_ms: word.end_ms + offset }))
   const alignedLine = { line_index: args.line_index, start_ms: alignedWords[0].start_ms, end_ms: alignedWords.at(-1).end_ms, words: alignedWords, evidence: '最终 selected 配音词级对齐' }
   return buildSubtitlesFromAudio({
     audio: { asset_key: approved.asset_key, version_id: approved.version_id, sha256: approved.asset_sha256, line_index: args.line_index },
     timing: { version_id: alignment.version_id, lines: [alignedLine] },
-    contracts: [{ line_index: args.line_index, content: line.content, speaker: line.speaker, dubbing_contract_version: planMarker.versionId, dubbing_contract: line.dubbing_contract }],
+    contracts: [{ line_index: args.line_index, content: line.content, speaker: line.speaker, dubbing_contract_version: planMarker.versionId, dubbing_contract: resolvedContract.contract }],
     fps: args.fps,
     timeline_end_ms: args.timeline_end_ms,
   })

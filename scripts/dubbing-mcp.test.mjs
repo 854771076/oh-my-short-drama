@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { addAssetVersion, putAsset, selectAssetVersion } from './asset-ledger.mjs'
@@ -94,4 +94,30 @@ test('字幕 MCP 拒绝调用者伪造资产、SHA 和 timing 证据', async () 
       timeline_end_ms: 1000,
     },
   }), /项目|project_root|selected|资产/)
+})
+
+test('native-preserve 字幕直接绑定合同来源视频的原生声轨', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'native-subtitle-mcp-'))
+  try {
+    const videoPath = resolve(root, 'assets/videos/shot-ep001-001/v001.mp4')
+    await mkdir(dirname(videoPath), { recursive: true })
+    await writeFile(videoPath, 'native-video-with-audio-evidence')
+    await putAsset(root, { key: 'shot-ep001-001', type: 'video', name: '原生对白镜头' })
+    await addAssetVersion(root, 'shot-ep001-001', { id: 'v001', localPath: 'assets/videos/shot-ep001-001/v001.mp4', provenance: { origin: 'imported', created_by: 'user', provider: null, model_or_workflow: null, task_id: null, prompt_document: null, source_assets: [], parameters: {} } })
+    await selectAssetVersion(root, 'shot-ep001-001', 'v001')
+    const ledger = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
+    const source = { asset_key: 'shot-ep001-001', version_id: 'v001', sha256: ledger.assets['shot-ep001-001'].versions[0].sha256 }
+    const timingDir = resolve(root, 'episodes/ep-001/speech-timing')
+    await mkdir(resolve(timingDir, 'selected-sources/shot-ep001-001/v001'), { recursive: true })
+    await writeFile(resolve(timingDir, 'v001.json'), `${JSON.stringify({ episode_key: 'ep-001', source_asset: source, method: 'manual-direction', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, start_ms: 100, end_ms: 900, words: [{ text: '别回头', start_ms: 100, end_ms: 900 }], evidence: '人工核对原声' }] })}\n`)
+    await writeFile(resolve(timingDir, 'selected-sources/shot-ep001-001/v001/selected.json'), `${JSON.stringify({ versionId: 'v001', source_asset_sha256: source.sha256 })}\n`)
+    const planDir = resolve(root, 'episodes/ep-001/audio-plan')
+    await mkdir(planDir, { recursive: true })
+    const nativeContract = { mode: 'native-preserve', timing_source: { episode_key: 'ep-001', version_id: 'v001', line_index: 1, source_asset: source }, target_range: { start_ms: 100, end_ms: 900 }, performance_reference: contract.performance }
+    await writeFile(resolve(planDir, 'v001.json'), `${JSON.stringify({ episode_key: 'ep-001', approved: true, unresolved: [], lines: [{ line_index: 1, content: '别回头', speaker: '林晚', dubbing_contract: nativeContract }] })}\n`)
+    await writeFile(resolve(planDir, 'selected.json'), `${JSON.stringify({ versionId: 'v001', path: 'episodes/ep-001/audio-plan/v001.json' })}\n`)
+
+    const [subtitle] = await call('build_subtitles_from_audio', { project_root: root, episode_key: 'ep-001', line_index: 1, fps: 24, timeline_end_ms: 1000 })
+    assert.deepEqual({ asset_key: subtitle.audio_binding.asset_key, version_id: subtitle.audio_binding.version_id, speech_timing_version: subtitle.audio_binding.speech_timing_version }, { asset_key: 'shot-ep001-001', version_id: 'v001', speech_timing_version: 'v001' })
+  } finally { await rm(root, { recursive: true, force: true }) }
 })

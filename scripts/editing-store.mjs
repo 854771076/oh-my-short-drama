@@ -6,7 +6,8 @@ import { dirname, relative, resolve, sep } from 'node:path'
 import { withFileLock } from './file-lock.mjs'
 import { invalidateFrom } from './invalidate-workflow.mjs'
 import { getMusicLicense, validateMusicUse } from './music-license-ledger.mjs'
-import { finalSpeechAlignment } from './speech-timing.mjs'
+import { finalSpeechAlignment, selectedSourceSpeechTiming } from './speech-timing.mjs'
+import { resolveGeneratedDubbingContract } from './dubbing-contract-resolution.mjs'
 
 const TRANSITIONS = new Set(['none', 'hard-cut', 'action-cut', 'eyeline-cut', 'composition-match', 'j-cut', 'l-cut', 'occlusion', 'fade', 'dissolve'])
 const AUDIO_ROLES = new Set(['dialogue', 'voiceover', 'ambient', 'bgm', 'sfx', 'native'])
@@ -100,11 +101,9 @@ function sourcePromptDocument(assets, assetKey, version, seen = new Set()) {
 async function dialogueBindingContext(root, episodeKey) {
   const planMarker = JSON.parse(await readFile(resolve(root, 'episodes', episodeKey, 'audio-plan', 'selected.json'), 'utf8'))
   const plan = JSON.parse(await readFile(resolve(root, planMarker.path || `episodes/${episodeKey}/audio-plan/${planMarker.versionId}.json`), 'utf8'))
-  const timingMarker = JSON.parse(await readFile(resolve(root, 'episodes', episodeKey, 'speech-timing', 'selected.json'), 'utf8'))
-  const timing = JSON.parse(await readFile(resolve(root, timingMarker.path || `episodes/${episodeKey}/speech-timing/${timingMarker.versionId}.json`), 'utf8'))
   const reviewBytes = await readFile(resolve(root, '.short-drama', 'dubbing-reviews.json'), 'utf8').catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error))
   const reviews = reviewBytes ? JSON.parse(reviewBytes) : { reviews: {} }
-  return { planMarker, plan, timingMarker, timing, reviews }
+  return { planMarker, plan, reviews }
 }
 
 async function verifyCurrentDialogueBinding(root, context, assets, binding) {
@@ -113,17 +112,23 @@ async function verifyCurrentDialogueBinding(root, context, assets, binding) {
   if (!asset || asset.selectedVersionId !== binding.version_id || asset.staleVersionIds?.includes(binding.version_id) || version?.sha256 !== binding.sha256) throw new Error('对白绑定必须引用当前 selected、未失效且 SHA 一致的真实资产')
   if (binding.dubbing_contract_version !== context.planMarker.versionId) throw new Error('对白绑定的配音合同已过期')
   const line = context.plan.approved === true && !context.plan.unresolved?.length && context.plan.lines?.find((item) => item.line_index === binding.line_index)
-  const timingLine = context.timing.reviewed === true && context.timing.lines?.find((item) => item.line_index === binding.line_index)
-  if (!line || !timingLine || line.dubbing_contract?.timing_source?.version_id !== context.timingMarker.versionId || line.dubbing_contract.timing_source.line_index !== binding.line_index) throw new Error('对白绑定未命中当前已批准合同与已复核 timing 行')
-  if (line.dubbing_contract.mode === 'native-preserve') {
+  if (!line?.dubbing_contract?.timing_source || line.dubbing_contract.timing_source.line_index !== binding.line_index) throw new Error('对白绑定未命中当前已批准合同')
+  const sourceTiming = await selectedSourceSpeechTiming(root, line.dubbing_contract.timing_source)
+  const timingLine = sourceTiming.document.lines.find((item) => item.line_index === binding.line_index)
+  if (!timingLine) throw new Error('对白绑定未命中合同指定的已复核 timing 行')
+  if (line.dubbing_contract.mode === 'native-preserve' && asset.type === 'video') {
     const source = line.dubbing_contract.timing_source.source_asset
-    if (binding.speech_timing_version !== context.timingMarker.versionId || asset.type !== 'video' || source.asset_key !== binding.asset_key || source.version_id !== binding.version_id || source.sha256 !== binding.sha256 || context.timing.source_asset?.sha256 !== binding.sha256) throw new Error('原生声轨字幕必须绑定 timing 实际来源视频')
+    if (binding.speech_timing_version !== sourceTiming.version_id || source.asset_key !== binding.asset_key || source.version_id !== binding.version_id || source.sha256 !== binding.sha256 || sourceTiming.document.source_asset.sha256 !== binding.sha256) throw new Error('原生声轨字幕必须绑定 timing 实际来源视频')
     return { asset, version, line, native: true }
   }
   const review = context.reviews.reviews?.[`${binding.asset_key}@${binding.version_id}`]
   if (asset.type !== 'audio' || review?.approved !== true || review.asset_sha256 !== binding.sha256 || review.episode_key !== context.plan.episode_key || review.line_index !== binding.line_index || review.audio_plan_version !== binding.dubbing_contract_version || review.timing_version_id !== binding.speech_timing_version) throw new Error('配音字幕必须绑定当前 selected 配音及其八维审核')
+  const resolved = await resolveGeneratedDubbingContract(root, { plan: context.plan, planVersion: context.planMarker.versionId, line, audioVersion: version })
   const alignment = await finalSpeechAlignment(root, { asset_key: binding.asset_key, version_id: binding.version_id, sha256: binding.sha256 })
   if (alignment.version_id !== binding.speech_timing_version || alignment.document.audio_plan_version !== binding.dubbing_contract_version || alignment.document.line_index !== binding.line_index) throw new Error('配音字幕的最终词级对齐已过期')
+  const source = resolved.contract.timing_source
+  const alignedSource = alignment.document.source_timing
+  if (alignedSource.version_id !== source.version_id || alignedSource.line_index !== source.line_index || alignedSource.source_asset.asset_key !== source.source_asset.asset_key || alignedSource.source_asset.version_id !== source.source_asset.version_id || alignedSource.source_asset.sha256 !== source.source_asset.sha256) throw new Error('最终词级对齐未绑定合同指定源 timing')
   return { asset, version, line, native: false }
 }
 

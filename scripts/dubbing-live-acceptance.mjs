@@ -5,7 +5,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, resolve, sep } from 'node:path'
 import { validateTimeline } from './editing-store.mjs'
 import { probeMedia } from './media-tools.mjs'
-import { finalSpeechAlignment } from './speech-timing.mjs'
+import { finalSpeechAlignment, selectedSourceSpeechTiming } from './speech-timing.mjs'
 
 function parseIdentity(value, label) {
   const match = /^([a-z0-9]+(?:-[a-z0-9]+)*)@(v\d{3})$/.exec(value || '')
@@ -37,19 +37,44 @@ export function assessWordAlignment(timingLine, alignment, toleranceMs) {
   return { status: !sameWords ? 'mismatch' : maxError <= toleranceMs ? 'passed' : 'out-of-tolerance', max_error_ms: Number.isFinite(maxError) ? maxError : null, items }
 }
 
+export function mapSourceTimingLineToTimeline(line) {
+  const mapping = line.timeline_mapping || { source_in_ms: 0, timeline_at_ms: 0 }
+  const offset = mapping.timeline_at_ms - mapping.source_in_ms
+  return {
+    line_index: line.line_index,
+    start_ms: line.start_ms + offset,
+    end_ms: line.end_ms + offset,
+    words: (line.words || []).map((word) => ({ ...word, start_ms: word.start_ms + offset, end_ms: word.end_ms + offset })),
+  }
+}
+
+export function validateAcceptanceMedia(originalMedia, dubMedia) {
+  if (!originalMedia?.has_audio || !dubMedia?.has_audio) throw new Error('真实验收资产必须包含可解码原声音轨和配音音轨')
+}
+
 export async function runDubbingLiveAcceptance(rootArg, episodeKey, lineIndex, options) {
   const root = resolve(rootArg)
   if (!/^ep-\d{3}$/.test(episodeKey) || !Number.isInteger(lineIndex) || lineIndex <= 0) throw new Error('episode 或 line 无效')
   const originalId = parseIdentity(options.original, '--original')
   const dubId = parseIdentity(options.dub, '--dub')
   const ledger = await json(resolve(root, '.short-drama/assets.json'))
-  const original = assetVersion(root, ledger, originalId, true)
+  const planMarker = await json(resolve(root, 'episodes', episodeKey, 'audio-plan', 'selected.json'))
+  const plan = await json(resolve(root, planMarker.path || `episodes/${episodeKey}/audio-plan/${planMarker.versionId}.json`))
+  const planLine = plan.approved === true && !plan.unresolved?.length && plan.lines?.find((line) => line.line_index === lineIndex)
+  const sourceReference = planLine?.dubbing_contract?.timing_source
+  if (!sourceReference) throw new Error('验收必须绑定当前已批准合同的源 timing')
+  if (sourceReference.source_asset.asset_key !== originalId.key || sourceReference.source_asset.version_id !== originalId.version_id) throw new Error('--original 必须是合同 timing_source 的原声来源资产')
+  const sourceTiming = await selectedSourceSpeechTiming(root, sourceReference)
+  const sourceTimingLine = sourceTiming.document.lines.find((line) => line.line_index === lineIndex)
+  const timelineTimingLine = mapSourceTimingLineToTimeline(sourceTimingLine)
+  const original = assetVersion(root, ledger, originalId, false)
   const dub = assetVersion(root, ledger, dubId, true)
   const [originalSha, dubSha] = await Promise.all([sha256(original.path), sha256(dub.path)])
   if (originalSha !== original.version.sha256 || dubSha !== dub.version.sha256) throw new Error('原声或配音文件 SHA 与资产账本不一致')
+  if (originalSha !== sourceReference.source_asset.sha256) throw new Error('--original 的 SHA 与合同 timing_source 来源不一致')
   const originalMedia = probeMedia(original.path)
   const dubMedia = probeMedia(dub.path)
-  if ((!originalMedia.has_video && !originalMedia.has_audio) || !dubMedia.has_audio) throw new Error('真实验收资产必须包含可解码原声媒体和配音音轨')
+  validateAcceptanceMedia(originalMedia, dubMedia)
 
   const reviewFile = resolve(options.review)
   if (reviewFile !== root && !reviewFile.startsWith(`${root}${sep}`)) throw new Error('审核账本必须位于项目目录内')
@@ -57,25 +82,21 @@ export async function runDubbingLiveAcceptance(rootArg, episodeKey, lineIndex, o
   const review = reviews.reviews?.[`${dubId.key}@${dubId.version_id}`]
   if (!review || review.asset_sha256 !== dubSha || review.episode_key !== episodeKey || review.line_index !== lineIndex) throw new Error('缺少与当前配音 SHA、分集和行号一致的八维审核')
 
-  const timingMarker = await json(resolve(root, 'episodes', episodeKey, 'speech-timing', 'selected.json'))
-  const timing = await json(resolve(root, 'episodes', episodeKey, 'speech-timing', `${timingMarker.versionId}.json`))
-  const timingLine = timing.lines?.find((line) => line.line_index === lineIndex)
-  if (!timingLine) throw new Error('验收必须绑定当前 selected speech-timing')
   const timeline = await json(resolve(root, 'editing', episodeKey, 'timeline.json')).catch(() => null)
   const toleranceMs = Math.ceil(1000 / (timeline?.fps || 24))
   const finalAlignment = await finalSpeechAlignment(root, { asset_key: dubId.key, version_id: dubId.version_id, sha256: dubSha })
   if (review.timing_version_id !== finalAlignment.version_id) throw new Error('验收必须绑定当前最终配音词级对齐')
+  const alignmentSource = finalAlignment.document.source_timing
+  if (alignmentSource.version_id !== sourceReference.version_id || alignmentSource.line_index !== sourceReference.line_index || alignmentSource.source_asset.asset_key !== sourceReference.source_asset.asset_key || alignmentSource.source_asset.version_id !== sourceReference.source_asset.version_id || alignmentSource.source_asset.sha256 !== sourceReference.source_asset.sha256) throw new Error('最终配音对齐没有绑定合同的精确源 timing')
   const offset = finalAlignment.document.timeline_mapping.timeline_at_ms - finalAlignment.document.timeline_mapping.audio_in_ms
-  const measuredWords = assessWordAlignment(timingLine, { words: finalAlignment.document.words.map((word) => ({ ...word, start_ms: word.start_ms + offset, end_ms: word.end_ms + offset })) }, toleranceMs)
+  const measuredWords = assessWordAlignment(timelineTimingLine, { words: finalAlignment.document.words.map((word) => ({ ...word, start_ms: word.start_ms + offset, end_ms: word.end_ms + offset })) }, toleranceMs)
 
   const subtitle = timeline?.subtitles?.find((item) => item.audio_binding?.line_index === lineIndex)
   const audioBinding = subtitle?.audio_binding
-  const subtitleBound = audioBinding?.asset_key === dubId.key && audioBinding?.version_id === dubId.version_id && audioBinding?.sha256 === dubSha && audioBinding?.speech_timing_version === timingMarker.versionId
+  const subtitleBound = audioBinding?.asset_key === dubId.key && audioBinding?.version_id === dubId.version_id && audioBinding?.sha256 === dubSha && audioBinding?.speech_timing_version === finalAlignment.version_id
   let timelineValid = false
   try { if (timeline) { await validateTimeline(root, timeline); timelineValid = true } } catch {}
-  const planMarker = await json(resolve(root, 'episodes', episodeKey, 'audio-plan', 'selected.json'))
-  const plan = await json(resolve(root, planMarker.path || `episodes/${episodeKey}/audio-plan/${planMarker.versionId}.json`))
-  const contractRange = plan.lines?.find((line) => line.line_index === lineIndex)?.dubbing_contract?.target_range
+  const contractRange = planLine.dubbing_contract.target_range
   const lipSegment = timeline?.segments?.find((segment) => {
     const asset = ledger.assets?.[segment.asset_key]
     const version = asset?.versions?.find((item) => item.id === segment.version_id)
@@ -85,7 +106,7 @@ export async function runDubbingLiveAcceptance(rootArg, episodeKey, lineIndex, o
     return segment.dialogue_sync === 'lip-synced' && asset?.selectedVersionId === segment.version_id && !asset.staleVersionIds?.includes(segment.version_id) && requestBinding?.sha256 === dubSha && range?.start_ms === contractRange?.start_ms && range?.end_ms === contractRange?.end_ms
   })
   const dimensionPassed = review.watched_full === true && Object.values(review.dimensions || {}).length === 8 && Object.values(review.dimensions || {}).every((dimension) => dimension.status === 'passed')
-  const subtitleErrors = subtitle ? { start: subtitle.startMs - timingLine.start_ms, end: subtitle.endMs - timingLine.end_ms } : null
+  const subtitleErrors = subtitle ? { start: subtitle.startMs - timelineTimingLine.start_ms, end: subtitle.endMs - timelineTimingLine.end_ms } : null
   const subtitleToleranceMs = toleranceMs * 4
   const subtitleWithinTolerance = subtitleErrors && Math.abs(subtitleErrors.start) <= subtitleToleranceMs && Math.abs(subtitleErrors.end) <= subtitleToleranceMs
   const accepted = dimensionPassed && measuredWords.status === 'passed' && subtitleBound === true && subtitleWithinTolerance === true && timelineValid && Boolean(lipSegment) && !review.issues?.some((issue) => ['P0', 'P1'].includes(issue.severity))
@@ -93,7 +114,8 @@ export async function runDubbingLiveAcceptance(rootArg, episodeKey, lineIndex, o
     version: 1, episode_key: episodeKey, line_index: lineIndex, created_at: new Date().toISOString(), accepted,
     original: { asset_key: originalId.key, version_id: originalId.version_id, sha256: originalSha },
     dub: { asset_key: dubId.key, version_id: dubId.version_id, sha256: dubSha },
-    timing: { version_id: timingMarker.versionId, word_errors: measuredWords },
+    source_timing: { version_id: sourceTiming.version_id, source_asset: sourceReference.source_asset, word_errors: measuredWords },
+    final_alignment: { version_id: finalAlignment.version_id },
     production_duration_ms: Number.isInteger(review.production_duration_ms) ? review.production_duration_ms : null,
     subtitle: { bound: subtitleBound, within_tolerance: subtitleWithinTolerance, tolerance_ms: subtitleToleranceMs, start_error_ms: subtitleErrors?.start ?? null, end_error_ms: subtitleErrors?.end ?? null },
     lip_sync: { bound: Boolean(lipSegment), segment: lipSegment ? `${lipSegment.asset_key}@${lipSegment.version_id}` : null },
