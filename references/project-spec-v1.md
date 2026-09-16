@@ -18,6 +18,10 @@
 │   ├── requests/req-<uuid>.json
 │   ├── uploads/upload-<uuid>.json
 │   ├── source-analysis.json
+│   ├── reference-video/prepared.json
+│   ├── reference-video-analysis.json
+│   ├── reference-imports/<source>/<version>.json
+│   ├── recreation-compiled/<episode>/<version>.json
 │   ├── brief.json
 │   ├── bible.json
 │   ├── outline.json
@@ -38,7 +42,8 @@
 │   ├── production-plan/v001.json
 │   ├── previz/shot-001-v001.json
 │   ├── video-prompts/v001.json
-│   └── audio-plan/v001.json
+│   ├── audio-plan/v001.json
+│   └── recreation-workflow/v001.json
 ├── assets/{characters,scenes,props,storyboards,audio,videos,other}/<asset-key>/v001.<ext>
 ├── editing/ep-001/{timeline.json,review.json}
 └── delivery/ep-001/{final.mp4,final.srt,final.ass,manifest.json}
@@ -80,6 +85,8 @@
   "key": "my-short-drama",
   "title": "短剧名称",
   "automation_mode": true,
+  "paid_automation_authorized": false,
+  "workflow": { "type": "standard", "version": 1 },
   "description": null,
   "format": {
     "aspect_ratio": "9:16",
@@ -124,6 +131,8 @@
 
 `automation_mode` 控制项目后续操作的确认策略，默认值为 `true`。开启后，Codex/agent 可自行判断并提交项目内的选版、批量范围、费用和重试确认，不再为每一步询问用户；但仍必须满足阶段门禁、权限/素材权利事实和安全校验，缺少这些依据时必须停下。设置为 `false` 时恢复逐项确认。
 
+`workflow` 固定为 `{ "type": "standard|viral-recreation", "version": 1 }`；旧项目缺少时按 `standard`。`viral-recreation` 不改变九阶段状态机，只在 analysis 动态增加参考视频分析与声明式复刻工作流。切换 profile 从 analysis 失效。参考原片只能作为 `source/manifest.json` 中 `kind=reference-video` 的来源，不能写入正式视频资产账本。该 profile 的 storyboard、production-plan、video-prompts 与 audio-plan 必须在 `source_versions.recreation_workflow` 绑定当前 selected 复刻工作流版本。
+
 未确认的可选值写 `null`，不删除字段，也不使用示例值代替用户决策。例外是新项目画风默认使用 `system-realistic` 完整预设，分镜默认使用 `shot-board`（分镜板）和 4 格；用户可在资产生成前修改。制作计划仍须逐镜在 `single`（单图）、`storyboard`（故事版）和 `shot-board`（分镜板）之间判断，项目默认值只作回退。项目 key 创建后不可变。
 
 ## 命名
@@ -165,7 +174,7 @@ key 表示稳定身份，名称、描述和文件可以更新，key 不随版本
 
 ## 来源与媒体版本
 
-原始资料使用 `project-store.mjs put-source|select-source` 复制到 `source/`，并登记相对路径、文件大小和 SHA-256。分析文档通过 `src-xxx@v001` 引用，不保存原机器绝对路径。
+原始资料使用 `project-store.mjs put-source|select-source` 复制到 `source/`，并登记相对路径、文件大小和 SHA-256。文本来源支持 txt、md、json、pdf、docx、epub；参考视频支持 mp4、mov、webm、mkv。分析文档通过 `src-xxx@v001` 引用，不保存原机器绝对路径。
 
 每个媒体版本必须携带：
 

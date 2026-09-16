@@ -5,6 +5,8 @@ description: 汇总本地导演本、已选资产和结构化分镜形成短剧�
 
 # 规划短剧制作
 
+`viral-recreation` 项目必须读取 `.short-drama/recreation-compiled/<episode>/<version>.json` 中当前 selected 版本，用其中的 Media、Caption、Speech、Film 层约束镜头时长、素材策略、音频策略和画幅，并在 `source_versions.recreation_workflow` 写入当前 selected 版本；不得把参考视频当作可直接投喂的正式资产。
+
 读取本地已选导演本、人物/场景/道具、分镜和项目配置。由 Codex 使用 `assets/prompts/production_plan.{zh,en}.txt` 输出 `production-plan.json`，逐镜记录：输入版本、`storyboard_strategy`、分镜图类型与实际格数、`previz_strategy`、视频方式、声音方式、Provider、模型或工作流、`prompt_profile`、`input_mode`、分辨率、画幅、时长、候选数、参考素材及其用途与顺序、依赖关系、预计付费次数、失败回退和验收项。
 
 逐镜选择 `storyboard_strategy.mode=image|blender`。新项目默认按 `project.storyboard.preferred_medium=blender` 推荐白模：多人走位、打斗追逐、复杂道具接触、轴线风险、空间揭示或连续运镜用 `blender`；静态特写、细腻表演、画风/服装确认或只需首帧锚点用 `image`。旧计划缺少该字段时按 `image` 兼容。图片模式令 `image_strategy.mode=generate`，再判断 `board_type` 和 1–16 格；白模模式令 `image_strategy.mode=skip`、`previz_strategy.mode=blender`，不得生成占位分镜图。

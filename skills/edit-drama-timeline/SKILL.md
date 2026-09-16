@@ -5,6 +5,8 @@ description: 编辑短剧时间线并渲染成片。用于智能粗剪、镜头�
 
 # 使用 Remotion 编辑短剧时间线
 
+`viral-recreation` 项目必须读取 `.short-drama/recreation-compiled/<episode>/<version>.json` 中当前 selected 版本，按 Caption、Speech、Film 与 Media 语义锚点组织字幕、声音、画面和图形层，并在时间线顶层 `source_versions.recreation_workflow` 绑定该版本；参考原片本身不得作为正式时间线素材。
+
 先运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/preflight.mjs" editing <项目目录>`，完整执行插件内置 `remotion-best-practices`，再读取 [本地剪辑方案](../../references/editing-workflow.md)。剪辑门禁沿用成熟 CLI 方案：只导入逐镜四项验收通过的 selected 视频及其音轨，在项目 `editing/<episode-key>/` 中建立候选 `timeline.json`；用 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/editing-store.mjs" put-timeline <项目> <timeline.json>` 按 `episode_key` 校验每段选版、验收、路径、切点、转场和字幕后落盘，不覆盖源素材。
 
 需要裁剪、换声、稳定、降噪、调色、局部修复、补帧、对口型或超分时，先切换到 `transform-drama-media` 执行统一媒体操作；时间线不得直接引用刚生成的候选。候选必须完成对应专项观察、结构化 QC 与完整观看，并由 `review_media_operation` 批准成为 selected 后才可导入。`dialogue_sync=lip-synced` 必须指向 provenance 为 `operation=lip-sync` 的同一 selected 版本，且 `.short-drama/shot-reviews.json` 中该精确 `asset@version` 必须是已批准的 `review_type=media-operation`、`operation=lip-sync` 记录；不能用原镜普通验收或另一版口型报告代替。对口型专项审核未通过时不得标记 `lip-synced`；超分专项审核未验证分辨率、时长帧率、音轨、脸手文字和运动伪影时，不得把高分辨率文件当成正式镜头。

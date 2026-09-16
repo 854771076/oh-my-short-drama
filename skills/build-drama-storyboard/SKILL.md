@@ -7,7 +7,7 @@ description: 把单集剧本和确认资产拆成连续、可拍摄的结构化�
 
 先核对源剧本语言、交付语言、人物说话语言和字幕语言，并从已选 Provider/制作计划取得 `shot_duration_constraints`。由 Codex 使用本 Skill 的 `assets/prompts/agent_storyboard_plan.{zh,en}.txt` 生成严格 JSON；需要整集合同输出时，向 `professional_storyboard` 显式传入 screenplay_contract、asset_whitelist、cinema_knowledge、production_constraints、correction 和 target_language。再按需使用 `agent_cinematographer`、`agent_acting_direction` 与 `agent_storyboard_detail` 细化。
 
-每镜必须可追溯到本地已选剧本和导演本，资产名必须来自 selected 清单。逐镜检查剧情覆盖、重复、身份/版本、道具、场景、轴线、视线、运动方向和相邻转场合同。保存时将模板返回数组包装为 `{episode_key, source_versions, panels}`，P0/P1 清零后用 `project-store.mjs put-episode-document ... storyboard ...` 校验连续 panel_number 并保存不可变版本，再用 `select-episode-document` 选定。
+每镜必须可追溯到本地已选剧本和导演本，资产名必须来自 selected 清单。`viral-recreation` 项目还要读取当前分集编译约束包，把其中 Media 语义触发器和 Film 布局转译为逐镜设计，并在 `source_versions.recreation_workflow` 写入当前 selected 版本。逐镜检查剧情覆盖、重复、身份/版本、道具、场景、轴线、视线、运动方向和相邻转场合同。保存时将模板返回数组包装为 `{episode_key, source_versions, panels}`，P0/P1 清零后用 `project-store.mjs put-episode-document ... storyboard ...` 校验连续 panel_number 并保存不可变版本，再用 `select-episode-document` 选定。
 
 分镜选定且制作计划完成后，必须交给 `plan-shot-continuity` 建立独立的 `camera_setup_id`、`start_state`、`end_state` 和 `transition_link` 合同，再进入视频提示词编译。分镜只描述本镜事实，不得提前伪造上一镜尾帧资产或用模糊的“保持连续”代替状态字段。
 

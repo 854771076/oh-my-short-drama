@@ -2,7 +2,7 @@
 import { createReadStream, createWriteStream } from 'node:fs'
 import { access, mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { execFile, spawn } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, extname, resolve, sep } from 'node:path'
@@ -13,6 +13,10 @@ import { promisify } from 'node:util'
 import { normalizeModelParameters, providerSetupCatalog, testProviderConnection } from './generation/providers.mjs'
 import { saveCredential } from './generation/credentials.mjs'
 import { artStyleCatalog } from './art-styles.mjs'
+import { createMarketStore } from './market/store.mjs'
+import { runMarketResearch } from './market-research.mjs'
+import { analyzeMarket } from './market/analyze.mjs'
+import { normalizeRankings } from './market/normalize.mjs'
 
 const execute = promisify(execFile)
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -21,9 +25,10 @@ export const DEFAULT_WORKSPACE_ROOT = resolve(homedir(), 'darma_project')
 const WORKSPACE_FILE = '.short-drama-workspace.json'
 const PROJECT_KEY = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const SAFE_KEY = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
+const MARKET_ID = /^[A-Za-z0-9+_-]{1,80}$/
 const ASSET_TYPES = { character: ['.gif','.jpeg','.jpg','.png','.webp'], scene: ['.gif','.jpeg','.jpg','.png','.webp'], prop: ['.gif','.jpeg','.jpg','.png','.webp'], storyboard: ['.gif','.jpeg','.jpg','.png','.webp'], video: ['.mp4','.webm'], audio: ['.flac','.mp3','.pcm','.wav'], other: ['.bin'] }
 const MAX_UPLOAD_BYTES = Number(process.env.SHORT_DRAMA_MAX_MEDIA_BYTES || 512 * 1024 * 1024)
-const PROJECT_DOCUMENTS = { 'source-analysis': '原文分析', brief: '创作简报', bible: '项目设定', outline: '分集大纲', 'art-style': '美术风格' }
+const PROJECT_DOCUMENTS = { 'source-analysis': '原文分析', brief: '创作简报', bible: '项目设定', outline: '分集大纲', 'art-style': '美术风格', 'market-inspiration': '市场灵感' }
 const EPISODE_DOCUMENTS = { scripts: '剧本', 'script-review': '剧本复核', 'director-book': '导演本', 'asset-plan': '资产计划', storyboard: '分镜', 'production-plan': '制作计划', 'video-prompts': '视频提示词', 'audio-plan': '音频计划' }
 const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -31,6 +36,25 @@ const MIME_TYPES = {
   '.flac': 'audio/flac', '.mp3': 'audio/mpeg', '.pcm': 'audio/L16', '.wav': 'audio/wav', '.mp4': 'video/mp4', '.webm': 'video/webm',
 }
 const SAFE_HEADERS = { 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' }
+
+function marketFilterOptions(report) {
+  const values = (key) => [...new Set((report?.topic_metrics || []).flatMap((item) => item[key] || []).filter(Boolean))].sort((left, right) => String(left).localeCompare(String(right), 'zh-CN'))
+  return { topics: (report?.topic_metrics || []).map((item) => item.topic).filter(Boolean).sort((left, right) => String(left).localeCompare(String(right), 'zh-CN')), audiences: values('audiences'), formats: values('formats'), rankingTypes: [...new Set(report?.coverage?.successful_ranking_types || [])].sort() }
+}
+
+function localInspirationCandidate(report, topic, index, generationId) {
+  const metric = (report.topic_metrics || []).find((item) => item.topic === topic)
+  const evidence = (report.platform_matrix || []).find((item) => item.topics?.includes(topic))?.evidence?.[0] || report.evidence?.[0]
+  if (!metric || !evidence) return null
+  const confidence = metric.confidence === 'high' ? '高' : metric.confidence === 'medium' ? '中' : '低'
+  const id = `hyp-${generationId}-${index + 1}`
+  return { id, topic, confidence, confidenceCode: metric.confidence, fact: `${topic}在本期公开榜单样本中有 ${metric.supply_count} 个有效作品样本。`, evidence, limitation: report.limitations?.[0] || '数据仅覆盖公开榜单样本，不能代表全量市场。', inference: `可测试以${topic}为基调的原创连续叙事，但不将榜单表现视为收益承诺。`, creativeTransformation: `以原创人物关系和场景重构${topic}的叙事切口，不复制任何榜单作品的标题、人物或情节。`, openingHook: '主角在第一集遇到一条必须立刻回应的未知线索，并承担明确代价。', serialEngine: '每集解决一个局部问题，同时暴露更高代价的新问题。', differentiation: '使用原创世界观与冲突链，不复刻任何公开样本的具体表达。', productionFit: '以可复用场景和有限主要角色控制竖屏短剧的制作复杂度。' }
+}
+
+function marketInspirationDocument(candidate, reportRef) {
+  const signalId = `signal-${candidate.id}`
+  return { schema_version: 'market-inspiration.v1', report_ref: reportRef, signals: [{ id: signalId, fact: candidate.fact, confidence: candidate.confidenceCode, evidence: [candidate.evidence], limitations: [candidate.limitation] }], hypotheses: [{ id: candidate.id, derived_signal_ids: [signalId], inference: candidate.inference, creative_transformation: candidate.creativeTransformation, premises: ['市场信号只用于提出待验证的创作假设。'], opening_hook: candidate.openingHook, serial_engine: candidate.serialEngine, differentiation: candidate.differentiation, production_fit: candidate.productionFit, risks: [candidate.limitation], validation_questions: ['目标受众是否认可该原创开场与连续冲突？'] }], decision: { selected_hypothesis_ids: [candidate.id], rejected_hypothesis_ids: [], confirmed_at: new Date().toISOString() }, guardrails: { no_title_copy: true, no_plot_copy: true, no_revenue_promise: true, market_data_non_authoritative: true } }
+}
 
 async function readJson(path, fallback) {
   try { return JSON.parse(await readFile(path, 'utf8')) }
@@ -45,6 +69,11 @@ function json(response, status, value) {
 function validHost(request) {
   const host = request.headers.host || ''
   return /^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(host) && (!request.headers.origin || request.headers.origin === `http://${host}`)
+}
+
+function decodeMarketId(value) {
+  try { return decodeURIComponent(value) }
+  catch { throw Object.assign(new Error('市场报告 ID 编码无效'), { status: 400 }) }
 }
 
 async function body(request) {
@@ -374,20 +403,82 @@ async function serveDelivery(response, workspaceRoot, key, episodeKey, kind, ran
   return streamFile(response, file, range)
 }
 
-export function createStudioServer({ workspaceRoot: rootArg, providerTester = testProviderConnection }) {
+function createDefaultMarketService(workspaceRoot) {
+  const store = createMarketStore(workspaceRoot)
+  return {
+    async overview(filters = {}, selectedReportId = null) {
+      const [latest, history] = await Promise.all([store.readLatest(), store.listHistory()])
+      const selectedReport = selectedReportId ? await store.readReport(selectedReportId) : latest.latestReport
+      if (selectedReportId && !selectedReport) throw Object.assign(new Error('市场报告不存在'), { status: 404 })
+      const selectedSnapshotId = selectedReport?.evidence?.find((item) => item?.snapshot_id)?.snapshot_id ?? selectedReport?.snapshot_ids?.at(-1)
+      const snapshot = selectedReportId && selectedSnapshotId ? await store.readSnapshot(selectedSnapshotId) : latest.latestSnapshot
+      if (!selectedReport || !snapshot || Object.keys(filters).length === 0) return { status: selectedReport ? 'ready' : 'empty', latestReport: selectedReport, latestSnapshot: snapshot, history, ...(selectedReport ? { filterOptions: marketFilterOptions(selectedReport) } : {}), ...(selectedReportId ? { selectedReportId } : {}) }
+      const latestReport = analyzeMarket({
+        items: normalizeRankings(snapshot.rankings, { snapshotId: snapshot.snapshot_id, observedAt: snapshot.retrieved_at }),
+        successfulRankingTypes: Object.keys(snapshot.rankings),
+        snapshotIds: [snapshot.snapshot_id],
+        filters,
+      })
+      return { status: 'ready', latestReport, latestSnapshot: snapshot, history, filterOptions: marketFilterOptions(selectedReport), filtered: true, sourceReportId: selectedReport.report_id, selectedReportId }
+    },
+    async refresh() {
+      try {
+        await runMarketResearch(['refresh', workspaceRoot])
+      } catch {
+        // Studio 不向浏览器暴露上游端点、请求参数或内部堆栈；既有成功报告由存储层保留，用户可安全重试。
+        throw Object.assign(new Error('剧查查公开榜单刷新失败，请稍后重试'), { status: 502 })
+      }
+      return this.overview()
+    },
+    report: (id) => store.readReport(id),
+    markdown: (id) => store.readReportMarkdown(id),
+  }
+}
+
+export function createStudioServer({ workspaceRoot: rootArg, providerTester = testProviderConnection, marketService: marketServiceArg }) {
   const workspaceRoot = resolve(rootArg)
+  const marketService = marketServiceArg ?? createDefaultMarketService(workspaceRoot)
   const csrfToken = randomBytes(24).toString('base64url')
+  let marketRefreshPromise = null
+  const inspirationCandidates = new Map()
   return createServer(async (request, response) => {
     try {
       if (!validHost(request)) throw Object.assign(new Error('仅允许本机同源访问'), { status: 403 })
       const url = new URL(request.url, `http://${request.headers.host}`)
-      const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent)
+      const segments = url.pathname.split('/').filter(Boolean).map((segment) => decodeMarketId(segment))
       if (request.method === 'GET' && url.pathname === '/api/v1/workspace') {
         const workspace = await initializeWorkspace(workspaceRoot)
         return json(response, 200, { workspace: { ...workspace, path: workspaceRoot }, projects: await listProjects(workspaceRoot), csrfToken })
       }
       if (request.method === 'GET' && url.pathname === '/api/v1/providers') return json(response, 200, { providers: providerSetupCatalog() })
       if (request.method === 'GET' && url.pathname === '/api/v1/art-styles') return json(response, 200, { styles: artStyleCatalog(workspaceRoot) })
+      if (request.method === 'GET' && url.pathname === '/api/v1/market') {
+        const filters = {}
+        for (const [query, field] of [['rankingTypes', 'rankingTypes'], ['topic', 'topic'], ['audience', 'audience'], ['format', 'format']]) {
+          const value = url.searchParams.get(query)
+          if (value) filters[field] = value
+        }
+        const selectedReportId = url.searchParams.get('reportId')
+        if (selectedReportId && !MARKET_ID.test(selectedReportId)) throw Object.assign(new Error('市场报告 ID 无效'), { status: 400 })
+        return json(response, 200, await marketService.overview(filters, selectedReportId))
+      }
+      const marketReportMatch = /^\/api\/v1\/market\/reports\/([^/]+)$/.exec(url.pathname)
+      const marketMarkdownMatch = /^\/api\/v1\/market\/reports\/([^/]+)\/markdown$/.exec(url.pathname)
+      if (request.method === 'GET' && marketMarkdownMatch) {
+        const reportId = decodeMarketId(marketMarkdownMatch[1])
+        if (!MARKET_ID.test(reportId)) throw Object.assign(new Error('市场报告 ID 无效'), { status: 400 })
+        const markdown = await marketService.markdown(reportId)
+        if (markdown === null) throw Object.assign(new Error('市场报告不存在'), { status: 404 })
+        response.writeHead(200, { ...SAFE_HEADERS, 'content-type': 'text/markdown; charset=utf-8', 'cache-control': 'no-store' })
+        return response.end(markdown)
+      }
+      if (request.method === 'GET' && marketReportMatch) {
+        const reportId = decodeMarketId(marketReportMatch[1])
+        if (!MARKET_ID.test(reportId)) throw Object.assign(new Error('市场报告 ID 无效'), { status: 400 })
+        const report = await marketService.report(reportId)
+        if (!report) throw Object.assign(new Error('市场报告不存在'), { status: 404 })
+        return json(response, 200, report)
+      }
       if (request.method === 'POST' || request.method === 'DELETE') {
         if (request.headers['x-short-drama-csrf'] !== csrfToken) throw Object.assign(new Error('操作凭证无效，请刷新页面'), { status: 403 })
         if (request.method === 'DELETE') {
@@ -397,6 +488,46 @@ export function createStudioServer({ workspaceRoot: rootArg, providerTester = te
           const key = decodeURIComponent(projectMatch[1])
           await rm(await projectPath(workspaceRoot, key), { recursive: true })
           return json(response, 200, { deleted: true, projectKey: key })
+        }
+        if (url.pathname === '/api/v1/market/refresh') {
+          if (marketRefreshPromise) throw Object.assign(new Error('市场数据正在刷新'), { status: 409 })
+          marketRefreshPromise = Promise.resolve().then(() => marketService.refresh())
+          try { return json(response, 201, await marketRefreshPromise) }
+          catch (error) { throw Object.assign(new Error(error?.message || '市场数据刷新失败'), { status: error?.status || 502 }) }
+          finally { marketRefreshPromise = null }
+        }
+        if (url.pathname === '/api/v1/market/inspirations/generate') {
+          const input = await body(request)
+          if (!MARKET_ID.test(input.reportId || '')) throw Object.assign(new Error('市场报告 ID 无效'), { status: 400 })
+          if (!Array.isArray(input.topics) || input.topics.length < 1 || input.topics.length > 3 || new Set(input.topics).size !== input.topics.length || input.topics.some((topic) => typeof topic !== 'string')) throw Object.assign(new Error('请选择 1 到 3 个不重复题材'), { status: 400 })
+          const report = await marketService.report(input.reportId)
+          if (!report) throw Object.assign(new Error('市场报告不存在'), { status: 404 })
+          const available = new Set(marketFilterOptions(report).topics)
+          if (input.topics.some((topic) => !available.has(topic))) throw Object.assign(new Error('所选题材不在当前未过滤报告中'), { status: 400 })
+          const generationId = randomUUID()
+          const candidates = input.topics.map((topic, index) => localInspirationCandidate(report, topic, index, generationId)).filter(Boolean)
+          for (const candidate of candidates) inspirationCandidates.set(candidate.id, { reportId: report.report_id, candidate })
+          return json(response, 201, { reportId: report.report_id, candidates })
+        }
+        if (url.pathname === '/api/v1/market/inspirations/register') {
+          const input = await body(request)
+          const saved = inspirationCandidates.get(input.candidateId)
+          if (!saved) throw Object.assign(new Error('候选不存在，请重新生成'), { status: 404 })
+          const root = await projectPath(workspaceRoot, input.projectKey)
+          let brief
+          try { brief = await readJson(resolve(root, '.short-drama/brief.json')) } catch (error) { if (error?.code === 'ENOENT') throw Object.assign(new Error('请先在目标项目保存 Brief'), { status: 409 }); throw error }
+          const temporary = await mkdtemp(resolve(tmpdir(), 'short-drama-market-inspiration-'))
+          try {
+            const reportRef = JSON.parse(await run('project-store.mjs', ['market-report-ref', root, saved.reportId, saved.candidate.id]))
+            const marketInspiration = marketInspirationDocument(saved.candidate, reportRef)
+            const inspirationPath = resolve(temporary, 'market-inspiration.json')
+            const briefPath = resolve(temporary, 'brief.json')
+            await writeFile(inspirationPath, `${JSON.stringify(marketInspiration)}\n`)
+            const nextBrief = { ...brief, market_inspiration_ref: reportRef }
+            await writeFile(briefPath, `${JSON.stringify(nextBrief)}\n`)
+            await run('project-store.mjs', ['register-market-inspiration', root, inspirationPath, briefPath])
+            return json(response, 201, { marketInspiration, brief: nextBrief })
+          } finally { await rm(temporary, { recursive: true, force: true }) }
         }
         if (url.pathname === '/api/v1/projects') return json(response, 201, await createProject(workspaceRoot, await body(request)))
         const credentialMatch = /^\/api\/v1\/providers\/([^/]+)\/credential$/.exec(url.pathname)

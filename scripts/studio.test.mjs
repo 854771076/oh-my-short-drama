@@ -6,12 +6,28 @@ import { homedir, tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { createStudioServer, DEFAULT_WORKSPACE_ROOT, initializeWorkspace } from './studio.mjs'
+import { createMarketStore } from './market/store.mjs'
+import { analyzeMarket } from './market/analyze.mjs'
 import { renderDocument } from '../studio/document-view.js'
-import { parseRoute, projectRoute } from '../studio/router.js'
+import { marketRoute, parseAppRoute, parseRoute, projectRoute } from '../studio/router.js'
 
 const execute = promisify(execFile)
 const pluginRoot = resolve(import.meta.dirname, '..')
 const run = (script, args) => execute(process.execPath, [resolve(pluginRoot, 'scripts', script), ...args])
+
+const briefFixture = () => ({
+  title: '原有项目', logline: '', adaptation_mode: 'original', genre: '原有题材', audience: '', platform: '原有平台', tone: '', core_conflict: '', output_language: 'zh-CN', spoken_language: 'zh-CN', subtitle_language: 'zh-CN', aspect_ratio: '9:16', episode_count: 1, episode_duration_seconds: 30, rating: '', existing_materials: [], required_deliverables: [], prohibited_content: [], ending_type: '', creative_constraints: [], market_inspiration_ref: null, open_questions: [], approved: true,
+})
+
+function marketReportFixture() {
+  return analyzeMarket({
+    items: [
+      { key: 'suspense-1', title: '悬疑样本', topics: ['悬疑'], rankingType: 'hot', ranking: 1, heatValue: 100, audience: '女频', format: '真人', provenance: { topicSource: 'source-tag' } },
+      { key: 'romance-1', title: '甜宠样本', topics: ['甜宠'], rankingType: 'douyin', ranking: 2, heatValue: 80, audience: '女频', format: '真人', provenance: { topicSource: 'source-tag' } },
+    ],
+    successfulRankingTypes: ['hot', 'douyin'], snapshotIds: ['studio-inspiration-snapshot'],
+  })
+}
 
 assert.equal(DEFAULT_WORKSPACE_ROOT, resolve(homedir(), 'darma_project'))
 
@@ -21,12 +37,230 @@ test('Dashboard 项目路由可在刷新后恢复', () => {
   assert.equal(parseRoute('#/'), null)
 })
 
+test('市场路由可在刷新后恢复', () => {
+  assert.equal(marketRoute(), '#/market')
+  assert.deepEqual(parseAppRoute('#/market'), { kind: 'market' })
+  assert.deepEqual(parseAppRoute('#/projects/demo/assets'), { kind: 'project', projectKey: 'demo', view: 'assets' })
+})
+
+test('市场页面和样式合同完整', async () => {
+  const [appSource, styles] = await Promise.all([
+    readFile(resolve(pluginRoot, 'studio/app.js'), 'utf8'),
+    readFile(resolve(pluginRoot, 'studio/styles.css'), 'utf8'),
+  ])
+  for (const token of ['市场调研', 'data-market-refresh', 'data-market-filter', 'data-market-filter-key', 'data-market-sort', 'data-market-clear', 'data-market-report', 'aria-live="polite"', '公司格局', '新剧观察', '历史趋势', '灵感板', 'data-market-inspiration-topic', 'data-market-generate', 'data-market-register', '题材 × 榜单热度', '置信度']) assert.match(appSource, new RegExp(token))
+  assert.doesNotMatch(appSource, /renderMarketLegacy/)
+  for (const token of ['market-shell', 'market-filterbar', 'market-metrics', 'market-opportunity-layout', 'market-topic-table', 'market-platform-matrix', 'market-evidence-drawer', 'market-detail-grid', 'market-history', 'market-first-run', 'market-inspiration-board']) assert.match(styles, new RegExp(token))
+  assert.match(styles, /@media \(max-width:900px\)/)
+  assert.match(styles, /@media \(max-width:560px\)/)
+  assert.match(styles, /:focus-visible/)
+  assert.match(styles, /prefers-reduced-motion/)
+})
+
+test('市场页面真实 DOM 渲染缺失榜内值为破折号，并在切换题材或周期时复位灵感状态', async (t) => {
+  const original = { document: globalThis.document, window: globalThis.window, history: globalThis.history, location: globalThis.location, fetch: globalThis.fetch, setInterval: globalThis.setInterval }
+  const listeners = new Map(), app = { innerHTML: '', addEventListener: () => {} }, dialog = { addEventListener: () => {}, close: () => {}, showModal: () => {} }, toast = { textContent: '', classList: { add: () => {}, remove: () => {} } }
+  const dispatch = (type, target) => {
+    let stopped = false
+    const event = { target, stopImmediatePropagation: () => { stopped = true } }
+    for (const listener of listeners.get(type) || []) {
+      listener(event)
+      if (stopped) break
+    }
+  }
+  globalThis.document = { querySelector: (selector) => selector === '#app' ? app : selector === '#toast' ? toast : dialog, addEventListener: (type, listener) => listeners.set(type, [...(listeners.get(type) || []), listener]) }
+  globalThis.window = { confirm: () => true, addEventListener: () => {}, localStorage: { getItem: () => null, setItem: () => {} } }
+  globalThis.history = { replaceState: () => {}, pushState: () => {} }
+  globalThis.location = { hash: '#/market' }
+  const report = marketReportFixture()
+  const pendingGenerations = []
+  const response = (body) => ({ ok: true, json: async () => body })
+  globalThis.fetch = async (url) => {
+    if (String(url).startsWith('/api/v1/workspace')) return response({ workspace: { title: '测试工作区', path: '/tmp' }, projects: [], csrfToken: 'test' })
+    if (String(url) === '/api/v1/market/inspirations/generate') return new Promise((resolve) => pendingGenerations.push(resolve))
+    return response({ status: 'ready', latestReport: report, latestSnapshot: {}, history: [report], filterOptions: { topics: ['悬疑', '甜宠'], audiences: ['女频'], formats: ['真人'], rankingTypes: ['douyin', 'hot'] } })
+  }
+  globalThis.setInterval = () => 0
+  t.after(() => Object.assign(globalThis, original))
+  await import(`../studio/app.js?market-dom=${Date.now()}`)
+  await new Promise((done) => setImmediate(done))
+  assert.match(app.innerHTML, /题材 × 榜单热度/)
+  assert.match(app.innerHTML, /— \(n=0\)/)
+  assert.match(app.innerHTML, /<option value="甜宠"/)
+
+  const click = (dataset) => {
+    const target = { dataset, closest: (selector) => selector === 'button' ? target : null }
+    dispatch('click', target)
+  }
+  click({ marketInspirationTopic: '悬疑' })
+  click({ marketGenerate: '' })
+  await new Promise((done) => setImmediate(done))
+  assert.match(app.innerHTML, /生成中…/)
+  pendingGenerations.shift()(response({ candidates: [{ id: 'old-candidate', topic: '悬疑', confidence: '低', inference: '旧候选' }] }))
+  await new Promise((done) => setImmediate(done))
+  assert.match(app.innerHTML, /old-candidate/)
+
+  click({ marketInspirationTopic: '甜宠' })
+  assert.doesNotMatch(app.innerHTML, /old-candidate/)
+  click({ marketGenerate: '' })
+  await new Promise((done) => setImmediate(done))
+  assert.match(app.innerHTML, /生成中…/)
+  dispatch('change', { value: report.report_id, dataset: {}, matches: (selector) => selector === '[data-market-period]' })
+  await new Promise((done) => setImmediate(done))
+  assert.doesNotMatch(app.innerHTML, /生成中…/)
+  pendingGenerations.shift()(response({ candidates: [{ id: 'stale-candidate', topic: '甜宠', confidence: '低', inference: '过期响应' }] }))
+  await new Promise((done) => setImmediate(done))
+  assert.doesNotMatch(app.innerHTML, /stale-candidate|生成中…/)
+})
+
 test('结构化文档递归展示字段并转义内容', () => {
   const html = renderDocument({ episode_key: 'ep-001', characters: [{ name: '<林乔>' }] })
   assert.match(html, /分集/)
   assert.match(html, /人物/)
   assert.match(html, /&lt;林乔&gt;/)
   assert.match(renderDocument({ selected_version: null }), /未设置/)
+})
+
+test('市场 API 支持空态、刷新锁和报告读取', async (t) => {
+  const workspace = await mkdtemp(resolve(tmpdir(), 'short-drama-market-api-'))
+  let releaseRefresh
+  const refreshGate = new Promise((resolveGate) => { releaseRefresh = resolveGate })
+  const marketService = {
+    overview: async () => ({ status: 'empty', latestReport: null, latestSnapshot: null, history: [] }),
+    refresh: async () => { await refreshGate; return { status: 'ready', latestReport: { report_id: 'r1' }, history: [{ report_id: 'r1' }] } },
+    report: async (id) => id === 'r1' ? { report_id: 'r1' } : null,
+    markdown: async () => '# 市场报告\n',
+  }
+  const server = createStudioServer({ workspaceRoot: workspace, marketService })
+  await new Promise((done) => server.listen(0, '127.0.0.1', done))
+  t.after(async () => { releaseRefresh(); await new Promise((done) => server.close(done)); await rm(workspace, { recursive: true, force: true }) })
+  const base = `http://127.0.0.1:${server.address().port}`
+  const bootstrap = await fetch(`${base}/api/v1/workspace`).then((response) => response.json())
+  assert.deepEqual(await fetch(`${base}/api/v1/market`).then((response) => response.json()), { status: 'empty', latestReport: null, latestSnapshot: null, history: [] })
+  assert.equal((await fetch(`${base}/api/v1/market/refresh`, { method: 'POST' })).status, 403)
+  const refresh = fetch(`${base}/api/v1/market/refresh`, { method: 'POST', headers: { 'x-short-drama-csrf': bootstrap.csrfToken } })
+  await new Promise((done) => setImmediate(done))
+  assert.equal((await fetch(`${base}/api/v1/market/refresh`, { method: 'POST', headers: { 'x-short-drama-csrf': bootstrap.csrfToken } })).status, 409)
+  releaseRefresh()
+  assert.equal((await refresh).status, 201)
+  assert.equal((await fetch(`${base}/api/v1/market/reports/missing`)).status, 404)
+  const traversal = await fetch(`${base}/api/v1/market/reports/..%2F..%2Fsecret/markdown`)
+  assert.equal(traversal.status, 400)
+  assert.doesNotMatch(await traversal.text(), /secret contents/)
+  assert.equal((await fetch(`${base}/api/v1/market/reports/%E0%A4%A/markdown`)).status, 400)
+  const markdown = await fetch(`${base}/api/v1/market/reports/r1/markdown`)
+  assert.equal(markdown.headers.get('content-type'), 'text/markdown; charset=utf-8')
+})
+
+test('市场 API 默认服务在空工作区保持离线空态', async (t) => {
+  const workspace = await mkdtemp(resolve(tmpdir(), 'short-drama-market-empty-'))
+  const server = createStudioServer({ workspaceRoot: workspace })
+  await new Promise((done) => server.listen(0, '127.0.0.1', done))
+  t.after(async () => { await new Promise((done) => server.close(done)); await rm(workspace, { recursive: true, force: true }) })
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/market`)
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { status: 'empty', latestReport: null, latestSnapshot: null, history: [] })
+})
+
+test('市场 API 筛选使用最新快照重算全部指标', async (t) => {
+  const workspace = await mkdtemp(resolve(tmpdir(), 'short-drama-market-filter-'))
+  const store = createMarketStore(workspace)
+  await store.saveSnapshot({
+    schema_version: 1,
+    snapshot_id: 'filter-snapshot',
+    retrieved_at: '2026-09-16T10:00:00+08:00',
+    source: { provider: 'dataeye-juchacha', coverage: 'public-top-30' },
+    rankings: { hot: { content: [
+      { playletId: 1, playletName: '男频剧', audience: '男频', playletTags: ['异能'], ranking: 1, consumeNum: 100 },
+      { playletId: 2, playletName: '女频剧', audience: '女频', playletTags: ['甜宠'], ranking: 2, consumeNum: 50 },
+    ] } },
+    failures: [],
+  })
+  const oldReportId = JSON.parse((await run('market-research.mjs', ['analyze', workspace])).stdout).report_id
+  await store.saveSnapshot({
+    schema_version: 1,
+    snapshot_id: 'filter-snapshot-new',
+    retrieved_at: '2026-09-16T11:00:00+08:00',
+    source: { provider: 'dataeye-juchacha', coverage: 'public-top-30' },
+    rankings: { hot: { content: [{ playletId: 3, playletName: '新女频剧', audience: '女频', playletTags: ['甜宠'], ranking: 1, consumeNum: 90 }] } },
+    failures: [],
+  })
+  await run('market-research.mjs', ['analyze', workspace])
+  const server = createStudioServer({ workspaceRoot: workspace })
+  await new Promise((done) => server.listen(0, '127.0.0.1', done))
+  t.after(async () => { await new Promise((done) => server.close(done)); await rm(workspace, { recursive: true, force: true }) })
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/market?audience=${encodeURIComponent('男频')}&reportId=${oldReportId}`)
+  const body = await response.json()
+  assert.equal(response.status, 200)
+  assert.equal(body.filtered, true)
+  assert.equal(body.selectedReportId, oldReportId)
+  assert.equal(body.latestReport.coverage.sample_count, 1)
+  assert.deepEqual(body.latestReport.filters, { audience: '男频' })
+  assert.deepEqual(body.latestReport.topic_metrics.map((item) => item.topic), ['异能'])
+  assert.deepEqual(body.filterOptions.topics, ['甜宠', '异能'])
+})
+
+test('市场灵感 API 限制题材选择、生成本地候选并只登记灵感和 Brief 引用', async (t) => {
+  const workspace = await mkdtemp(resolve(tmpdir(), 'short-drama-market-inspiration-'))
+  const report = marketReportFixture()
+  await createMarketStore(workspace).saveReport(report)
+  const projectRoot = resolve(workspace, 'target-drama')
+  await run('project-store.mjs', ['init', projectRoot])
+  const briefPath = resolve(workspace, 'brief.json')
+  await writeFile(briefPath, `${JSON.stringify(briefFixture())}\n`)
+  await run('project-store.mjs', ['put-document', projectRoot, 'brief', briefPath])
+  const beforeProject = JSON.parse(await readFile(resolve(projectRoot, '.short-drama/project.json'), 'utf8'))
+  const server = createStudioServer({ workspaceRoot: workspace })
+  await new Promise((done) => server.listen(0, '127.0.0.1', done))
+  t.after(async () => { await new Promise((done) => server.close(done)); await rm(workspace, { recursive: true, force: true }) })
+  const base = `http://127.0.0.1:${server.address().port}`
+  const csrfToken = (await fetch(`${base}/api/v1/workspace`).then((response) => response.json())).csrfToken
+  const headers = { 'content-type': 'application/json', 'x-short-drama-csrf': csrfToken }
+
+  const tooMany = await fetch(`${base}/api/v1/market/inspirations/generate`, { method: 'POST', headers, body: JSON.stringify({ reportId: report.report_id, topics: ['悬疑', '甜宠', '都市', '古装'] }) })
+  assert.equal(tooMany.status, 400)
+  const generated = await fetch(`${base}/api/v1/market/inspirations/generate`, { method: 'POST', headers, body: JSON.stringify({ reportId: report.report_id, topics: ['悬疑', '甜宠'] }) })
+  const generatedBody = await generated.json()
+  assert.equal(generated.status, 201, generatedBody.error)
+  assert.equal(generatedBody.candidates.length, 2)
+  assert.equal(new Set(generatedBody.candidates.map((item) => item.id)).size, generatedBody.candidates.length)
+  assert.deepEqual(generatedBody.candidates.map((item) => item.topic), ['悬疑', '甜宠'])
+  assert.equal(generatedBody.candidates[0].confidence, '低')
+  const regenerated = await fetch(`${base}/api/v1/market/inspirations/generate`, { method: 'POST', headers, body: JSON.stringify({ reportId: report.report_id, topics: ['甜宠', '悬疑'] }) }).then((response) => response.json())
+  assert.notEqual(regenerated.candidates[0].id, generatedBody.candidates[0].id)
+
+  const registered = await fetch(`${base}/api/v1/market/inspirations/register`, { method: 'POST', headers, body: JSON.stringify({ projectKey: 'target-drama', candidateId: generatedBody.candidates[0].id }) })
+  const registeredBody = await registered.json()
+  assert.equal(registered.status, 201, registeredBody.error)
+  assert.equal(registeredBody.marketInspiration.decision.selected_hypothesis_ids[0], generatedBody.candidates[0].id)
+  assert.equal(registeredBody.brief.market_inspiration_ref.report_id, report.report_id)
+  assert.deepEqual(JSON.parse(await readFile(resolve(projectRoot, '.short-drama/market-inspiration.json'), 'utf8')), registeredBody.marketInspiration)
+  assert.equal(JSON.parse(await readFile(resolve(projectRoot, '.short-drama/brief.json'), 'utf8')).platform, '原有平台')
+  assert.equal(JSON.parse(await readFile(resolve(projectRoot, '.short-drama/project.json'), 'utf8')).creative.genre, beforeProject.creative.genre)
+  const reRegistered = await fetch(`${base}/api/v1/market/inspirations/register`, { method: 'POST', headers, body: JSON.stringify({ projectKey: 'target-drama', candidateId: regenerated.candidates[0].id }) }).then((response) => response.json())
+  assert.equal(reRegistered.marketInspiration.decision.selected_hypothesis_ids[0], regenerated.candidates[0].id)
+})
+
+test('市场刷新失败返回可重试错误且不泄露上游细节', async (t) => {
+  const workspace = await mkdtemp(resolve(tmpdir(), 'short-drama-market-failure-'))
+  const previous = { report_id: 'existing-report', coverage: { sample_count: 30 } }
+  const marketService = {
+    overview: async () => ({ status: 'ready', latestReport: previous, latestSnapshot: {}, history: [previous] }),
+    refresh: async () => { throw Object.assign(new Error('剧查查公开榜单刷新失败，请稍后重试'), { status: 502 }) },
+    report: async () => null,
+    markdown: async () => '',
+  }
+  const server = createStudioServer({ workspaceRoot: workspace, marketService })
+  await new Promise((done) => server.listen(0, '127.0.0.1', done))
+  t.after(async () => { await new Promise((done) => server.close(done)); await rm(workspace, { recursive: true, force: true }) })
+  const base = `http://127.0.0.1:${server.address().port}`
+  const bootstrap = await fetch(`${base}/api/v1/workspace`).then((response) => response.json())
+  const response = await fetch(`${base}/api/v1/market/refresh`, { method: 'POST', headers: { 'x-short-drama-csrf': bootstrap.csrfToken } })
+  assert.equal(response.status, 502)
+  const text = await response.text()
+  assert.match(text, /请稍后重试/)
+  assert.doesNotMatch(text, /https?:|authorization|cookie|stack/iu)
+  assert.deepEqual((await fetch(`${base}/api/v1/market`).then((value) => value.json())).latestReport, previous)
 })
 
 test('Dashboard 通过本地 HTTP API 初始化工作区并创建项目', async (t) => {

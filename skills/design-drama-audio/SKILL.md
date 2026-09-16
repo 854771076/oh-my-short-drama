@@ -5,6 +5,8 @@ description: 设计并在本地管理短剧声音资产。用于角色声音分�
 
 # 制作短剧声音
 
+`viral-recreation` 项目必须读取当前分集编译约束包，按 Speech、Caption 和参考限制设计配音、音乐与对齐策略，并在 `source_versions.recreation_workflow` 绑定当前 selected 版本；未获声音或音乐授权时不得复用原片身份特征或曲目。
+
 新声音计划默认 `audio_strategy.mode=native-first`：先选择同时满足画面资产约束与原生音频能力的视频 Provider，一次生成对白、电影感旁白、环境声和动作声；背景音在这里仅指环境声与动作声，BGM 始终走独立配乐与许可证流程。只有 Provider 不支持原生音频，或原生结果出现受控失败证据时才安排局部兜底，本 Skill 不对合格原声重复执行 TTS。
 
 每条声音把三类语义分开保存：`delivery_mode ∈ native|post_dub|external_audio` 表示来源，`presentation ∈ visible-dialogue|offscreen-dialogue|narration` 表示画面关系，`fallback_mode ∈ none|post-dub|cinematic-tts|sound-design` 表示失败预案。兜底 reason 只能是 `provider-no-native-audio`、`voice-identity-drift`、`speech-intelligibility-failed`、`narration-performance-failed`、`audio-sync-failed`、`native-ambience-failed`，并记录证据、精确替换区间与最终混音来源。旧 `narration/offscreen` 只迁移 presentation，来源进入 unresolved，不能冒充已经完成配音。

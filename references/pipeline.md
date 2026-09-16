@@ -4,6 +4,10 @@
 
 `analysis → script → director-book → asset-analysis → asset-generation → production-plan → per-shot image or Blender storyboard → plan-shot-continuity → video prompts → videos/audio → editing → delivery`
 
+`viral-recreation` 是该状态机的 profile，不是新增阶段。它在 analysis 内额外要求：本地文件或经授权确认的链接导入 → selected 本地参考视频 → `.short-drama/reference-video/prepared.json` → `.short-drama/reference-video-analysis.json` → `episodes/<episode>/recreation-workflow/selected.json` → `.short-drama/recreation-compiled/<episode>/<version>.json`。链接导入收据记录平台、作品 ID、规范链接、下载器、权利确认和本地 SHA-256，但不得保存 Cookie 或 API key。各产物必须按 source key、版本和 SHA-256 串联；编译约束包作为现有 brief、剧本、导演本、分镜、制作计划、音频和剪辑的机器可校验上游输入。
+
+市场调研和市场灵感位于正式状态机之外，是 `analysis` 前或过程中按需使用的辅助输入，不是所有项目的必经阶段。工作区级 `.short-drama-market/` 保存公开榜单快照和 `market-report.v2`；只有用户明确选择灵感后，项目内才保存 `market-inspiration.v1` 并由 Brief 引用。
+
 所有状态、文本、分镜和媒体都以用户指定的本地项目目录为事实来源，不调用或回写任何业务系统 API。
 
 ```text
@@ -16,7 +20,10 @@
 │   ├── prompt-runs/<prompt-run-id>.json
 │   ├── requests/<request-id>.json
 │   ├── uploads/<upload-receipt-id>.json
-│   ├── source-analysis.json / brief.json / bible.json / outline.json
+│   ├── source-analysis.json / brief.json / market-inspiration.json
+│   ├── bible.json / outline.json
+│   ├── reference-video/prepared.json / reference-video-analysis.json（复刻 profile）
+│   ├── reference-imports/<source>/<version>.json（链接导入收据）
 │   ├── assets.json
 │   ├── shot-reviews.json
 │   └── tasks.json
@@ -33,6 +40,7 @@
 │   ├── continuity-plan/<version>.json
 │   ├── video-prompts/<version>.json
 │   ├── audio-plan/<version>.json
+│   ├── recreation-workflow/<version>.json（复刻 profile）
 │   └── storyboard/<version>.json
 ├── assets/{characters,scenes,props,storyboards,audio,videos,other}/
 ├── editing/ep-NNN/timeline.json / review.json
@@ -40,6 +48,8 @@
 ```
 
 所有项目必须遵循 [项目规范 v1](project-spec-v1.md)：JSON 使用 snake_case 业务字段，项目 key 使用小写 kebab-case，分集使用 `ep-001`，版本使用 `v001`，媒体资产使用类型前缀并携带 provenance。
+
+市场灵感严格分层：报告保存可追溯事实和分析推断，灵感文档保存待验证的创作假设，`decision` 保存用户已选择/拒绝的决定。报告引用绑定 report ID、snapshot IDs、筛选条件、生成时间和 SHA-256；登记时同时校验并原子写入 `market-inspiration.json` 与 Brief 引用。该可选动作不得覆盖 `project.json` 的题材、Brief 的平台、来源事实或合规约束，Bible 与 Outline 也不得绕过 Brief 直接消费榜单作品清单。
 
 用 `node scripts/project-store.mjs init <项目目录> [项目元数据.json]` 初始化并执行 init 环境预检；进入媒体或剪辑阶段前再运行 `node scripts/preflight.mjs <media|editing> <项目目录>`。原始资料先用 `put-source` 或 `select-source` 归档，项目、简报/圣经/目录、分集、剧本和分镜均通过该脚本写入。每阶段先用 `node scripts/skill-runs.mjs required <项目目录> <阶段>` 获取并完整执行原子 Skill，完成后用 `record` 绑定项目内证据；同一阶段已有证据时可用 `record-stage <项目目录> <阶段>` 批量重算凭证。阶段检查、推进与回退使用 `node scripts/workflow.mjs <status|check|advance|rewind> <项目目录> [阶段]`；`advance` 会拒绝缺少 Skill 凭证、真实本地产物或验收的阶段。
 

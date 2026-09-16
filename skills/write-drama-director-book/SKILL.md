@@ -5,7 +5,7 @@ description: 由 Codex 把已确认剧本转换为场次级导演本。用于明
 
 # 编写短剧导演本
 
-读取本地已选剧本、source analysis、故事圣经和项目画幅。由 Codex 使用 `assets/prompts/director_book.{zh,en}.txt` 为每个场次输出结构化导演本：来源段落、戏剧目标、节拍、人物潜台词与表演、走位和视线、空间轴线、摄影策略、光线色彩、环境与声音、转场意图、连续性状态和资产需求。
+读取本地已选剧本、source analysis、故事圣经和项目画幅。`viral-recreation` 项目还必须读取 `.short-drama/recreation-compiled/<episode>/<version>.json` 中当前 selected 版本，将 Media、Caption、Speech、Film 约束落实到场次设计，并在导演本顶层写入 `recreation_workflow_version`。由 Codex 使用 `assets/prompts/director_book.{zh,en}.txt` 为每个场次输出结构化导演本：来源段落、戏剧目标、节拍、人物潜台词与表演、走位和视线、空间轴线、摄影策略、光线色彩、环境与声音、转场意图、连续性状态和资产需求。
 
 导演本不能添加未获授权的剧情事实，也不能提前生成最终镜号或模型参数。它描述“这一场为什么这样拍”，后续 `build-drama-storyboard` 才把意图拆成可生成镜头。
 

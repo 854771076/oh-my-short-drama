@@ -8,6 +8,7 @@ import { invalidateFrom } from './invalidate-workflow.mjs'
 import { getMusicLicense, validateMusicUse } from './music-license-ledger.mjs'
 import { finalSpeechAlignment, selectedSourceSpeechTiming } from './speech-timing.mjs'
 import { resolveGeneratedDubbingContract } from './dubbing-contract-resolution.mjs'
+import { validateRecreationConsumerBinding } from './recreation-workflow.mjs'
 
 const TRANSITIONS = new Set(['none', 'hard-cut', 'action-cut', 'eyeline-cut', 'composition-match', 'j-cut', 'l-cut', 'occlusion', 'fade', 'dissolve'])
 const AUDIO_ROLES = new Set(['dialogue', 'voiceover', 'ambient', 'bgm', 'sfx', 'native'])
@@ -256,6 +257,7 @@ export async function validateTimeline(root, timeline) {
     if (!timeline.mix || typeof timeline.mix.target_lufs !== 'number' || timeline.mix.target_lufs < -24 || timeline.mix.target_lufs > -8 || typeof timeline.mix.true_peak_dbtp !== 'number' || timeline.mix.true_peak_dbtp > -1) throw new Error('存在音轨时必须设置合理的 mix.target_lufs 与 true_peak_dbtp')
   }
   const project = JSON.parse(await readFile(resolve(root, '.short-drama', 'project.json'), 'utf8'))
+  await validateRecreationConsumerBinding(root, 'timeline', timeline.episode_key, timeline)
   const episode = JSON.parse(await readFile(resolve(root, 'episodes', timeline.episode_key, 'episode.json'), 'utf8'))
   const targetMs = Number(episode.target_duration_seconds || project.format?.episode_duration_seconds || 0) * 1000
   if (targetMs && Math.abs(previousEnd - targetMs) / targetMs > 0.15 && (timeline.duration_exception?.user_confirmed !== true || typeof timeline.duration_exception.reason !== 'string' || !timeline.duration_exception.reason.trim())) throw new Error(`成片时长 ${previousEnd}ms 超出目标 ${targetMs}ms 的 ±15%，必须记录用户确认的 duration_exception.reason`)

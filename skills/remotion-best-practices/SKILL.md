@@ -5,6 +5,8 @@ description: 本地短剧 Remotion 剪辑与渲染规范。用于创建或维护
 
 # Remotion 短剧剪辑规范
 
+`viral-recreation` 项目的 Remotion 实现以 `.short-drama/recreation-compiled/<episode>/<version>.json` 中当前 selected 版本为上游约束，语义锚点解析为帧后仍须保留 segment/word 来源，不得把参考原片直接复制进正式 composition。
+
 本 Skill 是剪辑阶段的必经实现层。先运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/preflight.mjs" editing <项目目录>`，再读取 [本地剪辑与交付规范](../../references/editing-workflow.md)。只接收逐镜四项验收通过且已 selected 的本地资产；保留源文件，每集时间线由 `editing/<episode-key>/timeline.json` 驱动并由 `editing-store.mjs` 校验。
 
 没有 Remotion 工程时，在项目 `editing/` 下用 `npx create-video@latest --yes --blank --no-tailwind remotion` 创建；已有工程直接复用。素材放入工程 `public/`，用 `staticFile()` 引用；视频和音频使用 `@remotion/media`，图片使用 `<Img>`。Remotion 包统一用 `npx remotion add` 安装兼容版本。composition 的 `durationInFrames` 必须从 timeline 实际尾点计算，不能把“一分钟短剧”硬编码为 60 秒；目标时长默认允许约 ±15% 自然浮动，平台明确限长除外。

@@ -1,0 +1,3 @@
+interface:
+  display_name: "分析短剧市场"
+  short_description: "基于公开 Top 30 榜单生成可追溯的题材、平台与竞争分析。"

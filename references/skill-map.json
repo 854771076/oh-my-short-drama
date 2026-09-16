@@ -1,6 +1,6 @@
 {
   "workflow": [
-    "analyze-drama-source", "define-drama-brief", "design-drama-bible", "outline-drama-series", "short-drama", "write-drama-episode", "humanizer", "review-drama-script", "write-drama-director-book",
+    "analyze-drama-source", "analyze-reference-video", "design-video-recreation", "define-drama-brief", "design-drama-bible", "outline-drama-series", "short-drama", "write-drama-episode", "humanizer", "review-drama-script", "write-drama-director-book",
     "plan-drama-assets", "generate-drama-art-style", "generate-character-profiles", "generate-character-images",
     "generate-scene-assets", "generate-prop-assets",
     "build-drama-storyboard", "revise-drama-storyboards", "plan-drama-production", "generate-storyboard-images",
@@ -11,7 +11,7 @@
     "manage-drama-projects", "manage-drama-assets", "manage-drama-art-styles",
     "transform-drama-media", "monitor-drama-tasks", "recover-drama-pipeline",
     "configure-generation-providers", "drama-generation-service", "publish-drama-references", "orchestrate-short-drama",
-    "short-drama-skill-index", "use-short-drama-studio"
+    "short-drama-skill-index", "use-short-drama-studio", "analyze-drama-market", "ideate-drama-from-market"
   ],
   "stages": {
     "analysis": ["manage-drama-projects", "analyze-drama-source", "define-drama-brief", "design-drama-bible", "outline-drama-series"],
@@ -30,6 +30,8 @@
     "2d_to_live_action"
   ],
   "completion_prompts": {
+    "analyze-reference-video": ["reference_video_analysis"],
+    "design-video-recreation": ["video_recreation_workflow"],
     "write-drama-episode": ["screenplay_conversion"],
     "generate-drama-art-style": ["art_style_decision"],
     "build-drama-storyboard": ["professional_storyboard"],
@@ -40,11 +42,14 @@
     "media_pipeline": ["character-appeal", "continuity-plan", "previous-tail", "native-audio", "native-audio-review", "audio-fallback", "lip-sync", "licensed-music", "media-editing", "video-upscale", "delivery"]
   },
   "prompts": {
+    "reference_video_analysis": "analyze-reference-video",
+    "video_recreation_workflow": "design-video-recreation",
     "art_style_decision": "generate-drama-art-style",
     "asset_analysis": "plan-drama-assets",
     "review_drama_script": "review-drama-script",
     "source_analysis": "analyze-drama-source",
     "drama_brief": "define-drama-brief",
+    "market_inspiration": "ideate-drama-from-market",
     "director_book": "write-drama-director-book",
     "production_plan": "plan-drama-production",
     "continuity_plan": "plan-shot-continuity",
