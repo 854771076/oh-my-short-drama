@@ -11,6 +11,8 @@ const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const skillMap = JSON.parse(await readFile(resolve(pluginRoot, 'references/skill-map.json'), 'utf8'))
 const providerPrompts = new Set(skillMap.provider_prompts || [])
 const evidencePatterns = {
+  'analyze-reference-video': /^\.short-drama\/reference-video-analysis\.json$/,
+  'design-video-recreation': /episodes\/ep-\d{3}\/recreation-workflow\/v\d{3}\.json$/,
   'short-drama': /episodes\/ep-\d{3}\/scripts\/v\d{3}\.(?:json|md|txt)$/,
   'generate-character-profiles': /^assets\/characters\/profiles\.json$/,
   'generate-drama-art-style': /^\.short-drama\/art-style\.json$/,
@@ -30,6 +32,7 @@ const evidencePatterns = {
   'generate-blender-previz': /assets\/other\/other-previz-ep\d{3}-\d{3}\/v\d{3}\.mp4$/,
 }
 const episodeEvidence = {
+  'design-video-recreation': (episode) => new RegExp(`^episodes/${episode}/recreation-workflow/v\\d{3}\\.json$`),
   'short-drama': (episode) => new RegExp(`^episodes/${episode}/scripts/v\\d{3}\\.(?:json|md|txt)$`),
   'write-drama-episode': (episode) => new RegExp(`^episodes/${episode}/scripts/v\\d{3}\\.(?:json|md|txt)$`),
   humanizer: (episode) => new RegExp(`^episodes/${episode}/scripts/v\\d{3}\\.(?:json|md|txt)$`),
@@ -94,6 +97,14 @@ async function selectedAssetPlan(root, episode) {
 export async function requiredSkills(root, stage) {
   if (!stages.includes(stage)) throw new Error(`未知阶段：${stage}`)
   const required = new Set(skillMap.stages?.[stage] || [])
+  if (stage === 'analysis') {
+    let project = { workflow: { type: 'standard' } }
+    try { project = JSON.parse(await readFile(resolve(root, '.short-drama/project.json'), 'utf8')) } catch (error) { if (error?.code !== 'ENOENT') throw error }
+    if (project.workflow?.type === 'viral-recreation') {
+      required.add('analyze-reference-video')
+      required.add('design-video-recreation')
+    }
+  }
   if (stage === 'asset-analysis') {
     for (const episode of await selectedEpisodes(root)) {
       const plan = await selectedAssetPlan(root, episode)

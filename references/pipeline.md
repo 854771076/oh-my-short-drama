@@ -4,6 +4,8 @@
 
 `analysis → script → director-book → asset-analysis → asset-generation → production-plan → per-shot image or Blender storyboard → videos/audio → editing → delivery`
 
+`viral-recreation` 是该状态机的 profile，不是新增阶段。它在 analysis 内额外要求：本地文件或经授权确认的链接导入 → selected 本地参考视频 → `.short-drama/reference-video/prepared.json` → `.short-drama/reference-video-analysis.json` → `episodes/<episode>/recreation-workflow/selected.json` → `.short-drama/recreation-compiled/<episode>/<version>.json`。链接导入收据记录平台、作品 ID、规范链接、下载器、权利确认和本地 SHA-256，但不得保存 Cookie 或 API key。各产物必须按 source key、版本和 SHA-256 串联；编译约束包作为现有 brief、剧本、导演本、分镜、制作计划、音频和剪辑的机器可校验上游输入。
+
 所有状态、文本、分镜和媒体都以用户指定的本地项目目录为事实来源，不调用或回写任何业务系统 API。
 
 ```text
@@ -17,6 +19,8 @@
 │   ├── requests/<request-id>.json
 │   ├── uploads/<upload-receipt-id>.json
 │   ├── source-analysis.json / brief.json / bible.json / outline.json
+│   ├── reference-video/prepared.json / reference-video-analysis.json（复刻 profile）
+│   ├── reference-imports/<source>/<version>.json（链接导入收据）
 │   ├── assets.json
 │   ├── shot-reviews.json
 │   └── tasks.json
@@ -32,6 +36,7 @@
 │   ├── production-plan/<version>.json
 │   ├── video-prompts/<version>.json
 │   ├── audio-plan/<version>.json
+│   ├── recreation-workflow/<version>.json（复刻 profile）
 │   └── storyboard/<version>.json
 ├── assets/{characters,scenes,props,storyboards,audio,videos,other}/
 ├── editing/ep-NNN/timeline.json / review.json

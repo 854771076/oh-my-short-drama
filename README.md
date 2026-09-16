@@ -1,6 +1,6 @@
 # 短剧工厂
 
-本地优先、可追溯、可扩展的标准短剧制作插件，支持 Codex、Claude Code 与 Hermes Agent。从小说、故事梗概或创意开始，由智能体完成文本创作，通过生成 Provider 完成图片、视频和音频，最终在本地完成剪辑与交付。
+本地优先、可追溯、可扩展的标准短剧制作插件，支持 Codex、Claude Code 与 Hermes Agent。从小说、故事梗概、创意或本地参考短视频开始，由智能体完成文本创作，通过生成 Provider 完成图片、视频和音频，最终在本地完成剪辑与交付。
 
 ```text
 Codex / Claude Code / Hermes → oh-my-short-drama → drama-generation MCP → 阿里云百炼 / StarRouter / RunningHub / Comfly
@@ -38,6 +38,24 @@ Codex / Claude Code / Hermes → oh-my-short-drama → drama-generation MCP → 
 ```
 
 完整使用顺序、Skill 关系和确认项见 [使用手册](references/usage-guide.md)。
+
+### 参考视频复刻
+
+项目设为 `workflow.type=viral-recreation` 后，可导入并选择本地 mp4、mov、webm 或 mkv，也可在明确确认素材权利后从受支持的平台链接导入。抖音/TikTok 优先使用本机 DTK v5 服务，其他平台或未配置 DTK 时使用 yt-dlp。插件用 ffprobe/ffmpeg 生成镜头候选、固定间隔兜底关键帧、音轨和失败记录，再由 Codex 输出带时间码证据的参考分析，以及 Script、Media、Caption、Speech、Film 五层声明式工作流。选版会生成锁定工作流与分析哈希的编译约束包，供后续简报、剧本、导演本、分镜、制作计划、音频和剪辑消费。媒体触发器绑定台词段和词语，修改人物、产品、Hook、CTA 或语言后可以按依赖重编译，而不是把整条时间线写死。默认只迁移结构；近似复刻、真人身份、声音、音乐和商标复用必须有明确权利依据与匹配的授权范围。
+
+```bash
+# 链接导入：先 inspect，再确认权利并 import。DTK 密钥只从环境变量读取。
+export DTK_BASE_URL=http://127.0.0.1:8000
+export DTK_API_KEY=dtk_xxx
+node scripts/reference-video-import.mjs inspect '<抖音分享链接>'
+node scripts/reference-video-import.mjs import <项目> '<抖音分享链接>' src-reference-video v001 --rights-basis licensed
+
+# 本地文件导入仍然支持。
+node scripts/project-store.mjs put-source <项目> src-reference-video v001 reference.mp4
+node scripts/project-store.mjs select-source <项目> src-reference-video v001
+node scripts/reference-video.mjs prepare <项目> src-reference-video v001
+node scripts/skill-runs.mjs required <项目> analysis
+```
 
 ## 支持的生成 Provider
 

@@ -1,0 +1,22 @@
+# Codex Reference Video Analysis Execution Contract
+
+Turn the local prepared manifest and verified keyframe observations into strict `reference-video-analysis` JSON. Do not call an external text model.
+
+## Inputs
+
+- Project contract: {project_contract}
+- Prepared reference video manifest: {prepared_manifest}
+- Confirmed rights scope, keyframe observations, and checked ASR or subtitles are included in those inputs.
+
+## Decision order
+
+1. Verify the source key, version, SHA-256, duration, dimensions, frame rate, and audio stream.
+2. Cover the whole video in chronological order. Scene scores are candidate cuts; record uncertainty in `limitations`.
+3. Put only facts supported by timecodes, frames, or transcripts in `evidence[]`.
+4. Let hook, beats, turns, payoff, and CTA reference existing evidence ids only.
+5. Separate transferable mechanisms, elements that must change, and elements that must not be copied.
+6. Use only `analysis`, `authorized-close-recreation`, `identity`, `voice`, `music`, `trademark`, `dialogue`, and `visual-style` in `rights.allowed_uses` and `rights.restrictions`. Use `reference-only` when rights are unknown. Never invent confirmation time or permitted uses.
+
+## Output
+
+Output only JSON accepted by `validateReferenceVideoAnalysis`. Include `schema_version,source_ref,prepared_ref,rights,technical,evidence,structure,visual_grammar,replication,confidence,limitations,coverage,open_questions`; do not wrap it in Markdown. When `coverage.complete=true`, `coverage.analyzed_ms` must equal the full video duration.

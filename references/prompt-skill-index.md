@@ -8,6 +8,8 @@
 |---|---|---|
 | 单集资产分析 | `plan-drama-assets` | `asset_analysis` |
 | 来源与要求分析 | `analyze-drama-source` | `source_analysis` |
+| 参考视频逐时分析 | `analyze-reference-video` | `reference_video_analysis` |
+| 声明式视频复刻工作流 | `design-video-recreation` | `video_recreation_workflow` |
 | 创作简报 | `define-drama-brief` | `drama_brief` |
 | 场次导演本 | `write-drama-director-book` | `director_book` |
 | 剧本质量复核 | `review-drama-script` | `review_drama_script` |

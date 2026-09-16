@@ -9,6 +9,8 @@ description: 使用本地标准短剧插件的总入口。用于了解每个 Ski
 
 新项目先确认最少必要配置；用户未指定其他绝对路径时，项目目录固定为 `~/darma_project/<project-key>`。未确认项保留 `null`，再调用 `manage-drama-projects` 初始化；原始小说或要求必须复制进 `source/` 并选定明确版本。既有项目先运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/validate-project.mjs" <项目目录>`，再读取 `.short-drama/project.json`、`state.json`、`tasks.json` 和 `assets.json`，只路由当前阶段所需的原子 Skill。
 
+用户提供本地短视频并要求复刻时，将 `project.json.workflow.type` 设为 `viral-recreation`，用 `project-store.mjs put-source|select-source` 将 mp4、mov、webm 或 mkv 原片归档为 `reference-video`。analysis 阶段会条件要求 `analyze-reference-video` 与 `design-video-recreation`：前者生成带时间码和关键帧证据的分析，后者生成 Script、Media、Caption、Speech、Film 五层声明式工作流。默认只做 `structure-only`；近似复刻必须由用户明确提供权利依据和范围。原片始终属于 source，不能登记成正式视频资产。
+
 项目 `automation_mode` 默认开启；开启后 agent 自主处理常规确认，不重复打断用户，但不能伪造权限、素材权利或绕过安全门禁。
 
 标准顺序是：初始化与环境预检 → Codex 分析小说与要求 → `short-drama` 方法论 + 剧本初稿 → `humanizer` 自然化新版本 → 剧本复核批准 → 导演本落盘 → 资产分析 → 资产生成落盘 → 制作规划（逐镜选择图片或 Blender 白模分镜、拍摄计划、模型和提示词协议）→ 图片镜头生成/选版/八维审计，白模镜头编导/生成/评分 → Seedance 2.0/H3/通用逐镜提示词落盘 → 素材视频与按需配音 → `remotion-best-practices` + Remotion 剪辑 → 成片交付。新项目默认推荐白模，但静态特写、细腻表演和画风确认仍优先图片。每阶段必须先用 `skill-runs.mjs required` 获取原子 Skill，完整读取并执行，再用 `skill-runs.mjs record` 记录项目内产物；仅生成文件但没有 Skill 凭证不能通过阶段门禁。

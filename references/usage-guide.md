@@ -4,6 +4,12 @@
 
 ## 制作顺序
 
+### 参考视频复刻入口
+
+短视频复刻使用 `workflow.type=viral-recreation`，但仍复用下方十步主流程。参考视频可从本地 mp4、mov、webm、mkv 导入，也可先用 `reference-video-import.mjs inspect` 检查受支持的平台链接，再以 `import ... --rights-basis owned|licensed|authorized-reference` 显式确认权利并导入。抖音/TikTok 在配置 `DTK_BASE_URL` 与 `DTK_API_KEY` 后自动使用 DTK v5；API key 至少需要对应平台的 read scope 及 `media:read`、`media:write`，并启用 downloader sidecar。未配置 DTK 或其他平台使用 PATH 中的 `yt-dlp`。下载先进入系统暂存目录，经过大小、视频流和 SHA-256 校验后才登记并选中；失败不会写入来源账本，成功收据保存在 `.short-drama/reference-imports/<source>/<version>.json`，且不记录 Cookie 或 API key。
+
+来源选定后运行 `reference-video.mjs prepare` 生成技术信息、镜头候选、固定间隔兜底关键帧、音轨和失败记录。`analyze-reference-video` 形成带时间码证据与权利边界的分析，`design-video-recreation` 形成 Script、Media、Caption、Speech、Film 五层工作流；选版时自动生成带工作流与分析哈希的 `recreation-compiled/<episode>/<version>.json` 供后续生产 Skill 消费。媒体以 segment/word 语义锚点绑定，不用裸秒数写死作者层时间线。默认只迁移结构，近似复刻必须有用户明确的权利依据，并校验具体 scope 不超出允许范围或命中 restrictions。
+
 1. **初始化项目**：`manage-drama-projects` 按项目规范 v1 创建固定配置、目录与状态，并归档 `src-xxx@v001` 原始资料。
 2. **Codex 分析**：`analyze-drama-source` 直接分析已选本地小说与要求；再形成简报、故事圣经和分集目录，不调用文本模型。
 3. **剧本落盘**：`short-drama` 提供开场、节奏、爽点、钩子和合规方法，`write-drama-episode` 由 Codex 写作或转换初稿，`humanizer` 产生自然化新版本，`review-drama-script` 对当前版本形成批准报告。
@@ -27,6 +33,8 @@
 |---|---|---|---|
 | `manage-drama-projects` | 按规范 v1 初始化和校验本地项目、来源、分集、剧本、导演本、制作计划与分镜版本 | 全流程控制面；第一步 | 项目目录、名称、语言、画幅、集数；旧配置迁移、覆盖/重命名 |
 | `analyze-drama-source` | Codex 全量分析小说、资料和制作要求 | 初始化后；先于简报/剧本 | 原文范围、改编边界、冲突要求 |
+| `analyze-reference-video` | 导入或准备并逐时分析 selected 参考视频 | viral-recreation 的 analysis 首步 | 下载与分析权利、允许用途、身份/声音/音乐限制 |
+| `design-video-recreation` | 把参考分析编译为五层声明式复刻工作流 | 参考分析后、简报与剧本前 | structure-only 或授权近似复刻、变量槽位与禁复制项 |
 | `define-drama-brief` | 固化题材、受众、平台和交付边界 | source analysis 后 | 平台、语言、画幅、集数、目标时长、分级、禁区；目标时长默认允许约 ±15% 自然浮动 |
 | `design-drama-bible` | 建立世界观、人物弧、冲突和结局 | brief 后 | 结局类型、人物关系、重大改编 |
 | `outline-drama-series` | 拆分分集冲突、兑现和钩子 | bible 后 | 总集数、单集时长、分集结构 |

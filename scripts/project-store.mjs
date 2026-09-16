@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { access, copyFile, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
+import { access, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { COPYFILE_EXCL } from 'node:constants'
@@ -16,9 +16,11 @@ import { DEFAULT_WORKSPACE_ROOT, openStudio } from './studio.mjs'
 import { normalizeModelParameters, providerSetupCatalog } from './generation/providers.mjs'
 import { supportsPrevizMotionReference, validateMotionReferenceBinding } from './previz-contract.mjs'
 import { saveCustomArtStyle } from './art-styles.mjs'
+import { compileRecreationWorkflow, validateRecreationConsumerBinding, validateRecreationWorkflow, validateReferenceVideoAnalysis } from './recreation-workflow.mjs'
+import { EPISODE_DOCUMENT_CONFIG, EPISODE_DOCUMENT_KINDS } from './episode-document-types.mjs'
 
 const root = process.argv[2] === 'init' ? resolve(DEFAULT_WORKSPACE_ROOT, process.argv[3] || 'short-drama') : resolve(process.argv[3] || process.cwd())
-const EPISODE_DOCUMENTS = new Set(['script-review', 'director-book', 'asset-plan', 'production-plan', 'storyboard', 'video-prompts', 'audio-plan'])
+const EPISODE_DOCUMENTS = new Set(EPISODE_DOCUMENT_KINDS)
 const ASSET_TYPES = { characters: 'character', scenes: 'scene', props: 'prop' }
 const PROMPT_PROFILES = new Set(['seedance2', 'h3', 'generic'])
 const H3_MODES = new Set(['T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA'])
@@ -26,6 +28,10 @@ const ASPECT_RATIOS = new Set(['9:16', '16:9', '1:1', '4:3', '3:4', '21:9'])
 const STORYBOARD_TYPES = new Set(['single', 'storyboard', 'shot-board'])
 const STORYBOARD_MEDIA = new Set(['image', 'blender'])
 const ADAPTATION_MODES = new Set(['original', 'faithful_adaptation', 'authorized_adaptation'])
+const WORKFLOW_TYPES = new Set(['standard', 'viral-recreation'])
+const DOCUMENT_SOURCE_EXTENSIONS = new Set(['.txt', '.md', '.json', '.pdf', '.docx', '.epub'])
+const REFERENCE_VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.webm', '.mkv'])
+const RECREATION_CONSUMER_DOCUMENTS = new Set(EPISODE_DOCUMENT_KINDS.filter((kind) => EPISODE_DOCUMENT_CONFIG[kind].recreationConsumer))
 
 async function exists(path) { try { await access(path); return true } catch { return false } }
 
@@ -81,6 +87,7 @@ function projectDefaults(key, title) {
     title,
     automation_mode: true,
     paid_automation_authorized: false,
+    workflow: { type: 'standard', version: 1 },
     description: null,
     format: { aspect_ratio: null, resolution: null, fps: null, episode_count: null, episode_duration_seconds: null },
     languages: { output: null, spoken: null, subtitle: null },
@@ -115,11 +122,16 @@ export function validateProject(project) {
   // 旧版 v1 没有该字段时按默认开启，下一次写入会补齐配置。
   if (!Object.hasOwn(project, 'automation_mode')) project.automation_mode = true
   if (!Object.hasOwn(project, 'paid_automation_authorized')) project.paid_automation_authorized = false
+  // v1 旧项目没有工作流 profile；读时补默认值即可兼容，无需先做破坏性迁移。
+  if (!Object.hasOwn(project, 'workflow')) project.workflow = { type: 'standard', version: 1 }
   if (project.storyboard && typeof project.storyboard === 'object' && !Array.isArray(project.storyboard) && !Object.hasOwn(project.storyboard, 'preferred_medium')) project.storyboard.preferred_medium = 'blender'
-  exactKeys(project, ['schema_version', 'key', 'title', 'automation_mode', 'paid_automation_authorized', 'description', 'format', 'languages', 'creative', 'storyboard', 'providers', 'createdAt', 'updatedAt'], 'project.json')
+  exactKeys(project, ['schema_version', 'key', 'title', 'automation_mode', 'paid_automation_authorized', 'workflow', 'description', 'format', 'languages', 'creative', 'storyboard', 'providers', 'createdAt', 'updatedAt'], 'project.json')
   if (project.schema_version !== 1) throw new Error('project.json schema_version 必须为 1')
   if (typeof project.automation_mode !== 'boolean') throw new Error('automation_mode 必须是布尔值')
   if (typeof project.paid_automation_authorized !== 'boolean') throw new Error('paid_automation_authorized 必须是布尔值')
+  exactKeys(project.workflow, ['type', 'version'], 'project.workflow')
+  if (!WORKFLOW_TYPES.has(project.workflow.type)) throw new Error('workflow.type 必须为 standard 或 viral-recreation')
+  if (project.workflow.version !== 1) throw new Error('workflow.version 必须为 1')
   projectKey(project.key)
   if (typeof project.title !== 'string' || !project.title.trim()) throw new Error('project title 必填')
   nullableString(project.description, 'description')
@@ -316,13 +328,14 @@ export function validateVideoPrompts(document, episodeKey) {
 }
 
 function validateDocument(kind, document, episodeKey) {
+  if (kind === 'reference-video-analysis') return validateReferenceVideoAnalysis(document)
   const contracts = {
     'source-analysis': ['source_scope', 'adaptation_mode', 'facts', 'timeline', 'characters', 'locations', 'props', 'conflicts', 'themes', 'visual_challenges', 'content_constraints', 'user_requirements', 'contradictions', 'open_questions', 'coverage'],
-    brief: ['title', 'logline', 'adaptation_mode', 'genre', 'audience', 'platform', 'tone', 'core_conflict', 'output_language', 'spoken_language', 'subtitle_language', 'aspect_ratio', 'episode_count', 'episode_duration_seconds', 'rating', 'existing_materials', 'required_deliverables', 'prohibited_content', 'ending_type', 'creative_constraints', 'open_questions', 'approved'],
+    brief: document.recreation_workflows === undefined ? ['title', 'logline', 'adaptation_mode', 'genre', 'audience', 'platform', 'tone', 'core_conflict', 'output_language', 'spoken_language', 'subtitle_language', 'aspect_ratio', 'episode_count', 'episode_duration_seconds', 'rating', 'existing_materials', 'required_deliverables', 'prohibited_content', 'ending_type', 'creative_constraints', 'open_questions', 'approved'] : ['title', 'logline', 'adaptation_mode', 'genre', 'audience', 'platform', 'tone', 'core_conflict', 'output_language', 'spoken_language', 'subtitle_language', 'aspect_ratio', 'episode_count', 'episode_duration_seconds', 'rating', 'existing_materials', 'required_deliverables', 'prohibited_content', 'ending_type', 'creative_constraints', 'open_questions', 'approved', 'recreation_workflows'],
     bible: ['premise', 'genre', 'tone', 'themes', 'world_rules', 'ending', 'characters', 'relationships', 'three_act', 'conflict_ladder', 'promises_and_payoffs', 'foreshadowing', 'continuity_rules', 'adaptation_constraints', 'open_questions'],
     outline: ['episodes', 'coverage_check', 'continuity_check'],
     'script-review': ['episode_key', 'script_version', 'dimensions', 'issues', 'compliance', 'approved'],
-    'director-book': ['episode_key', 'source_script_version', 'scenes', 'continuity_ledger', 'open_questions'],
+    'director-book': document.recreation_workflow_version === undefined ? ['episode_key', 'source_script_version', 'scenes', 'continuity_ledger', 'open_questions'] : ['episode_key', 'source_script_version', 'scenes', 'continuity_ledger', 'open_questions', 'recreation_workflow_version'],
     'production-plan': ['episode_key', 'source_versions', 'shots', 'totals', 'unresolved', 'approved'],
     'art-style': ['mode', 'style', 'decision_reason', 'approved'],
     'audio-plan': document.music_tracks === undefined ? ['episode_key', 'source_versions', 'lines', 'voice_bindings', 'unresolved', 'approved'] : ['episode_key', 'source_versions', 'lines', 'voice_bindings', 'music_tracks', 'unresolved', 'approved'],
@@ -452,7 +465,14 @@ function validateDocument(kind, document, episodeKey) {
 }
 
 async function validateEpisodeDocument(kind, episodeKey, document) {
+  if (kind === 'recreation-workflow') return validateRecreationWorkflow(document, episodeKey)
   validateDocument(kind, document, episodeKey)
+  if (RECREATION_CONSUMER_DOCUMENTS.has(kind) && await exists(resolve(root, '.short-drama/project.json'))) {
+    const project = await readJson(resolve(root, '.short-drama/project.json'))
+    if (project.workflow?.type === 'viral-recreation') {
+      await validateRecreationConsumerBinding(root, kind, episodeKey, document)
+    }
+  }
   if (kind === 'asset-plan') {
     validateAssetPlan(document)
     if (document.episode_key !== episodeKey) throw new Error('asset-plan episode_key 与目标分集不一致')
@@ -661,27 +681,43 @@ async function main() {
     return console.log(JSON.stringify(next, null, 2))
   }
   if (command === 'put-source') {
-    const [sourceKey, versionId, inputPath] = process.argv.slice(4)
+    const [sourceKey, versionId, inputPath, ...flags] = process.argv.slice(4)
     if (typeof sourceKey !== 'string' || !/^src-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(sourceKey)) throw new Error('source key 必须为 src-xxx 格式')
     versionKey(versionId, 'source version')
-    if (!inputPath) throw new Error('用法：put-source <项目目录> <source key> <version> <来源文件>')
+    if (!inputPath) throw new Error('用法：put-source <项目目录> <source key> <version> <来源文件> [--select]')
     const input = resolve(inputPath)
     const extension = extname(input).toLowerCase()
-    if (!['.txt', '.md', '.json', '.pdf', '.docx', '.epub'].includes(extension)) throw new Error('来源文件仅支持 txt、md、json、pdf、docx、epub')
+    const sourceKind = REFERENCE_VIDEO_EXTENSIONS.has(extension) ? 'reference-video' : DOCUMENT_SOURCE_EXTENSIONS.has(extension) ? 'document' : null
+    if (!sourceKind) throw new Error('来源文件仅支持 txt、md、json、pdf、docx、epub、mp4、mov、webm、mkv')
     if (!(await stat(input)).isFile()) throw new Error('来源文件无效')
     const manifestPath = resolve(root, 'source/manifest.json')
     return withFileLock(manifestPath, async () => {
       const manifest = await readJson(manifestPath)
-      const source = manifest.sources[sourceKey] || { key: sourceKey, versions: [], selectedVersionId: null }
+      const source = manifest.sources[sourceKey] || { key: sourceKey, kind: sourceKind, versions: [], selectedVersionId: null }
+      source.kind ||= 'document'
+      if (source.kind !== sourceKind) throw new Error(`同一来源不能混合 document 与 reference-video：${sourceKey}`)
       if (source.versions.some((item) => item.id === versionId)) throw new Error(`来源版本已存在：${sourceKey}@${versionId}`)
       const target = resolve(root, 'source', sourceKey, `${versionId}${extension}`)
-      await mkdir(dirname(target), { recursive: true })
-      await copyFile(input, target, COPYFILE_EXCL)
-      const info = await stat(target)
-      source.versions.push({ id: versionId, localPath: `source/${sourceKey}/${versionId}${extension}`, sizeBytes: info.size, sha256: await sha256(target), createdAt: new Date().toISOString() })
-      manifest.sources[sourceKey] = source
-      await writeJson(manifestPath, manifest)
-      console.log(JSON.stringify(source.versions.at(-1), null, 2))
+      let copied = false
+      try {
+        // 选版前置条件先于文件复制执行，失败时不得留下未选中的半登记来源。
+        if (flags.includes('--select')) await invalidateFrom(root, 'analysis')
+        await mkdir(dirname(target), { recursive: true })
+        await copyFile(input, target, COPYFILE_EXCL)
+        copied = true
+        const info = await stat(target)
+        source.versions.push({ id: versionId, localPath: `source/${sourceKey}/${versionId}${extension}`, sizeBytes: info.size, sha256: await sha256(target), createdAt: new Date().toISOString() })
+        if (flags.includes('--select')) {
+          source.selectedVersionId = versionId
+          source.selectedAt = new Date().toISOString()
+        }
+        manifest.sources[sourceKey] = source
+        await writeJson(manifestPath, manifest)
+        console.log(JSON.stringify(source.versions.at(-1), null, 2))
+      } catch (error) {
+        if (copied) await rm(target, { force: true })
+        throw error
+      }
     })
   }
   if (command === 'select-source') {
@@ -704,9 +740,10 @@ async function main() {
   }
   if (command === 'put-document') {
     const [kind, inputPath] = process.argv.slice(4)
-    if (!['source-analysis', 'brief', 'bible', 'outline', 'art-style'].includes(kind) || !inputPath) throw new Error('用法：put-document <项目目录> <source-analysis|brief|bible|outline|art-style> <JSON>')
+    if (!['source-analysis', 'brief', 'bible', 'outline', 'art-style', 'reference-video-analysis'].includes(kind) || !inputPath) throw new Error('用法：put-document <项目目录> <source-analysis|brief|bible|outline|art-style|reference-video-analysis> <JSON>')
     const document = await readJson(resolve(inputPath))
     validateDocument(kind, document)
+    if (kind === 'brief') await validateRecreationConsumerBinding(root, kind, null, document)
     await invalidateFrom(root, kind === 'art-style' ? 'asset-analysis' : 'analysis')
     await writeJson(resolve(root, '.short-drama', `${kind}.json`), document)
     return console.log(kind)
@@ -751,15 +788,17 @@ async function main() {
     const [kind, episodeKey, versionId, inputPath, ...flags] = process.argv.slice(4)
     if (!EPISODE_DOCUMENTS.has(kind)) throw new Error('episode document 类型无效')
     validateEpisodeKey(episodeKey); versionKey(versionId, `${kind} version`)
-    if (!inputPath) throw new Error('用法：put-episode-document <项目目录> <script-review|director-book|asset-plan|production-plan|storyboard|video-prompts|audio-plan> <episode key> <version> <JSON>')
+    if (!inputPath) throw new Error('用法：put-episode-document <项目目录> <script-review|director-book|asset-plan|production-plan|storyboard|video-prompts|audio-plan|recreation-workflow> <episode key> <version> <JSON>')
     await readJson(resolve(episodeRoot(episodeKey), 'episode.json'))
     const document = await readJson(resolve(inputPath))
     await validateEpisodeDocument(kind, episodeKey, document)
     await writeJson(resolve(episodeRoot(episodeKey), kind, `${versionId}.json`), document, true)
     if (flags.includes('--select')) {
-      const invalidationStage = { 'script-review': 'script', 'director-book': 'director-book', 'asset-plan': 'asset-analysis', storyboard: 'production-plan', 'production-plan': 'production-plan', 'video-prompts': 'media-production', 'audio-plan': 'media-production' }[kind]
+      const selected = { versionId, path: `episodes/${episodeKey}/${kind}/${versionId}.json`, selectedAt: new Date().toISOString() }
+      if (kind === 'recreation-workflow') await compileRecreationWorkflow(root, episodeKey, selected)
+      const invalidationStage = EPISODE_DOCUMENT_CONFIG[kind].invalidationStage
       await invalidateFrom(root, invalidationStage)
-      await writeJson(resolve(episodeRoot(episodeKey), kind, 'selected.json'), { versionId, path: `episodes/${episodeKey}/${kind}/${versionId}.json`, selectedAt: new Date().toISOString() })
+      await writeJson(resolve(episodeRoot(episodeKey), kind, 'selected.json'), selected)
     }
     return console.log(flags.includes('--select') ? `${versionId} selected` : versionId)
   }
@@ -788,8 +827,14 @@ async function main() {
     validateEpisodeKey(episodeKey); versionKey(versionId, 'script version')
     if (!['.json', '.md', '.txt'].includes(extension)) throw new Error('剧本扩展名无效')
     await access(resolve(episodeRoot(episodeKey), 'scripts', `${versionId}${extension}`))
+    const project = await readJson(resolve(root, '.short-drama/project.json'))
+    let recreationWorkflowVersion
+    if (project.workflow?.type === 'viral-recreation') {
+      recreationWorkflowVersion = (await readJson(resolve(episodeRoot(episodeKey), 'recreation-workflow', 'selected.json'))).versionId
+      await validateRecreationConsumerBinding(root, 'script', episodeKey, { recreationWorkflowVersion })
+    }
     await invalidateFrom(root, 'script')
-    const selected = { versionId, path: `episodes/${episodeKey}/scripts/${versionId}${extension}`, selectedAt: new Date().toISOString() }
+    const selected = { versionId, path: `episodes/${episodeKey}/scripts/${versionId}${extension}`, selectedAt: new Date().toISOString(), ...(recreationWorkflowVersion ? { recreationWorkflowVersion } : {}) }
     await writeJson(resolve(episodeRoot(episodeKey), 'scripts', 'selected.json'), selected)
     return console.log(JSON.stringify(selected, null, 2))
   }
@@ -810,8 +855,10 @@ async function main() {
     validateEpisodeKey(episodeKey); versionKey(versionId, `${kind} version`)
     const document = await readJson(resolve(episodeRoot(episodeKey), kind, `${versionId}.json`))
     await validateEpisodeDocument(kind, episodeKey, document)
-    const invalidationStage = { 'script-review': 'script', 'director-book': 'director-book', 'asset-plan': 'asset-analysis', storyboard: 'production-plan', 'production-plan': 'production-plan', 'video-prompts': 'media-production', 'audio-plan': 'media-production' }[kind]
+    const invalidationStage = EPISODE_DOCUMENT_CONFIG[kind].invalidationStage
     const marker = resolve(episodeRoot(episodeKey), kind, 'selected.json')
+    const selected = { versionId, path: `episodes/${episodeKey}/${kind}/${versionId}.json`, selectedAt: new Date().toISOString() }
+    if (kind === 'recreation-workflow') await compileRecreationWorkflow(root, episodeKey, selected)
     if (['storyboard', 'production-plan', 'video-prompts'].includes(kind) && await exists(marker)) {
       const previousSelection = await readJson(marker)
       const previous = await readJson(resolve(root, previousSelection.path))
@@ -819,7 +866,6 @@ async function main() {
       for (const shotNumber of changed) await invalidateShot(root, episodeKey, shotNumber, invalidationStage)
       if (changed.length) await invalidateShotAssets(root, episodeKey, changed, kind)
     } else await invalidateFrom(root, invalidationStage)
-    const selected = { versionId, path: `episodes/${episodeKey}/${kind}/${versionId}.json`, selectedAt: new Date().toISOString() }
     await writeJson(resolve(episodeRoot(episodeKey), kind, 'selected.json'), selected)
     return console.log(JSON.stringify(selected, null, 2))
   }

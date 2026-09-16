@@ -10,6 +10,7 @@ import { PREVIZ_REVIEW_CRITERIA, STORYBOARD_REVIEW_CRITERIA, validPrevizScore } 
 import { isH3Model } from './generation/providers.mjs'
 import { sameShotVersion } from './shot-fingerprint.mjs'
 import { PREVIZ_REQUIRED_HARD_GATES, fileSha256, probePrevizMedia, validatePrevizContract, validatePrevizMedia } from './previz-contract.mjs'
+import { validateRecreationEvidence } from './recreation-workflow.mjs'
 
 const pluginRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const skillMap = JSON.parse(await readFile(resolve(pluginRoot, 'references/skill-map.json'), 'utf8'))
@@ -203,6 +204,17 @@ export async function inspectStage(root, stage) {
       if (brief.approved !== true || brief.open_questions?.length) missing.push('创作简报尚未确认')
       if (bible.open_questions?.length) missing.push('故事圣经仍有未决项')
       if (outline.coverage_check?.complete !== true || outline.continuity_check?.valid !== true) missing.push('分集覆盖或连续性检查未通过')
+    }
+    const project = await json(resolve(root, '.short-drama/project.json'))
+    if (project.workflow?.type === 'viral-recreation') {
+      await requireFile('.short-drama/reference-video/prepared.json', '参考视频准备清单')
+      await requireFile('.short-drama/reference-video-analysis.json', '参考视频分析')
+      let selectedRecreation = false
+      for (const episode of await selectedEpisodes(root)) if (await exists(resolve(root, 'episodes', episode, 'recreation-workflow', 'selected.json'))) selectedRecreation = true
+      if (!selectedRecreation) missing.push('至少一个 selected 复刻工作流')
+      if (await exists(resolve(root, '.short-drama/reference-video/prepared.json')) && await exists(resolve(root, '.short-drama/reference-video-analysis.json')) && selectedRecreation) {
+        try { await validateRecreationEvidence(root) } catch (error) { missing.push(`复刻证据链无效：${error.message}`) }
+      }
     }
   }
   if (stage === 'script') {

@@ -12,6 +12,9 @@ import { validateManifest, validateReview, validateTimeline } from './editing-st
 import { validDocumentReferenceShape, validateGenerationDocumentReference } from './document-reference.mjs'
 import { validateVideoReferenceBindings } from './reference-bindings.mjs'
 import { probePrevizMedia, validatePrevizContract, validatePrevizMedia } from './previz-contract.mjs'
+import { validateRecreationConsumerBinding, validateRecreationEvidence } from './recreation-workflow.mjs'
+import { EPISODE_DOCUMENT_KINDS } from './episode-document-types.mjs'
+import { validateReferenceImportReceipts } from './reference-video-import.mjs'
 
 const scripts = dirname(fileURLToPath(import.meta.url))
 const pluginRoot = resolve(scripts, '..')
@@ -85,6 +88,7 @@ async function validateSources() {
   if (!manifest || manifest.version !== 1 || !manifest.sources || typeof manifest.sources !== 'object') return failures.push('source/manifest.json 合同无效')
   for (const [key, source] of Object.entries(manifest.sources)) {
     if (!/^src-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(key) || source.key !== key || !Array.isArray(source.versions)) failures.push(`来源记录无效：${key}`)
+    if (!['document', 'reference-video'].includes(source.kind || 'document')) failures.push(`来源 kind 无效：${key}`)
     for (const version of source.versions || []) {
       if (!VERSION.test(version.id)) failures.push(`${key} 来源版本必须为 v001 格式`)
       await localFile(version.localPath, `${key}@${version.id}`, version.sha256)
@@ -100,7 +104,9 @@ async function validateEpisodes() {
     const episode = await json(resolve(directory, 'episode.json'))
     if (!episode || episode.key !== entry.name || typeof episode.title !== 'string' || !episode.title.trim()) failures.push(`${entry.name}/episode.json 合同无效`)
     await selected(resolve(directory, 'scripts'), ['.json', '.md', '.txt'])
-    for (const kind of ['script-review', 'director-book', 'asset-plan', 'production-plan', 'storyboard', 'video-prompts', 'audio-plan']) {
+    const scriptMarkerPath = resolve(directory, 'scripts', 'selected.json')
+    if (await exists(scriptMarkerPath)) try { await validateRecreationConsumerBinding(root, 'script', entry.name, await json(scriptMarkerPath)) } catch (error) { failures.push(`${entry.name} script：${error.message}`) }
+    for (const kind of EPISODE_DOCUMENT_KINDS) {
       const path = resolve(directory, kind)
       await selected(path, ['.json'])
       const markerPath = resolve(path, 'selected.json')
@@ -109,7 +115,7 @@ async function validateEpisodes() {
         if (marker?.path) run('project-store.mjs', 'validate-episode-document', root, kind, entry.name, resolve(root, marker.path))
       }
     }
-    for (const kind of ['scripts', 'script-review', 'director-book', 'asset-plan', 'production-plan', 'storyboard', 'video-prompts', 'audio-plan']) {
+    for (const kind of ['scripts', ...EPISODE_DOCUMENT_KINDS]) {
       const path = resolve(directory, kind)
       if (!await exists(path)) continue
       for (const file of await readdir(path)) {
@@ -319,6 +325,12 @@ async function main() {
     await validateControl()
     await validatePromptRuns()
     await validateSources()
+    try { await validateReferenceImportReceipts(root) } catch (error) { failures.push(`参考视频导入收据无效：${error.message}`) }
+    const project = await json(resolve(root, '.short-drama/project.json'))
+    const briefPath = resolve(root, '.short-drama/brief.json')
+    if (await exists(briefPath)) try { await validateRecreationConsumerBinding(root, 'brief', null, await json(briefPath)) } catch (error) { failures.push(`brief：${error.message}`) }
+    // 初始化后的空项目仍应可校验；一旦写入任一复刻分析产物，就要求整条引用链保持完整。
+    if (project?.workflow?.type === 'viral-recreation' && (await exists(resolve(root, '.short-drama/reference-video/prepared.json')) || await exists(resolve(root, '.short-drama/reference-video-analysis.json')))) try { await validateRecreationEvidence(root) } catch (error) { failures.push(`复刻证据链无效：${error.message}`) }
     await validateEpisodes()
     await validateAssets()
     await validateUploads()

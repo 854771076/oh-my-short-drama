@@ -5,6 +5,8 @@ description: 编辑短剧时间线并渲染成片。用于智能粗剪、镜头�
 
 # 使用 Remotion 编辑短剧时间线
 
+`viral-recreation` 项目必须读取 `.short-drama/recreation-compiled/<episode>/<version>.json` 中当前 selected 版本，按 Caption、Speech、Film 与 Media 语义锚点组织字幕、声音、画面和图形层，并在时间线顶层 `source_versions.recreation_workflow` 绑定该版本；参考原片本身不得作为正式时间线素材。
+
 先运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/preflight.mjs" editing <项目目录>`，完整执行插件内置 `remotion-best-practices`，再读取 [本地剪辑方案](../../references/editing-workflow.md)。剪辑门禁沿用成熟 CLI 方案：只导入逐镜四项验收通过的 selected 视频及其音轨，在项目 `editing/<episode-key>/` 中建立候选 `timeline.json`；用 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/editing-store.mjs" put-timeline <项目> <timeline.json>` 按 `episode_key` 校验每段选版、验收、路径、切点、转场和字幕后落盘，不覆盖源素材。
 
 字幕必须来自实际音轨转写并人工复核，不能用提示词冒充；有字幕时 timeline 必须写 `subtitle_source:{method:"asr"|"manual-transcription",reviewed:true,source_assets:[...]}` 并绑定 selected 实际音轨。模型提示词刻意禁字、但剧情依赖手机界面、倒计时、消息、地点或时间信息时，必须把这些内容作为确定性的 Remotion 图形层纳入时间线与完整审片。任何镜头的源区间与时间线区间相差超过 ±10% 时必须写 `retime_exception:{confirmed:true,reason}`；对白覆盖的镜头必须写 `dialogue_sync` 为 `native`、`lip-synced`、`offscreen` 或 `no-visible-speech`。超过 5 秒无任何音轨的区间必须补声音或写 `silence_exceptions`；只有对白/旁白而没有环境、音乐、音效或原生声轨时必须补声音设计或写 `sound_design_exception`。实际总时长超过目标 ±15% 必须写用户确认的 `duration_exception:{user_confirmed:true,reason}`。时间线按 [剪辑合同](../../references/editing-workflow.md) 保存并由 `editing-store.mjs put-timeline` 硬校验。每次渲染候选前执行 `freeze-edit-candidate.mjs create`；先渲染审片版，用 `media-tools.mjs qc <文件>` 生成结构化报告，将完整 JSON 放进审片记录 `qc`，再完整观看和听完后 `put-review`。只有 `qc.passed=true` 且六维审片通过才可交付。

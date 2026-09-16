@@ -5,6 +5,8 @@ description: 把通过验收的本地分镜按实际视频模型编译为可执�
 
 # 编写视频提示词
 
+`viral-recreation` 项目必须读取当前分集编译约束包，把 Media 触发器、Caption、Speech 和 Film 约束落实到逐镜提示词，并在顶层 `source_versions.recreation_workflow` 绑定当前 selected 版本。
+
 先读取已批准制作计划和 Provider 实时能力，按“节点/镜头显式覆盖 → 制作计划 `prompt_profile` → 模型识别”确定唯一编译路径：
 
 - Seedance 2.0/2.0 Fast 使用 `seedance2_video`。

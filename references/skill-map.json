@@ -1,6 +1,6 @@
 {
   "workflow": [
-    "analyze-drama-source", "define-drama-brief", "design-drama-bible", "outline-drama-series", "short-drama", "write-drama-episode", "humanizer", "review-drama-script", "write-drama-director-book",
+    "analyze-drama-source", "analyze-reference-video", "design-video-recreation", "define-drama-brief", "design-drama-bible", "outline-drama-series", "short-drama", "write-drama-episode", "humanizer", "review-drama-script", "write-drama-director-book",
     "plan-drama-assets", "generate-drama-art-style", "generate-character-profiles", "generate-character-images",
     "generate-scene-assets", "generate-prop-assets",
     "build-drama-storyboard", "revise-drama-storyboards", "plan-drama-production", "generate-storyboard-images",
@@ -30,12 +30,16 @@
     "2d_to_live_action"
   ],
   "completion_prompts": {
+    "analyze-reference-video": ["reference_video_analysis"],
+    "design-video-recreation": ["video_recreation_workflow"],
     "write-drama-episode": ["screenplay_conversion"],
     "generate-drama-art-style": ["art_style_decision"],
     "build-drama-storyboard": ["professional_storyboard"],
     "design-drama-audio": ["voice_analysis"]
   },
   "prompts": {
+    "reference_video_analysis": "analyze-reference-video",
+    "video_recreation_workflow": "design-video-recreation",
     "art_style_decision": "generate-drama-art-style",
     "asset_analysis": "plan-drama-assets",
     "review_drama_script": "review-drama-script",
