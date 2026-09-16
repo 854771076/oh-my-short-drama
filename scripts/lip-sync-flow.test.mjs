@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { addAssetVersion, putAsset, selectAssetVersion } from './asset-ledger.mjs'
 import { validateTimeline } from './editing-store.mjs'
+import { putFinalSpeechAlignment } from './speech-timing.mjs'
 
 const { call } = await import('./generation/mcp.mjs')
 const reasons = ['provider-no-native-audio', 'voice-identity-drift', 'speech-intelligibility-failed', 'narration-performance-failed', 'audio-sync-failed', 'native-ambience-failed']
@@ -19,7 +20,7 @@ function media(path, type) {
   if (result.error || result.status !== 0) throw new Error(result.stderr || '媒体夹具生成失败')
 }
 
-async function fixture({ presentation = 'visible-dialogue', delivery = 'post_dub' } = {}) {
+async function fixture({ presentation = 'visible-dialogue', delivery = 'post_dub', alignmentSourceVersion = 'v001' } = {}) {
   const root = await mkdtemp(resolve(tmpdir(), 'short-drama-lip-sync-'))
   await mkdir(resolve(root, '.short-drama'), { recursive: true })
   await writeFile(resolve(root, '.short-drama/project.json'), '{}\n')
@@ -41,6 +42,16 @@ async function fixture({ presentation = 'visible-dialogue', delivery = 'post_dub
   const plan = { episode_key: 'ep-001', audio_strategy: { mode: 'native-first', provider_selection: 'prefer-native', fallback_allowed: true, fallback_reasons: reasons }, lines: [line], unresolved: [], approved: true }
   await writeFile(resolve(directory, 'v001.json'), `${JSON.stringify(plan, null, 2)}\n`)
   await writeFile(resolve(directory, 'selected.json'), `${JSON.stringify({ versionId: 'v001', path: 'episodes/ep-001/audio-plan/v001.json' }, null, 2)}\n`)
+  const assets = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
+  const audioSha = assets.assets['audio-ep001-dialogue-001'].versions[0].sha256
+  await putFinalSpeechAlignment(root, {
+    episode_key: 'ep-001', line_index: 1,
+    audio_asset: { asset_key: 'audio-ep001-dialogue-001', version_id: 'v001', sha256: audioSha },
+    audio_plan_version: 'v001',
+    source_timing: { version_id: alignmentSourceVersion, line_index: 1, source_asset: line.dubbing_contract.timing_source.source_asset },
+    text: '别回头。', words: [{ text: '别回头。', start_ms: 0, end_ms: 1000 }],
+    timeline_mapping: { audio_in_ms: 0, timeline_at_ms: 0 }, timeline_fps: 24, reviewed: true,
+  })
   return root
 }
 
@@ -63,6 +74,20 @@ test('旁白、画外音、合格原生对白和多人脸禁止口型操作', as
   try { await assert.rejects(call('submit_media_operation', request(nativeRoot)), /原生对白不得执行对口型/) } finally { await rm(nativeRoot, { recursive: true, force: true }) }
   const faceRoot = await fixture()
   try { await assert.rejects(call('submit_media_operation', request(faceRoot, { face_selector: { mode: 'multiple' } })), /唯一可见人脸/) } finally { await rm(faceRoot, { recursive: true, force: true }) }
+})
+
+test('口型入口拒绝伪造最终对齐版本', async () => {
+  const root = await fixture()
+  try {
+    await assert.rejects(call('submit_media_operation', request(root, { audio_binding: { ...request(root).parameters.audio_binding, speech_timing_version: 'v002' } })), /最终词级对齐版本/)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('口型入口拒绝最终对齐绑定错误的源 timing', async () => {
+  const root = await fixture({ alignmentSourceVersion: 'v002' })
+  try {
+    await assert.rejects(call('submit_media_operation', request(root)), /最终对齐.*源 timing/)
+  } finally { await rm(root, { recursive: true, force: true }) }
 })
 
 test('MuseTalk 输出经请求快照登记为未选中的变换候选', async () => {

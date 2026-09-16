@@ -718,7 +718,7 @@ function sameReference(left, right) {
 async function validateLipSyncEligibility(root, request, source, audio) {
   const reference = request.parameters.audio_plan
   const binding = request.parameters.audio_binding
-  if (!binding || binding.asset_key !== request.audio.asset_key || binding.version_id !== request.audio.version_id || binding.sha256 !== audio.version.sha256 || binding.line_index !== reference.line_index || binding.dubbing_contract_version !== reference.version_id || !/^v\d{3}$/.test(binding.speech_timing_version || '')) throw new Error('对口型必须绑定当前配音 SHA、合同版本和 speech-timing 版本')
+  if (!binding || binding.asset_key !== request.audio.asset_key || binding.version_id !== request.audio.version_id || binding.sha256 !== audio.version.sha256 || binding.line_index !== reference.line_index || binding.dubbing_contract_version !== reference.version_id || !/^v\d{3}$/.test(binding.speech_timing_version || '')) throw new Error('对口型必须绑定当前配音 SHA、合同版本和最终词级对齐版本')
   const selection = JSON.parse(await readFile(resolve(root, 'episodes', reference.episode_key, 'audio-plan', 'selected.json'), 'utf8'))
   if (selection.versionId !== reference.version_id) throw new Error('对口型必须引用当前 selected audio-plan')
   const plan = JSON.parse(await readFile(resolve(root, selection.path), 'utf8'))
@@ -727,7 +727,11 @@ async function validateLipSyncEligibility(root, request, source, audio) {
   if (line.presentation !== 'visible-dialogue') throw new Error('旁白或画外音不得执行对口型')
   if (line.dubbing_contract?.mode === 'native-preserve' && !audio.version.provenance?.parameters?.dubbing_compiler) throw new Error('合格原生对白不得执行对口型；仅独立音频可用')
   const resolvedContract = await resolveGeneratedDubbingContract(root, { plan, planVersion: reference.version_id, line, audioVersion: audio.version })
-  if (resolvedContract.contract.timing_source?.version_id !== binding.speech_timing_version || resolvedContract.contract.timing_source?.line_index !== binding.line_index) throw new Error('对口型必须引用当前配音合同与最终 speech-timing')
+  const alignment = await finalSpeechAlignment(root, { asset_key: request.audio.asset_key, version_id: request.audio.version_id, sha256: audio.version.sha256 })
+  if (alignment.version_id !== binding.speech_timing_version || alignment.document.audio_plan_version !== reference.version_id || alignment.document.line_index !== binding.line_index) throw new Error('对口型必须绑定当前音频的最终词级对齐版本')
+  const alignmentSource = alignment.document.source_timing
+  const contractSource = resolvedContract.contract.timing_source
+  if (alignmentSource.version_id !== contractSource?.version_id || alignmentSource.line_index !== contractSource?.line_index || JSON.stringify(alignmentSource.source_asset) !== JSON.stringify(contractSource?.source_asset)) throw new Error('对口型最终对齐未绑定当前配音合同的源 timing')
   if (resolvedContract.source === 'audio-plan') {
     if (!['post_dub', 'external_audio'].includes(line.delivery_mode)) throw new Error('合格原生对白不得执行对口型；仅独立音频可用')
     if (!sameReference(line.source_audio, request.audio)) throw new Error('对口型音频必须与 audio-plan 行的 selected 独立音频完全一致')
@@ -999,7 +1003,7 @@ async function buildTrustedSubtitles(args) {
   return buildSubtitlesFromAudio({
     audio: { asset_key: approved.asset_key, version_id: approved.version_id, sha256: approved.asset_sha256, line_index: args.line_index },
     timing: { version_id: alignment.version_id, lines: [alignedLine] },
-    contracts: [{ line_index: args.line_index, content: line.content, speaker: line.speaker, dubbing_contract_version: planMarker.versionId, dubbing_contract: resolvedContract.contract }],
+    contracts: [{ line_index: args.line_index, text: resolvedContract.contract.adapted_text, speaker: line.speaker, dubbing_contract_version: planMarker.versionId, dubbing_contract: resolvedContract.contract }],
     fps: args.fps,
     timeline_end_ms: args.timeline_end_ms,
   })

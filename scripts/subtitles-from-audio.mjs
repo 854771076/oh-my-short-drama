@@ -28,6 +28,21 @@ function speechRange(line) {
   return { start, end }
 }
 
+function normalizeText(value) {
+  return String(value || '').normalize('NFKC').replace(/[\p{P}\p{S}\s]/gu, '')
+}
+
+function subtitleText(contract, line) {
+  if (contract.dubbing_contract.mode === 'generated') {
+    const adapted = contract.dubbing_contract.adapted_text
+    const aligned = Array.isArray(line.words) ? line.words.map((word) => word.text).join('') : ''
+    if (typeof adapted !== 'string' || !adapted.trim()) throw new Error(`第 ${line.line_index} 行缺少 resolved contract adapted_text`)
+    if (normalizeText(adapted) !== normalizeText(aligned)) throw new Error(`第 ${line.line_index} 行 adapted_text 与最终词级对齐文本不一致`)
+    return adapted
+  }
+  return contract.text ?? contract.content
+}
+
 export function buildSubtitlesFromAudio(input) {
   if (!input || !Number.isFinite(input.fps) || input.fps <= 0 || !Number.isInteger(input.timeline_end_ms) || input.timeline_end_ms <= 0) throw new Error('fps 和 timeline_end_ms 无效')
   if (!input.timing || !VERSION.test(input.timing.version_id || '') || !Array.isArray(input.timing.lines) || !input.timing.lines.length || !Array.isArray(input.contracts)) throw new Error('timing 与 contracts 必填')
@@ -45,7 +60,7 @@ export function buildSubtitlesFromAudio(input) {
     const startMs = Math.max(target.start_ms, previousEnd, Math.round(ranges[index].start - frameMs * 4), 0)
     const endMs = Math.min(target.end_ms, nextSpeechStart, input.timeline_end_ms, Math.round(ranges[index].end + frameMs * 4))
     if (endMs <= startMs) throw new Error(`第 ${line.line_index} 行无法在合同窗口内安排不重叠字幕`)
-    const text = contract.text ?? contract.content
+    const text = subtitleText(contract, line)
     if (typeof text !== 'string' || !text.trim()) throw new Error(`第 ${line.line_index} 行字幕文本缺失`)
     const durationSeconds = (endMs - startMs) / 1000
     const cps = Array.from(text.replace(/\s/g, '')).length / durationSeconds
