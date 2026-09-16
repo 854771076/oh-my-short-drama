@@ -32,8 +32,8 @@ test('市场页面和样式合同完整', async () => {
     readFile(resolve(pluginRoot, 'studio/app.js'), 'utf8'),
     readFile(resolve(pluginRoot, 'studio/styles.css'), 'utf8'),
   ])
-  for (const token of ['市场调研', 'data-market-refresh', 'data-market-filter', 'data-market-topic', 'aria-live="polite"']) assert.match(appSource, new RegExp(token))
-  for (const token of ['market-shell', 'market-filterbar', 'market-metrics', 'market-opportunity-layout', 'market-topic-table', 'market-platform-matrix', 'market-evidence-drawer']) assert.match(styles, new RegExp(token))
+  for (const token of ['市场调研', 'data-market-refresh', 'data-market-filter', 'data-market-filter-key', 'data-market-sort', 'data-market-clear', 'data-market-report', 'aria-live="polite"', '公司格局', '新剧观察', '历史趋势']) assert.match(appSource, new RegExp(token))
+  for (const token of ['market-shell', 'market-filterbar', 'market-metrics', 'market-opportunity-layout', 'market-topic-table', 'market-platform-matrix', 'market-evidence-drawer', 'market-detail-grid', 'market-history', 'market-first-run']) assert.match(styles, new RegExp(token))
   assert.match(styles, /@media \(max-width:900px\)/)
   assert.match(styles, /@media \(max-width:560px\)/)
   assert.match(styles, /:focus-visible/)
@@ -83,6 +83,28 @@ test('市场 API 默认服务在空工作区保持离线空态', async (t) => {
   const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/market`)
   assert.equal(response.status, 200)
   assert.deepEqual(await response.json(), { status: 'empty', latestReport: null, latestSnapshot: null, history: [] })
+})
+
+test('市场刷新失败返回可重试错误且不泄露上游细节', async (t) => {
+  const workspace = await mkdtemp(resolve(tmpdir(), 'short-drama-market-failure-'))
+  const previous = { report_id: 'existing-report', coverage: { sample_count: 30 } }
+  const marketService = {
+    overview: async () => ({ status: 'ready', latestReport: previous, latestSnapshot: {}, history: [previous] }),
+    refresh: async () => { throw Object.assign(new Error('剧查查公开榜单刷新失败，请稍后重试'), { status: 502 }) },
+    report: async () => null,
+    markdown: async () => '',
+  }
+  const server = createStudioServer({ workspaceRoot: workspace, marketService })
+  await new Promise((done) => server.listen(0, '127.0.0.1', done))
+  t.after(async () => { await new Promise((done) => server.close(done)); await rm(workspace, { recursive: true, force: true }) })
+  const base = `http://127.0.0.1:${server.address().port}`
+  const bootstrap = await fetch(`${base}/api/v1/workspace`).then((response) => response.json())
+  const response = await fetch(`${base}/api/v1/market/refresh`, { method: 'POST', headers: { 'x-short-drama-csrf': bootstrap.csrfToken } })
+  assert.equal(response.status, 502)
+  const text = await response.text()
+  assert.match(text, /请稍后重试/)
+  assert.doesNotMatch(text, /https?:|authorization|cookie|stack/iu)
+  assert.deepEqual((await fetch(`${base}/api/v1/market`).then((value) => value.json())).latestReport, previous)
 })
 
 test('Dashboard 通过本地 HTTP API 初始化工作区并创建项目', async (t) => {

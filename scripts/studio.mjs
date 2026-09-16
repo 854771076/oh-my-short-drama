@@ -384,7 +384,12 @@ function createDefaultMarketService(workspaceRoot) {
       return { status: latest.latestReport ? 'ready' : 'empty', latestReport: latest.latestReport, latestSnapshot: latest.latestSnapshot, history }
     },
     async refresh() {
-      await runMarketResearch(['refresh', workspaceRoot])
+      try {
+        await runMarketResearch(['refresh', workspaceRoot])
+      } catch {
+        // Studio 不向浏览器暴露上游端点、请求参数或内部堆栈；既有成功报告由存储层保留，用户可安全重试。
+        throw Object.assign(new Error('剧查查公开榜单刷新失败，请稍后重试'), { status: 502 })
+      }
       return this.overview()
     },
     report: (id) => store.readReport(id),

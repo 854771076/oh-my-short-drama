@@ -228,6 +228,10 @@ export function topicMetrics(items, successfulRankingTypes) {
     const sourceRatio = sourceTagRatio(entries)
     return {
       topic,
+      ranking_types: uniqueStrings(entries.map(({ item }) => item.rankingType)).sort(compareText),
+      audiences: uniqueStrings(entries.map(({ item }) => item.audience)).sort(compareText),
+      formats: uniqueStrings(entries.map(({ item }) => item.format)).sort(compareText),
+      eras: uniqueStrings(entries.map(({ item }) => item.era)).sort(compareText),
       supply_count: supplyCount,
       rank_strength: rankStrength,
       demand_strength: demandStrength,
@@ -257,6 +261,7 @@ export function platformMatrix(items, fallbackSnapshotId = null) {
       key,
       title: first.title ?? '',
       topics: uniqueStrings(entries.flatMap(({ item }) => topicsOf(item))).sort(compareText),
+      topic_sources: uniqueStrings(entries.map(({ item }) => item?.provenance?.topicSource)).sort(compareText),
       ranking_types: rankings.map(({ ranking_type }) => ranking_type),
       platform_coverage: rankings.length,
       rankings,

@@ -19,6 +19,7 @@ test('机会分可解释且高需求低拥挤题材排名更高', () => {
   ]
   const report = analyzeMarket({ items, successfulRankingTypes: ['hot', 'douyin'], snapshotIds: ['s1'], filters: fixedFilters })
   assert.equal(report.topic_metrics[0].topic, '悬疑探案')
+  assert.deepEqual(report.topic_metrics[0].ranking_types, ['douyin'])
   assert.ok(report.topic_metrics[0].opportunity_score > report.topic_metrics[1].opportunity_score)
   assert.equal(report.summary.formula_version, 'topic-opportunity-v1')
   assert.match(report.limitations.join(' '), /单次快照/)
@@ -48,6 +49,7 @@ test('跨平台同剧在平台矩阵中合并且证据只保留引用', () => {
   assert.equal(matrix.length, 1)
   assert.deepEqual(matrix[0].ranking_types, ['douyin', 'hot'])
   assert.equal(matrix[0].platform_coverage, 2)
+  assert.deepEqual(matrix[0].topic_sources, [])
   assert.deepEqual(matrix[0].evidence[0], { snapshot_id: 's1', ranking_type: 'douyin', playlet_id: 9, key: 'playlet-id:9' })
 })
 
