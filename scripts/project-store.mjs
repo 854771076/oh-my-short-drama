@@ -26,6 +26,8 @@ const ASPECT_RATIOS = new Set(['9:16', '16:9', '1:1', '4:3', '3:4', '21:9'])
 const STORYBOARD_TYPES = new Set(['single', 'storyboard', 'shot-board'])
 const STORYBOARD_MEDIA = new Set(['image', 'blender'])
 const ADAPTATION_MODES = new Set(['original', 'faithful_adaptation', 'authorized_adaptation'])
+const MARKET_REPORT_SCHEMA_VERSION = 'market-report.v2'
+const RFC3339_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-])(\d{2}):(\d{2}))$/
 
 async function exists(path) { try { await access(path); return true } catch { return false } }
 
@@ -263,7 +265,12 @@ function exactKeys(value, keys, label) {
 }
 
 function validateIsoTime(value, field) {
-  if (typeof value !== 'string' || !value.trim() || !Number.isFinite(Date.parse(value))) throw new Error(`${field} 必须是 ISO 时间`)
+  const match = typeof value === 'string' ? RFC3339_DATE_TIME.exec(value) : null
+  if (!match) throw new Error(`${field} 必须是 RFC 3339 date-time`)
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, , offsetHourText, offsetMinuteText] = match
+  const [year, month, day, hour, minute, second] = [yearText, monthText, dayText, hourText, minuteText, secondText].map(Number)
+  const daysInMonth = month >= 1 && month <= 12 ? new Date(Date.UTC(year, month, 0)).getUTCDate() : 0
+  if (day < 1 || day > daysInMonth || hour > 23 || minute > 59 || second > 59 || (offsetHourText !== undefined && (Number(offsetHourText) > 23 || Number(offsetMinuteText) > 59))) throw new Error(`${field} 必须是 RFC 3339 date-time`)
 }
 
 function marketId(value, field) {
@@ -287,9 +294,26 @@ function validateMarketFilters(value, field) {
   for (const [key, item] of Object.entries(value)) {
     if (!allowed.has(key)) throw new Error(`${field}.${key} 无效`)
     if (typeof item === 'string' && item.trim()) continue
-    if (Array.isArray(item) && item.every((entry) => typeof entry === 'string' && entry.trim())) continue
+    if (Array.isArray(item)) {
+      validateStringList(item, `${field}.${key}`, { min: 1 })
+      continue
+    }
     throw new Error(`${field}.${key} 必须是非空字符串或字符串数组`)
   }
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map((entry) => stableJson(entry)).join(',')}]`
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`
+  return value === undefined ? 'null' : JSON.stringify(value)
+}
+
+function canonicalJsonSha256(value) {
+  return createHash('sha256').update(stableJson(value)).digest('hex')
+}
+
+function sameCanonicalJson(left, right) {
+  return stableJson(left) === stableJson(right)
 }
 
 function validateMarketInspirationRef(value, field) {
@@ -300,6 +324,34 @@ function validateMarketInspirationRef(value, field) {
   validateMarketFilters(value.filters, `${field}.filters`)
   if (typeof value.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.sha256)) throw new Error(`${field}.sha256 必须是 SHA-256 十六进制摘要`)
   validateStringList(value.selected_hypothesis_ids, `${field}.selected_hypothesis_ids`, { min: 1, validate: safeKey })
+}
+
+async function validateSavedMarketReportReference(projectRoot, reference, field) {
+  const reportPath = resolve(projectRoot, '.short-drama-market', 'reports', `${reference.report_id}.json`)
+  let report
+  try {
+    report = await readJson(reportPath)
+  } catch {
+    throw new Error(`${field} 引用的已保存市场报告不存在或无法读取`)
+  }
+  if (!report || typeof report !== 'object' || Array.isArray(report) || report.schema_version !== MARKET_REPORT_SCHEMA_VERSION) throw new Error(`${field} 引用的市场报告必须是 ${MARKET_REPORT_SCHEMA_VERSION}`)
+  for (const key of ['report_id', 'snapshot_ids', 'generated_at', 'filters']) {
+    if (!sameCanonicalJson(reference[key], report[key])) throw new Error(`${field}.${key} 必须与已保存市场报告一致`)
+  }
+  if (reference.sha256 !== canonicalJsonSha256(report)) throw new Error(`${field}.sha256 与已保存市场报告摘要不一致`)
+}
+
+async function validateStoredMarketInspirationReference(projectRoot, reference) {
+  const path = resolve(projectRoot, '.short-drama', 'market-inspiration.json')
+  let inspiration
+  try {
+    inspiration = await readJson(path)
+  } catch {
+    throw new Error('brief.market_inspiration_ref 需要已保存的 market-inspiration 文档')
+  }
+  validateDocument('market-inspiration', inspiration)
+  if (!sameCanonicalJson(reference, inspiration.report_ref)) throw new Error('brief.market_inspiration_ref 必须与已保存 market-inspiration 引用一致')
+  await validateSavedMarketReportReference(projectRoot, inspiration.report_ref, 'brief.market_inspiration_ref')
 }
 
 function validateEvidence(value, field) {
@@ -798,6 +850,8 @@ async function main() {
     if (!['source-analysis', 'brief', 'bible', 'outline', 'art-style', 'market-inspiration'].includes(kind) || !inputPath) throw new Error('用法：put-document <项目目录> <source-analysis|brief|bible|outline|art-style|market-inspiration> <JSON>')
     const document = await readJson(resolve(inputPath))
     validateDocument(kind, document)
+    if (kind === 'market-inspiration') await validateSavedMarketReportReference(root, document.report_ref, 'market-inspiration.report_ref')
+    if (kind === 'brief' && document.market_inspiration_ref !== null) await validateStoredMarketInspirationReference(root, document.market_inspiration_ref)
     await invalidateFrom(root, kind === 'art-style' ? 'asset-analysis' : 'analysis')
     await writeJson(resolve(root, '.short-drama', `${kind}.json`), document)
     return console.log(kind)

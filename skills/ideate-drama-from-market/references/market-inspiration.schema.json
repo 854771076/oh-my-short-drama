@@ -36,7 +36,7 @@
       "properties": {
         "report_id": {"$ref": "#/$defs/marketId"},
         "snapshot_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/marketId"}},
-        "generated_at": {"type": "string", "format": "date-time"},
+        "generated_at": {"$ref": "#/$defs/rfc3339DateTime"},
         "filters": {"$ref": "#/$defs/filters"},
         "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
         "selected_hypothesis_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/localId"}}
@@ -90,9 +90,10 @@
       "properties": {
         "selected_hypothesis_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/localId"}},
         "rejected_hypothesis_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/localId"}},
-        "confirmed_at": {"type": ["string", "null"], "format": "date-time"}
+        "confirmed_at": {"oneOf": [{"$ref": "#/$defs/rfc3339DateTime"}, {"type": "null"}]}
       }
     },
+    "rfc3339DateTime": {"type": "string", "format": "date-time", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"},
     "guardrails": {
       "type": "object",
       "additionalProperties": false,

@@ -16,6 +16,7 @@ import { listReferenceUploads, publishReferenceImage, selfCheck as checkPublish,
 import { validateVideoReferenceBindings } from './reference-bindings.mjs'
 import { ANTI_GRID_CLAIM_ZH, PANEL_BOARD_CLAIM_ZH } from './grid-detect.mjs'
 import { missingPrevizAssets, missingStoryboardAssets } from './workflow-gates.mjs'
+import { createMarketStore } from './market/store.mjs'
 
 const plugin = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const skillMap = JSON.parse(await readFile(resolve(plugin, 'references/skill-map.json'), 'utf8'))
@@ -51,6 +52,12 @@ async function json(root, name, value) {
   const path = resolve(root, name)
   await writeFile(path, `${JSON.stringify(value)}\n`)
   return path
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map((entry) => stableJson(entry)).join(',')}]`
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`
+  return value === undefined ? 'null' : JSON.stringify(value)
 }
 
 async function recordSkills(root, stage, evidence) {
@@ -341,9 +348,11 @@ async function main() {
     } catch (error) { if (!String(error.message).includes('只能在 asset-generation 或 media-production')) throw error }
     const source = { source_scope: {}, adaptation_mode: 'original', facts: [], timeline: [], characters: [], locations: [], props: [], conflicts: [], themes: [], visual_challenges: [], content_constraints: [], user_requirements: [], contradictions: [], open_questions: [], coverage: { complete: true, ranges: [] } }
     const brief = { title: '测试', logline: '', adaptation_mode: 'original', genre: '', audience: '', platform: '', tone: '', core_conflict: '', output_language: 'zh-CN', spoken_language: 'zh-CN', subtitle_language: 'zh-CN', aspect_ratio: '9:16', episode_count: 1, episode_duration_seconds: 30, rating: '', existing_materials: [], required_deliverables: [], prohibited_content: [], ending_type: '', creative_constraints: [], market_inspiration_ref: null, open_questions: [], approved: true }
+    const marketReport = { schema_version: 'market-report.v2', report_id: 'market-report-integration', generated_at: '2026-09-16T15:30:00.000+08:00', snapshot_ids: ['snapshot-integration'], filters: { topic: ['悬疑推理'] } }
+    await createMarketStore(root).saveReport(marketReport)
     const marketInspiration = {
       schema_version: 'market-inspiration.v1',
-      report_ref: { report_id: 'market-report-integration', snapshot_ids: ['snapshot-integration'], generated_at: '2026-09-16T15:30:00.000+08:00', filters: { topic: ['悬疑推理'] }, sha256: 'a'.repeat(64), selected_hypothesis_ids: ['hyp-original-hook'] },
+      report_ref: { report_id: 'market-report-integration', snapshot_ids: ['snapshot-integration'], generated_at: '2026-09-16T15:30:00.000+08:00', filters: { topic: ['悬疑推理'] }, sha256: createHash('sha256').update(stableJson(marketReport)).digest('hex'), selected_hypothesis_ids: ['hyp-original-hook'] },
       signals: [{ id: 'signal-verified', fact: '已保存报告中的公开样本信号。', confidence: 'low', evidence: [{ snapshot_id: 'snapshot-integration', ranking_type: 'hot', playlet_id: 'sample-1', key: 'playlet-id:sample-1' }], limitations: ['公开 Top 30 样本并不代表全量市场。'] }],
       hypotheses: [{ id: 'hyp-original-hook', derived_signal_ids: ['signal-verified'], inference: '可测试线索回收的连续叙事。', creative_transformation: '使用原创档案室设定和人物冲突。', premises: ['用户接受悬疑基调。'], opening_hook: '一段未知来源录音要求主角立刻自证清白。', serial_engine: '每集揭示一条证据并引入新代价。', differentiation: '不使用榜单作品的人物关系或情节。', production_fit: '固定场景与少量演员适配竖屏制作。', risks: ['低置信信号需要后续验证。'], validation_questions: ['目标受众是否接受声音证据链？'] }],
       decision: { selected_hypothesis_ids: ['hyp-original-hook'], rejected_hypothesis_ids: [], confirmed_at: null },
