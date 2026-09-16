@@ -52,6 +52,11 @@ function validHost(request) {
   return /^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/.test(host) && (!request.headers.origin || request.headers.origin === `http://${host}`)
 }
 
+function decodeMarketId(value) {
+  try { return decodeURIComponent(value) }
+  catch { throw Object.assign(new Error('市场报告 ID 编码无效'), { status: 400 }) }
+}
+
 async function body(request) {
   const chunks = []
   let size = 0
@@ -382,17 +387,20 @@ async function serveDelivery(response, workspaceRoot, key, episodeKey, kind, ran
 function createDefaultMarketService(workspaceRoot) {
   const store = createMarketStore(workspaceRoot)
   return {
-    async overview(filters = {}) {
+    async overview(filters = {}, selectedReportId = null) {
       const [latest, history] = await Promise.all([store.readLatest(), store.listHistory()])
-      if (!latest.latestReport || !latest.latestSnapshot || Object.keys(filters).length === 0) return { status: latest.latestReport ? 'ready' : 'empty', latestReport: latest.latestReport, latestSnapshot: latest.latestSnapshot, history }
-      const snapshot = latest.latestSnapshot
+      const selectedReport = selectedReportId ? await store.readReport(selectedReportId) : latest.latestReport
+      if (selectedReportId && !selectedReport) throw Object.assign(new Error('市场报告不存在'), { status: 404 })
+      const selectedSnapshotId = selectedReport?.evidence?.find((item) => item?.snapshot_id)?.snapshot_id ?? selectedReport?.snapshot_ids?.at(-1)
+      const snapshot = selectedReportId && selectedSnapshotId ? await store.readSnapshot(selectedSnapshotId) : latest.latestSnapshot
+      if (!selectedReport || !snapshot || Object.keys(filters).length === 0) return { status: selectedReport ? 'ready' : 'empty', latestReport: selectedReport, latestSnapshot: snapshot, history, ...(selectedReportId ? { selectedReportId } : {}) }
       const latestReport = analyzeMarket({
         items: normalizeRankings(snapshot.rankings, { snapshotId: snapshot.snapshot_id, observedAt: snapshot.retrieved_at }),
         successfulRankingTypes: Object.keys(snapshot.rankings),
         snapshotIds: [snapshot.snapshot_id],
         filters,
       })
-      return { status: 'ready', latestReport, latestSnapshot: snapshot, history, filtered: true, sourceReportId: latest.latestReport.report_id }
+      return { status: 'ready', latestReport, latestSnapshot: snapshot, history, filtered: true, sourceReportId: selectedReport.report_id, selectedReportId }
     },
     async refresh() {
       try {
@@ -417,7 +425,7 @@ export function createStudioServer({ workspaceRoot: rootArg, providerTester = te
     try {
       if (!validHost(request)) throw Object.assign(new Error('仅允许本机同源访问'), { status: 403 })
       const url = new URL(request.url, `http://${request.headers.host}`)
-      const segments = url.pathname.split('/').filter(Boolean).map(decodeURIComponent)
+      const segments = url.pathname.split('/').filter(Boolean).map((segment) => decodeMarketId(segment))
       if (request.method === 'GET' && url.pathname === '/api/v1/workspace') {
         const workspace = await initializeWorkspace(workspaceRoot)
         return json(response, 200, { workspace: { ...workspace, path: workspaceRoot }, projects: await listProjects(workspaceRoot), csrfToken })
@@ -430,12 +438,14 @@ export function createStudioServer({ workspaceRoot: rootArg, providerTester = te
           const value = url.searchParams.get(query)
           if (value) filters[field] = value
         }
-        return json(response, 200, await marketService.overview(filters))
+        const selectedReportId = url.searchParams.get('reportId')
+        if (selectedReportId && !MARKET_ID.test(selectedReportId)) throw Object.assign(new Error('市场报告 ID 无效'), { status: 400 })
+        return json(response, 200, await marketService.overview(filters, selectedReportId))
       }
       const marketReportMatch = /^\/api\/v1\/market\/reports\/([^/]+)$/.exec(url.pathname)
       const marketMarkdownMatch = /^\/api\/v1\/market\/reports\/([^/]+)\/markdown$/.exec(url.pathname)
       if (request.method === 'GET' && marketMarkdownMatch) {
-        const reportId = decodeURIComponent(marketMarkdownMatch[1])
+        const reportId = decodeMarketId(marketMarkdownMatch[1])
         if (!MARKET_ID.test(reportId)) throw Object.assign(new Error('市场报告 ID 无效'), { status: 400 })
         const markdown = await marketService.markdown(reportId)
         if (markdown === null) throw Object.assign(new Error('市场报告不存在'), { status: 404 })
@@ -443,7 +453,7 @@ export function createStudioServer({ workspaceRoot: rootArg, providerTester = te
         return response.end(markdown)
       }
       if (request.method === 'GET' && marketReportMatch) {
-        const reportId = decodeURIComponent(marketReportMatch[1])
+        const reportId = decodeMarketId(marketReportMatch[1])
         if (!MARKET_ID.test(reportId)) throw Object.assign(new Error('市场报告 ID 无效'), { status: 400 })
         const report = await marketService.report(reportId)
         if (!report) throw Object.assign(new Error('市场报告不存在'), { status: 404 })

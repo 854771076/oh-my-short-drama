@@ -75,6 +75,7 @@ test('市场 API 支持空态、刷新锁和报告读取', async (t) => {
   const traversal = await fetch(`${base}/api/v1/market/reports/..%2F..%2Fsecret/markdown`)
   assert.equal(traversal.status, 400)
   assert.doesNotMatch(await traversal.text(), /secret contents/)
+  assert.equal((await fetch(`${base}/api/v1/market/reports/%E0%A4%A/markdown`)).status, 400)
   const markdown = await fetch(`${base}/api/v1/market/reports/r1/markdown`)
   assert.equal(markdown.headers.get('content-type'), 'text/markdown; charset=utf-8')
 })
@@ -103,14 +104,24 @@ test('市场 API 筛选使用最新快照重算全部指标', async (t) => {
     ] } },
     failures: [],
   })
+  const oldReportId = JSON.parse((await run('market-research.mjs', ['analyze', workspace])).stdout).report_id
+  await store.saveSnapshot({
+    schema_version: 1,
+    snapshot_id: 'filter-snapshot-new',
+    retrieved_at: '2026-09-16T11:00:00+08:00',
+    source: { provider: 'dataeye-juchacha', coverage: 'public-top-30' },
+    rankings: { hot: { content: [{ playletId: 3, playletName: '新女频剧', audience: '女频', playletTags: ['甜宠'], ranking: 1, consumeNum: 90 }] } },
+    failures: [],
+  })
   await run('market-research.mjs', ['analyze', workspace])
   const server = createStudioServer({ workspaceRoot: workspace })
   await new Promise((done) => server.listen(0, '127.0.0.1', done))
   t.after(async () => { await new Promise((done) => server.close(done)); await rm(workspace, { recursive: true, force: true }) })
-  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/market?audience=${encodeURIComponent('男频')}`)
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/market?audience=${encodeURIComponent('男频')}&reportId=${oldReportId}`)
   const body = await response.json()
   assert.equal(response.status, 200)
   assert.equal(body.filtered, true)
+  assert.equal(body.selectedReportId, oldReportId)
   assert.equal(body.latestReport.coverage.sample_count, 1)
   assert.deepEqual(body.latestReport.filters, { audience: '男频' })
   assert.deepEqual(body.latestReport.topic_metrics.map((item) => item.topic), ['异能'])
