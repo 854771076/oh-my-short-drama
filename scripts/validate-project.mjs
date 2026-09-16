@@ -26,6 +26,16 @@ const failures = []
 let root
 let rootReal
 
+function validRequestFingerprint(request) {
+  if (!request?.arguments || typeof request.arguments !== 'object') return false
+  if (request.dubbing_compiler) {
+    return request.dubbing_compiler.sha256 === fingerprint(request.dubbing_compiler.snapshot)
+      && request.inputFingerprint === fingerprint({ arguments: request.arguments, dubbing_compiler: request.dubbing_compiler })
+  }
+  // 兼容升级前仅对 arguments 取指纹的历史请求；新请求会显式把空编译快照纳入指纹。
+  return [fingerprint(request.arguments), fingerprint({ arguments: request.arguments, dubbing_compiler: null })].includes(request.inputFingerprint)
+}
+
 function promptMode(skill, stage) {
   const prompts = Object.entries(skillMap.prompts).filter(([, owner]) => owner === skill).map(([name]) => name)
   if (!prompts.length) return null
@@ -242,7 +252,7 @@ async function validateControl() {
   for (const file of await readdir(requestDirectory)) {
     if (!/^req-[0-9a-f-]+\.json$/.test(file)) { failures.push(`生成请求文件名无效：${file}`); continue }
     const request = await json(resolve(requestDirectory, file))
-    if (!request || request.version !== 1 || `${request.requestId}.json` !== file || !['generate_image', 'submit_video', 'generate_audio', 'generate_music'].includes(request.tool) || !request.arguments || typeof request.arguments !== 'object' || fingerprint(request.arguments) !== request.inputFingerprint) failures.push(`生成请求快照无效：${file}`)
+    if (!request || request.version !== 1 || `${request.requestId}.json` !== file || !['generate_image', 'submit_video', 'generate_audio', 'generate_music'].includes(request.tool) || !validRequestFingerprint(request)) failures.push(`生成请求快照无效：${file}`)
     else if (request.tool === 'submit_video') try {
       await validateVideoReferenceBindings(root, request.provider, request.arguments, request.arguments.reference_manifest || [], { requireSelected: false, at: Date.parse(request.createdAt) })
     } catch (error) { failures.push(`视频请求参考证据链无效：${file}：${error.message}`) }
@@ -254,7 +264,7 @@ async function validateControl() {
     await localFile(task.requestPath, `${taskId} 请求快照`, task.requestSha256)
     if (await exists(requestPath)) {
       const request = await json(requestPath)
-      if (!request || request.version !== 1 || request.target !== task.target || request.type !== task.type || request.provider !== task.provider || request.inputFingerprint !== task.inputFingerprint || fingerprint(request.arguments) !== task.inputFingerprint) failures.push(`任务与请求快照不一致：${taskId}`)
+      if (!request || request.version !== 1 || request.target !== task.target || request.type !== task.type || request.provider !== task.provider || request.inputFingerprint !== task.inputFingerprint || !validRequestFingerprint(request)) failures.push(`任务与请求快照不一致：${taskId}`)
       noSecrets(request, `${taskId} 请求快照`)
     }
   }

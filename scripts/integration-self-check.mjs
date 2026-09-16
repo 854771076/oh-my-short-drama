@@ -16,6 +16,8 @@ import { listReferenceUploads, publishReferenceImage, selfCheck as checkPublish,
 import { validateVideoReferenceBindings } from './reference-bindings.mjs'
 import { ANTI_GRID_CLAIM_ZH, PANEL_BOARD_CLAIM_ZH } from './grid-detect.mjs'
 import { missingPrevizAssets, missingStoryboardAssets } from './workflow-gates.mjs'
+import { putFinalSpeechAlignment } from './speech-timing.mjs'
+import { DUBBING_REVIEW_DIMENSIONS, putDubbingPerformanceReview } from './dubbing-performance-review.mjs'
 
 const plugin = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const skillMap = JSON.parse(await readFile(resolve(plugin, 'references/skill-map.json'), 'utf8'))
@@ -567,7 +569,25 @@ async function main() {
     await writeFile(resolve(root, 'audio.b64'), `data:audio/flac;base64,${Buffer.from('audio fixture').toString('base64')}\n`)
     const audioProvenance = await json(root, 'audio-provenance.json', { origin: 'generated', created_by: 'provider', provider: 'starrouter', model_or_workflow: 'speech-2.8-hd', task_id: 'task-c', prompt_document: audioPromptReference, source_assets: [], parameters: { voice: 'male-qn-qingse', speed: 1, response_format: 'flac' } })
     run('asset-ledger.mjs', 'decode', root, 'audio-ep001-a', resolve(root, 'audio.b64'), 'v001', '-', audioProvenance)
-    run('asset-ledger.mjs', 'select', root, 'audio-ep001-a', 'v001')
+    const pendingAudioLedger = JSON.parse(run('asset-ledger.mjs', 'list', root))
+    const pendingAudioVersion = pendingAudioLedger.assets['audio-ep001-a'].versions.find((item) => item.id === 'v001')
+    await putFinalSpeechAlignment(root, {
+      episode_key: 'ep-001', line_index: 1,
+      audio_asset: { asset_key: 'audio-ep001-a', version_id: 'v001', sha256: pendingAudioVersion.sha256 },
+      audio_plan_version: 'v001',
+      source_timing: { version_id: 'v001', line_index: 1, source_asset: timingSource },
+      text: '别绕弯子。', words: [{ text: '别绕弯子。', start_ms: 0, end_ms: 5000 }],
+      timeline_mapping: { audio_in_ms: 0, timeline_at_ms: 0 }, timeline_fps: 24, reviewed: true,
+    })
+    const passedDimension = { status: 'passed', evidence: '集成自检已完整核对' }
+    const dimensions = Object.fromEntries(DUBBING_REVIEW_DIMENSIONS.map((key) => [key, key === 'technical_audio'
+      ? { ...passedDimension, checks: { clipping: false, swallowed_words: false, tail_cutoff: false, unnatural_tempo: false, loudness_blocker: false } }
+      : passedDimension]))
+    await putDubbingPerformanceReview(root, {
+      asset_key: 'audio-ep001-a', version_id: 'v001', asset_sha256: pendingAudioVersion.sha256,
+      episode_key: 'ep-001', line_index: 1, audio_plan_version: 'v001', timing_version_id: 'v001',
+      reviewer: 'integration-self-check', watched_full: true, dimensions, issues: [],
+    })
     run('task-ledger.mjs', 'update', root, 'task-c', 'completed', 'v001')
 
     for (const shotNumber of [1, 2]) {
