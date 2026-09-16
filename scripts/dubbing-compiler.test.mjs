@@ -5,12 +5,12 @@ import { compileDubbingRequest } from './dubbing-compiler.mjs'
 
 const contract = {
   mode: 'generated',
-  contract_version: 'v003',
-  timing_source: { version_id: 'v002' },
+  timing_source: { episode_key: 'ep-001', version_id: 'v002', line_index: 1, source_asset: { asset_key: 'shot-ep001-001', version_id: 'v001', sha256: 'a'.repeat(64) } },
   target_range: { start_ms: 1240, end_ms: 2080 },
   target_speech_ms: 770,
   original_text: '别回头。',
   adapted_text: '别回头。',
+  adaptation: null,
   performance: {
     intent: '阻止对方看见身后的危险',
     subtext: '她害怕，但不能让对方察觉',
@@ -25,7 +25,7 @@ const contract = {
 }
 
 function input(provider, model, overrides = {}) {
-  return { provider, model, voice: 'linwan', contract: structuredClone(contract), attempt: 2, measured_speech_ms: 700, ...overrides }
+  return { provider, model, voice: 'linwan', voice_binding: { voice_id: 'linwan' }, authorized_voice_bindings: [{ voice_id: 'linwan' }], dubbing_contract_version: 'v003', contract: structuredClone(contract), attempt: 2, measured_speech_ms: 700, ...overrides }
 }
 
 test('CosyVoice 指令包含意图转折重音停连且不超过 100 加权字符', () => {
@@ -77,7 +77,7 @@ test('RunningHub 只注入映射白名单声明的 JSON path', () => {
     node_info_list: [
       { nodeId: '12', fieldName: 'text', fieldValue: '别回头。' },
       { nodeId: '13', fieldName: 'rate', fieldValue: 0.91 },
-      { nodeId: '14', fieldName: 'instruction', fieldValue: '意图：阻止对方看见身后的危险；情绪：克制警觉→压低的急迫；重音：别；停连：别后停70毫秒' },
+      { nodeId: '14', fieldName: 'instruction', fieldValue: '意图：阻止对方看见身后的危险；情绪弧：0.00|克制警觉|0.45→1.00|压低的急迫|0.72；重音：别；停连：别后停70毫秒' },
     ],
   })
 })
@@ -91,6 +91,43 @@ test('MiniMax 多段情绪弧和缺少情绪映射的 RunningHub 工作流均会
   }))
   assert.deepEqual(runninghub.capability_gaps, ['runninghub-mapping-incomplete'])
   assert.equal(runninghub.arguments, null)
+})
+
+test('MiniMax 即使情绪名相同但有多节也拒绝用单一枚举静默合并', () => {
+  const multiBeat = structuredClone(contract)
+  multiBeat.performance.emotion_arc = [{ at: 0, emotion: '克制警觉', intensity: 0.3 }, { at: 0.7, emotion: '克制警觉', intensity: 0.8 }]
+  const out = compileDubbingRequest(input('starrouter', 'speech-2.8-hd', { contract: multiBeat }))
+  assert.deepEqual(out.capability_gaps, ['emotion-arc'])
+  assert.equal(out.arguments, null)
+})
+
+test('指令按顺序保留三节情绪弧的 at、情绪和强度', () => {
+  const threeBeat = structuredClone(contract)
+  threeBeat.performance.intent = '阻止'
+  threeBeat.performance.emotion_arc = [{ at: 0, emotion: '警觉', intensity: 0.2 }, { at: 0.5, emotion: '迟疑', intensity: 0.6 }, { at: 1, emotion: '急迫', intensity: 0.9 }]
+  const cosy = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', { contract: threeBeat }))
+  const openai = compileDubbingRequest(input('starrouter', 'tts-1', { contract: threeBeat }))
+  for (const instruction of [cosy.arguments.instruction, openai.arguments.instructions]) {
+    assert.match(instruction, /0\.00\|警觉\|0\.20/)
+    assert.match(instruction, /0\.50\|迟疑\|0\.60/)
+    assert.match(instruction, /1\.00\|急迫\|0\.90/)
+    assert.ok(instruction.indexOf('0.00|警觉|0.20') < instruction.indexOf('0.50|迟疑|0.60'))
+    assert.ok(instruction.indexOf('0.50|迟疑|0.60') < instruction.indexOf('1.00|急迫|0.90'))
+  }
+})
+
+test('缺少受信任外层合同版本或合同不完整时阻断', () => {
+  const missingVersion = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', { dubbing_contract_version: undefined }))
+  assert.deepEqual(missingVersion.capability_gaps, ['dubbing-contract-version-required'])
+  assert.notEqual(missingVersion.snapshot.contract_version, null)
+  const invalidVersion = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', { dubbing_contract_version: 'v3' }))
+  assert.deepEqual(invalidVersion.capability_gaps, ['dubbing-contract-version-invalid'])
+  assert.equal(invalidVersion.snapshot.contract_version, 'invalid')
+  const incomplete = structuredClone(contract)
+  delete incomplete.performance.subtext
+  const out = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', { contract: incomplete }))
+  assert.deepEqual(out.capability_gaps, ['invalid-dubbing-contract'])
+  assert.equal(out.arguments, null)
 })
 
 test('快照固定保留版本、区间、轮次和能力缺口，不带调用凭据', () => {

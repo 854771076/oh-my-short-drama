@@ -1,4 +1,5 @@
 import { weightedLength } from './generation/bailian.mjs'
+import { validateDubbingContract } from './audio-plan-contract.mjs'
 
 export const CAPABILITIES = Object.freeze({
   bailian: { instruction: new Set(['cosyvoice-v3.5-plus', 'cosyvoice-v3.5-flash', 'cosyvoice-v3-flash']) },
@@ -8,6 +9,7 @@ export const CAPABILITIES = Object.freeze({
 const MIN_SPEED = 0.85
 const MAX_SPEED = 1.15
 const RUNNINGHUB_PATHS = new Set(['text', 'speed', 'instruction'])
+const VERSION = /^v\d{3}$/
 
 function plainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -32,7 +34,7 @@ function snapshotFor(input, capabilityGaps = []) {
     ? { start_ms: contract.target_range.start_ms, end_ms: contract.target_range.end_ms }
     : null
   return {
-    contract_version: requiredString(input?.dubbing_contract_version) ? input.dubbing_contract_version : requiredString(input?.contract_version) ? input.contract_version : requiredString(contract.contract_version) ? contract.contract_version : null,
+    contract_version: VERSION.test(input?.dubbing_contract_version || '') ? input.dubbing_contract_version : requiredString(input?.dubbing_contract_version) ? 'invalid' : 'missing',
     timing_version: requiredString(contract.timing_source?.version_id) ? contract.timing_source.version_id : null,
     target_range: targetRange,
     target_speech_ms: targetSpeechMs(contract),
@@ -63,40 +65,37 @@ export function calibratedSpeed(contract, attempt = 1, measuredSpeechMs) {
   return Number((measuredSpeechMs / target).toFixed(2))
 }
 
-function validateContract(contract) {
-  const performance = contract?.performance
-  const fitPolicy = contract?.fit_policy
-  const targetRange = contract?.target_range
-  if (contract?.mode !== 'generated' || !targetSpeechMs(contract) || !requiredString(contract?.adapted_text) || !plainObject(performance) || !plainObject(targetRange) || !plainObject(fitPolicy)) return false
-  if (!Number.isInteger(targetRange.start_ms) || !Number.isInteger(targetRange.end_ms) || targetRange.start_ms < 0 || targetRange.end_ms <= targetRange.start_ms || contract.target_speech_ms > targetRange.end_ms - targetRange.start_ms) return false
-  if (fitPolicy.max_paid_generations !== 3 || fitPolicy.provider_speed_min !== MIN_SPEED || fitPolicy.provider_speed_max !== MAX_SPEED || fitPolicy.max_post_tempo_percent !== 3 || typeof fitPolicy.text_adaptation_allowed !== 'boolean') return false
-  return requiredString(performance.intent)
-    && requiredString(performance.subtext)
-    && Array.isArray(performance.emotion_arc) && performance.emotion_arc.length > 0
-    && performance.emotion_arc.every((beat) => requiredString(beat?.emotion))
-    && Array.isArray(performance.emphasis) && performance.emphasis.length > 0 && performance.emphasis.every(requiredString)
-    && Array.isArray(performance.pause_plan) && performance.pause_plan.length > 0
-    && performance.pause_plan.every((pause) => requiredString(pause?.after) && Number.isInteger(pause.duration_ms) && pause.duration_ms > 0)
-    && requiredString(performance.pace)
-    && requiredString(performance.breath)
-    && requiredString(performance.distance_and_space)
+function validateContract(input) {
+  const voiceBinding = input?.voice_binding ?? input?.voiceBinding
+  const authorizedVoiceBindings = input?.authorized_voice_bindings ?? input?.authorizedVoiceBindings
+  if (!plainObject(voiceBinding) || voiceBinding.voice_id !== input?.voice || !Array.isArray(authorizedVoiceBindings)) return false
+  try {
+    validateDubbingContract(input.contract, {
+      deliveryMode: input.delivery_mode ?? 'post_dub',
+      presentation: input.presentation ?? 'visible-dialogue',
+      voiceBinding,
+      authorizedVoiceBindings,
+    })
+    return true
+  } catch {
+    return false
+  }
 }
 
 function languageHint(text) {
   return /[\u3400-\u9fff]/u.test(text) ? 'zh' : 'en'
 }
 
-function emotionTurn(performance) {
-  const beats = performance.emotion_arc
-  const first = beats[0].emotion.trim()
-  const last = beats.at(-1).emotion.trim()
-  return first === last ? first : `${first}→${last}`
+function emotionArc(performance) {
+  return performance.emotion_arc
+    .map((beat) => `${beat.at.toFixed(2)}|${beat.emotion.trim()}|${beat.intensity.toFixed(2)}`)
+    .join('→')
 }
 
 function requiredDirection(contract) {
   const performance = contract.performance
   const pauses = performance.pause_plan.map((pause) => `${pause.after}后停${pause.duration_ms}毫秒`).join('、')
-  return `意图：${performance.intent.trim()}；情绪：${emotionTurn(performance)}；重音：${performance.emphasis.map((item) => item.trim()).join('、')}；停连：${pauses}`
+  return `意图：${performance.intent.trim()}；情绪弧：${emotionArc(performance)}；重音：${performance.emphasis.map((item) => item.trim()).join('、')}；停连：${pauses}`
 }
 
 function fullDirection(contract) {
@@ -110,8 +109,7 @@ function directionWithinCosyVoiceLimit(contract) {
 }
 
 function singleEmotion(performance) {
-  const emotions = [...new Set(performance.emotion_arc.map((beat) => beat.emotion.trim()))]
-  return emotions.length === 1 ? emotions[0] : null
+  return performance.emotion_arc.length === 1 ? performance.emotion_arc[0].emotion.trim() : null
 }
 
 export function compileCosyVoice(input, speed) {
@@ -163,9 +161,8 @@ export function compileRunningHub(input, speed) {
   const values = {
     text: input.contract.adapted_text,
     speed,
-    instruction: directionWithinCosyVoiceLimit(input.contract),
+    instruction: requiredDirection(input.contract),
   }
-  if (!values.instruction) return unsupported('style-instruction-length', input)
   const allowed = new Set()
   const nodeInfoList = []
   for (const field of mapping.node_info_list) {
@@ -179,7 +176,10 @@ export function compileRunningHub(input, speed) {
 }
 
 export function compileDubbingRequest(input) {
-  if (!plainObject(input) || !requiredString(input.provider) || !requiredString(input.model) || !requiredString(input.voice) || !validateContract(input.contract)) return unsupported('invalid-dubbing-contract', input)
+  if (!plainObject(input) || !requiredString(input.provider) || !requiredString(input.model) || !requiredString(input.voice)) return unsupported('invalid-dubbing-contract', input)
+  if (!requiredString(input.dubbing_contract_version)) return unsupported('dubbing-contract-version-required', input)
+  if (!VERSION.test(input.dubbing_contract_version)) return unsupported('dubbing-contract-version-invalid', input)
+  if (!validateContract(input)) return unsupported('invalid-dubbing-contract', input)
   const attempt = input.attempt ?? 1
   if (!Number.isInteger(attempt) || attempt < 1 || attempt > input.contract.fit_policy?.max_paid_generations) return unsupported('attempt-out-of-policy', input)
   const speed = calibratedSpeed(input.contract, attempt, input.measured_speech_ms)
