@@ -2,3 +2,4 @@
 .playwright-mcp/
 .worktrees/
 /.runninghub-workflow-exports/
+.research/*

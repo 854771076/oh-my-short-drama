@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "juchacha-ranking"
+version = "0.1.0"
+description = "DataEye 剧查查排行榜纯协议 Python SDK"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.31,<3"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
+[project.scripts]
+juchacha-ranking = "juchacha_ranking.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
