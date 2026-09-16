@@ -5,7 +5,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { acceptanceChecks, verifySourceTimedDubbingEvidence } from './next-version-acceptance.mjs'
+import { acceptanceChecks, verifyRecordedSourceTimedDubbingEvidence } from './next-version-acceptance.mjs'
+import { fingerprint } from './task-ledger.mjs'
 
 async function writeJson(path, value) {
   await mkdir(resolve(path, '..'), { recursive: true })
@@ -46,10 +47,11 @@ test('真实配音验收证据必须交叉核对媒体、八维复听和完成�
   const dubSha = digest(await readFile(dubPath))
   const assets = { assets: {
     'shot-ep001-010': { key: 'shot-ep001-010', type: 'video', selectedVersionId: 'v001', staleVersionIds: [], versions: [{ id: 'v001', localPath: 'assets/videos/shot-ep001-010/v001.mp4', sha256: originalSha }] },
-    'audio-ep001-line-010': { key: 'audio-ep001-line-010', type: 'audio', selectedVersionId: 'v003', staleVersionIds: [], versions: [{ id: 'v003', localPath: 'assets/audio/audio-ep001-line-010/v003.wav', sha256: dubSha, provenance: { origin: 'generated', provider: 'bailian', model_or_workflow: 'cosyvoice-v3.5-plus', task_id: 'task-dub-10' } }] },
+    'audio-ep001-line-010': { key: 'audio-ep001-line-010', type: 'audio', selectedVersionId: 'v003', staleVersionIds: [], versions: [{ id: 'v003', localPath: 'assets/audio/audio-ep001-line-010/v003.wav', sha256: dubSha, provenance: { origin: 'generated', created_by: 'provider', provider: 'bailian', model_or_workflow: 'cosyvoice-v3.5-plus', task_id: 'task-dub-10', prompt_document: null, source_assets: [], parameters: {} } }] },
   } }
   await writeJson(resolve(root, '.short-drama/assets.json'), assets)
-  const dimensions = Object.fromEntries(['semantic_integrity', 'speaker_identity', 'emotion_arc', 'intensity_and_subtext', 'emphasis_pause_breath', 'timing_fit', 'picture_interaction', 'technical_audio'].map((key) => [key, { status: 'passed', observation: `${key} 已完整复听` }]))
+  const dimensions = Object.fromEntries(['semantic_integrity', 'speaker_identity', 'emotion_arc', 'intensity_and_subtext', 'emphasis_pause_breath', 'timing_fit', 'picture_interaction', 'technical_audio'].map((key) => [key, { status: 'passed', evidence: `${key} 已完整复听` }]))
+  dimensions.technical_audio.checks = { clipping: false, swallowed_words: false, tail_cutoff: false, unnatural_tempo: false, loudness_blocker: false }
   await writeJson(resolve(root, '.short-drama/dubbing-reviews.json'), { reviews: { 'audio-ep001-line-010@v003': { review_type: 'dubbing-performance', approved: true, selection_state: 'committed', asset_sha256: dubSha, episode_key: 'ep-001', line_index: 10, watched_full: true, dimensions, issues: [] } } })
   await writeJson(resolve(root, '.short-drama/tasks.json'), { tasks: { 'task-dub-10': { taskId: 'task-dub-10', status: 'completed' } } })
   const reportPath = resolve(root, '.short-drama/acceptance/source-timed-dubbing-ep-001-line-010.json')
@@ -64,16 +66,31 @@ test('真实配音验收证据必须交叉核对媒体、八维复听和完成�
     performance_review: { watched_full: true, dimensions, issues: [] },
   }
   await writeJson(reportPath, report)
-  await assert.rejects(() => verifySourceTimedDubbingEvidence(root, reportPath), /制作耗时/)
+  await assert.rejects(() => verifyRecordedSourceTimedDubbingEvidence(root, reportPath), /制作耗时/)
   report.production_duration_ms = 128000
   await writeJson(reportPath, report)
+  await assert.rejects(() => verifyRecordedSourceTimedDubbingEvidence(root, reportPath), /请求快照|任务/)
 
-  const evidence = await verifySourceTimedDubbingEvidence(root, reportPath)
+  const compilerSnapshot = { episode_key: 'ep-001', line_index: 10, contract_version: 'v001', timing_version: 'v002', attempt: 1, target_range: { start_ms: 100, end_ms: 900 }, text_version: 'original', capability_gaps: [] }
+  const dubbingCompiler = { snapshot: compilerSnapshot, sha256: fingerprint(compilerSnapshot) }
+  const request = { version: 1, requestId: 'req-dub-10', tool: 'generate_audio', target: 'audio-ep001-line-010', type: 'audio', provider: 'bailian', modelOrWorkflow: 'cosyvoice-v3.5-plus', promptDocument: null, arguments: { provider: 'bailian', model: 'cosyvoice-v3.5-plus', confirmed: true }, dubbing_compiler: dubbingCompiler, inputFingerprint: 'test' }
+  const requestPath = resolve(root, '.short-drama/requests/req-dub-10.json')
+  await writeJson(requestPath, request)
+  assets.assets['audio-ep001-line-010'].versions[0].provenance.parameters = { dubbing_compiler: dubbingCompiler }
+  await writeJson(resolve(root, '.short-drama/assets.json'), assets)
+  await writeJson(resolve(root, '.short-drama/tasks.json'), { tasks: { 'task-dub-10': { taskId: 'task-dub-10', target: 'audio-ep001-line-010', type: 'audio', provider: 'bailian', status: 'completed', requestPath: '.short-drama/requests/req-dub-10.json', requestSha256: digest(await readFile(requestPath)), outputVersionId: 'v003' } } })
+
+  const evidence = await verifyRecordedSourceTimedDubbingEvidence(root, reportPath)
   assert.deepEqual({ asset_key: evidence.asset_key, version_id: evidence.version_id, sha256: evidence.sha256, task_id: evidence.task_id }, { asset_key: 'audio-ep001-line-010', version_id: 'v003', sha256: dubSha, task_id: 'task-dub-10' })
 
   const reviewPath = resolve(root, '.short-drama/dubbing-reviews.json')
+  const incompleteDimensions = structuredClone(dimensions)
+  delete incompleteDimensions.technical_audio.checks
+  await writeJson(reviewPath, { reviews: { 'audio-ep001-line-010@v003': { review_type: 'dubbing-performance', approved: true, selection_state: 'committed', asset_sha256: dubSha, episode_key: 'ep-001', line_index: 10, watched_full: true, dimensions: incompleteDimensions, issues: [] } } })
+  await assert.rejects(() => verifyRecordedSourceTimedDubbingEvidence(root, reportPath), /技术音频/)
+
   await writeJson(reviewPath, { reviews: { 'audio-ep001-line-010@v003': { review_type: 'dubbing-performance', approved: true, selection_state: 'committed', asset_sha256: dubSha, episode_key: 'ep-001', line_index: 10, watched_full: false, dimensions, issues: [] } } })
-  await assert.rejects(() => verifySourceTimedDubbingEvidence(root, reportPath), /完整复听/)
+  await assert.rejects(() => verifyRecordedSourceTimedDubbingEvidence(root, reportPath), /完整复听/)
 
   const fakeBytes = Buffer.from('not-a-real-audio-stream')
   const fakeSha = digest(fakeBytes)
@@ -83,5 +100,5 @@ test('真实配音验收证据必须交叉核对媒体、八维复听和完成�
   await writeJson(resolve(root, '.short-drama/assets.json'), assets)
   await writeJson(reportPath, report)
   await writeJson(reviewPath, { reviews: { 'audio-ep001-line-010@v003': { review_type: 'dubbing-performance', approved: true, selection_state: 'committed', asset_sha256: fakeSha, episode_key: 'ep-001', line_index: 10, watched_full: true, dimensions, issues: [] } } })
-  await assert.rejects(() => verifySourceTimedDubbingEvidence(root, reportPath), /ffprobe|可解码/)
+  await assert.rejects(() => verifyRecordedSourceTimedDubbingEvidence(root, reportPath), /ffprobe|可解码/)
 })

@@ -52,7 +52,7 @@ export function validateAcceptanceMedia(originalMedia, dubMedia) {
   if (!originalMedia?.has_audio || !dubMedia?.has_audio) throw new Error('真实验收资产必须包含可解码原声音轨和配音音轨')
 }
 
-export async function runDubbingLiveAcceptance(rootArg, episodeKey, lineIndex, options) {
+export async function assessDubbingLiveAcceptance(rootArg, episodeKey, lineIndex, options) {
   const root = resolve(rootArg)
   if (!/^ep-\d{3}$/.test(episodeKey) || !Number.isInteger(lineIndex) || lineIndex <= 0) throw new Error('episode 或 line 无效')
   const originalId = parseIdentity(options.original, '--original')
@@ -121,6 +121,12 @@ export async function runDubbingLiveAcceptance(rootArg, episodeKey, lineIndex, o
     lip_sync: { bound: Boolean(lipSegment), segment: lipSegment ? `${lipSegment.asset_key}@${lipSegment.version_id}` : null },
     performance_review: { watched_full: review.watched_full === true, dimensions: review.dimensions, issues: review.issues || [] },
   }
+  return { report }
+}
+
+export async function runDubbingLiveAcceptance(rootArg, episodeKey, lineIndex, options) {
+  const root = resolve(rootArg)
+  const { report } = await assessDubbingLiveAcceptance(root, episodeKey, lineIndex, options)
   const output = resolve(root, '.short-drama', 'acceptance', `source-timed-dubbing-${episodeKey}-line-${String(lineIndex).padStart(3, '0')}.json`)
   await mkdir(dirname(output), { recursive: true })
   const temporary = `${output}.${process.pid}.tmp`

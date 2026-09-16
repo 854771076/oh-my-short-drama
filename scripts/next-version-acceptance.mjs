@@ -5,10 +5,13 @@ import { spawnSync } from 'node:child_process'
 import { dirname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { probeMedia } from './media-tools.mjs'
+import { assessDubbingLiveAcceptance } from './dubbing-live-acceptance.mjs'
+import { validateTaskOutput } from './task-ledger.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUTPUT_LIMIT = 4000
 const DUBBING_REVIEW_DIMENSIONS = ['semantic_integrity', 'speaker_identity', 'emotion_arc', 'intensity_and_subtext', 'emphasis_pause_breath', 'timing_fit', 'picture_interaction', 'technical_audio']
+const DUBBING_TECHNICAL_CHECKS = ['clipping', 'swallowed_words', 'tail_cutoff', 'unnatural_tempo', 'loudness_blocker']
 
 export function acceptanceChecks() {
   return [
@@ -82,12 +85,13 @@ function evidenceVersion(assets, reference, { selected = false } = {}) {
 
 function fullDubbingReview(review, report) {
   if (review?.review_type !== 'dubbing-performance' || review.approved !== true || review.selection_state !== 'committed' || review.watched_full !== true) throw new Error('真实配音证据缺少已提交的八维完整复听')
-  if (DUBBING_REVIEW_DIMENSIONS.some((key) => review.dimensions?.[key]?.status !== 'passed' || typeof review.dimensions[key].observation !== 'string' || !review.dimensions[key].observation.trim())) throw new Error('真实配音证据的八维完整复听不完整')
+  if (DUBBING_REVIEW_DIMENSIONS.some((key) => review.dimensions?.[key]?.status !== 'passed' || typeof review.dimensions[key].evidence !== 'string' || !review.dimensions[key].evidence.trim())) throw new Error('真实配音证据的八维完整复听不完整')
+  if (DUBBING_TECHNICAL_CHECKS.some((key) => review.dimensions.technical_audio.checks?.[key] !== false)) throw new Error('真实配音证据缺少逐项通过的技术音频检查')
   if (review.issues?.some((issue) => ['P0', 'P1'].includes(issue.severity))) throw new Error('真实配音证据仍存在 P0/P1')
   if (report.performance_review?.watched_full !== true || DUBBING_REVIEW_DIMENSIONS.some((key) => report.performance_review?.dimensions?.[key]?.status !== 'passed')) throw new Error('A/B 报告没有绑定八维完整复听结果')
 }
 
-export async function verifySourceTimedDubbingEvidence(projectArg = process.env.DUBBING_EVIDENCE_PROJECT, reportArg = process.env.DUBBING_EVIDENCE_REPORT) {
+export async function verifyRecordedSourceTimedDubbingEvidence(projectArg = process.env.DUBBING_EVIDENCE_PROJECT, reportArg = process.env.DUBBING_EVIDENCE_REPORT) {
   if (!projectArg) throw new Error('缺少 DUBBING_EVIDENCE_PROJECT；合成测试不能替代真实镜头情感配音 A/B')
   if (!reportArg) throw new Error('缺少 DUBBING_EVIDENCE_REPORT；必须指定真实镜头 A/B 报告')
   const project = await realpath(resolve(projectArg))
@@ -119,7 +123,29 @@ export async function verifySourceTimedDubbingEvidence(projectArg = process.env.
   if (report.source_timing?.word_errors?.status !== 'passed' || report.subtitle?.bound !== true || report.subtitle?.within_tolerance !== true || report.lip_sync?.bound !== true) throw new Error('真实镜头 A/B 的时序、字幕或口型验收未通过')
   const task = Object.values(tasks.tasks || {}).find((item) => item.taskId === dub.version.provenance.task_id || item.providerTaskId === dub.version.provenance.task_id)
   if (!task || task.status !== 'completed') throw new Error('真实第三方配音没有绑定已完成的生成任务')
-  return { passed: true, report: reportPath, asset_key: report.dub.asset_key, version_id: report.dub.version_id, sha256: dubSha, task_id: dub.version.provenance.task_id }
+  if (typeof task.requestPath !== 'string' || !task.requestPath.trim() || typeof task.requestSha256 !== 'string' || !/^[0-9a-f]{64}$/.test(task.requestSha256)) throw new Error('真实第三方配音任务缺少请求快照证据')
+  const requestPath = projectPath(project, task.requestPath, '配音请求快照')
+  const request = JSON.parse(await readFile(requestPath, 'utf8'))
+  if (await sha256(requestPath) !== task.requestSha256 || request.tool !== 'generate_audio' || !request.dubbing_compiler) throw new Error('真实第三方配音请求快照缺失、损坏或未绑定配音编译合同')
+  validateTaskOutput(task, request, dub.asset, dub.version, true)
+  return { passed: true, report: reportPath, report_document: report, project, asset_key: report.dub.asset_key, version_id: report.dub.version_id, sha256: dubSha, task_id: dub.version.provenance.task_id }
+}
+
+export async function verifySourceTimedDubbingEvidence(projectArg = process.env.DUBBING_EVIDENCE_PROJECT, reportArg = process.env.DUBBING_EVIDENCE_REPORT) {
+  const recorded = await verifyRecordedSourceTimedDubbingEvidence(projectArg, reportArg)
+  const report = recorded.report_document
+  let current
+  try {
+    current = await assessDubbingLiveAcceptance(recorded.project, report.episode_key, report.line_index, {
+      original: `${report.original.asset_key}@${report.original.version_id}`,
+      dub: `${report.dub.asset_key}@${report.dub.version_id}`,
+      review: resolve(recorded.project, '.short-drama/dubbing-reviews.json'),
+    })
+  } catch (error) { throw new Error(`真实 A/B 无法按当前项目状态重新评估：${error.message}`) }
+  if (current.report.accepted !== true) throw new Error('真实 A/B 按当前项目状态重新评估未通过')
+  if (current.report.original.sha256 !== report.original.sha256 || current.report.dub.sha256 !== report.dub.sha256 || current.report.source_timing.version_id !== report.source_timing.version_id || current.report.final_alignment.version_id !== report.final_alignment.version_id || current.report.production_duration_ms !== report.production_duration_ms) throw new Error('真实 A/B 报告与当前项目重新评估结果不一致')
+  const { report_document: _reportDocument, project: _project, ...evidence } = recorded
+  return evidence
 }
 
 async function verifyExternalEvidence(check) {

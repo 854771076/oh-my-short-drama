@@ -1,18 +1,22 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { addAssetVersion, putAsset, selectAssetVersion } from './asset-ledger.mjs'
 import { DUBBING_REVIEW_DIMENSIONS, putDubbingPerformanceReview } from './dubbing-performance-review.mjs'
 import { validateTimeline } from './editing-store.mjs'
-import { runDubbingLiveAcceptance } from './dubbing-live-acceptance.mjs'
+import { assessDubbingLiveAcceptance, runDubbingLiveAcceptance } from './dubbing-live-acceptance.mjs'
 import { call } from './generation/mcp.mjs'
 import { putFinalSpeechAlignment } from './speech-timing.mjs'
+import { verifySourceTimedDubbingEvidence } from './next-version-acceptance.mjs'
+import { fingerprint } from './task-ledger.mjs'
 
 async function json(path, value) { await mkdir(dirname(path), { recursive: true }); await writeFile(path, `${JSON.stringify(value, null, 2)}\n`) }
 function imported() { return { origin: 'imported', created_by: 'user', provider: null, model_or_workflow: null, task_id: null, prompt_document: null, source_assets: [], parameters: {} } }
+function digest(value) { return createHash('sha256').update(value).digest('hex') }
 function transformed(sourceAssets, parameters) { return { origin: 'transformed', created_by: 'provider', provider: 'musetalk', model_or_workflow: 'musetalk-1.5', task_id: 'lip-task', prompt_document: null, source_assets: sourceAssets, parameters } }
 function media(path, type, frequency = 440) {
   const input = type === 'video'
@@ -41,9 +45,11 @@ test('原声时间到配音选版、字幕和失效传播完整闭环', async ()
     const versions = []
     for (const [id, frequency] of [['v001', 330], ['v002', 440], ['v003', 550]]) {
       media(resolve(audioDir, `${id}.wav`), 'audio', frequency)
-      const asset = await addAssetVersion(root, 'audio-ep001-line-001', { id, localPath: `assets/audio/audio-ep001-line-001/${id}.wav`, provenance: imported() })
+      const provenance = id === 'v002' ? { origin: 'generated', created_by: 'provider', provider: 'bailian', model_or_workflow: 'cosyvoice-v3.5-plus', task_id: 'dub-task-1', prompt_document: null, source_assets: [], parameters: {} } : imported()
+      const asset = await addAssetVersion(root, 'audio-ep001-line-001', { id, localPath: `assets/audio/audio-ep001-line-001/${id}.wav`, provenance })
       versions.push(asset.versions.find((item) => item.id === id))
     }
+    await json(resolve(root, '.short-drama/tasks.json'), { version: 1, tasks: { 'dub-task-1': { taskId: 'dub-task-1', status: 'completed' } } })
     const videoDir = resolve(root, 'assets/videos/shot-ep001-001')
     await mkdir(videoDir, { recursive: true })
     media(resolve(videoDir, 'v001.mp4'), 'video')
@@ -86,11 +92,32 @@ test('原声时间到配音选版、字幕和失效传播完整闭环', async ()
       runDubbingLiveAcceptance(root, 'ep-001', 1, { original: 'shot-ep001-001@v002', dub: 'audio-ep001-line-001@v002', review: resolve(root, '.short-drama/dubbing-reviews.json') }),
       /original.*timing_source|原声来源资产/,
     )
+    const reportPath = resolve(root, '.short-drama/acceptance/source-timed-dubbing-ep-001-line-001.json')
+    const assessed = await assessDubbingLiveAcceptance(root, 'ep-001', 1, { original: 'shot-ep001-source@v001', dub: 'audio-ep001-line-001@v002', review: resolve(root, '.short-drama/dubbing-reviews.json') })
+    assert.equal(assessed.report.accepted, true)
+    await assert.rejects(access(reportPath))
     const acceptance = await runDubbingLiveAcceptance(root, 'ep-001', 1, { original: 'shot-ep001-source@v001', dub: 'audio-ep001-line-001@v002', review: resolve(root, '.short-drama/dubbing-reviews.json') })
+    await assert.doesNotReject(access(reportPath))
     assert.equal(acceptance.report.accepted, true)
     assert.equal(acceptance.report.original.asset_key, 'shot-ep001-source')
     assert.equal(acceptance.report.source_timing.version_id, 'v001')
     assert.equal(acceptance.report.final_alignment.version_id, 'v001')
+    const compilerSnapshot = { episode_key: 'ep-001', line_index: 1, contract_version: 'v001', timing_version: 'v001', attempt: 1, target_range: { start_ms: 100, end_ms: 900 }, text_version: 'original', capability_gaps: [] }
+    const dubbingCompiler = { snapshot: compilerSnapshot, sha256: fingerprint(compilerSnapshot) }
+    const request = { version: 1, requestId: 'req-dub-task-1', tool: 'generate_audio', target: 'audio-ep001-line-001', type: 'audio', provider: 'bailian', modelOrWorkflow: 'cosyvoice-v3.5-plus', promptDocument: null, arguments: { provider: 'bailian', model: 'cosyvoice-v3.5-plus', confirmed: true }, dubbing_compiler: dubbingCompiler, inputFingerprint: 'fixture' }
+    const requestPath = resolve(root, '.short-drama/requests/req-dub-task-1.json')
+    await json(requestPath, request)
+    const evidenceLedger = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
+    evidenceLedger.assets['audio-ep001-line-001'].versions.find((item) => item.id === 'v002').provenance.parameters = { dubbing_compiler: dubbingCompiler }
+    await json(resolve(root, '.short-drama/assets.json'), evidenceLedger)
+    await json(resolve(root, '.short-drama/tasks.json'), { version: 1, tasks: { 'dub-task-1': { taskId: 'dub-task-1', target: 'audio-ep001-line-001', type: 'audio', provider: 'bailian', status: 'completed', requestPath: '.short-drama/requests/req-dub-task-1.json', requestSha256: digest(await readFile(requestPath)), outputVersionId: 'v002' } } })
+    const verified = await verifySourceTimedDubbingEvidence(root, reportPath)
+    assert.equal(verified.sha256, versions[1].sha256)
+    const tamperedTimeline = structuredClone(timeline)
+    tamperedTimeline.subtitles[0].audio_binding.sha256 = 'f'.repeat(64)
+    await json(resolve(root, 'editing/ep-001/timeline.json'), tamperedTimeline)
+    await assert.rejects(() => verifySourceTimedDubbingEvidence(root, reportPath), /当前项目|重新评估/)
+    await json(resolve(root, 'editing/ep-001/timeline.json'), timeline)
 
     await putAlignment(versions[2])
     const replacement = await putDubbingPerformanceReview(root, review(versions[2].sha256, 'v003'))
