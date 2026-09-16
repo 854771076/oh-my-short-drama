@@ -70,14 +70,17 @@ export async function validateGenerationDocumentReference(root, type, target, re
       for (const [field, actual] of Object.entries({ prompt: args.prompt, title: args.title, tags: args.tags, lyrics: args.lyrics || '', make_instrumental: args.make_instrumental === true, provider, model })) {
         if ((track[field] ?? '') !== actual) throw new Error(`音乐参数与 audio-plan ${field} 不一致`)
       }
-      return
+      return { document, track }
     }
     const line = document.approved === true && !document.unresolved?.length && document.lines?.find((item) => item.line_index === reference.line_index)
     if (!line) throw new Error('audio-plan 台词不存在、未批准或仍有未决项')
-    if (typeof args.input === 'string' && args.input !== line.content) throw new Error('音频 input 与 audio-plan 台词不一致')
+    const allowedTexts = line.dubbing_contract?.mode === 'generated'
+      ? new Set([line.content, line.dubbing_contract.original_text, line.dubbing_contract.adapted_text])
+      : new Set([line.content])
+    if (typeof args.input === 'string' && !allowedTexts.has(args.input)) throw new Error('音频 input 与 audio-plan 台词不一致')
     const binding = document.voice_bindings?.find((item) => item.speaker === line.speaker && item.provider === provider && item.model === model)
     if (!binding || (args.voice && binding.voice_id !== args.voice)) throw new Error('音频 Provider、模型或 voice 与 audio-plan 绑定不一致')
-    return
+    return { document, line, binding }
   }
   if (target.startsWith('board-')) {
     if (reference.kind !== 'storyboard') throw new Error('分镜图必须引用 storyboard 文档')

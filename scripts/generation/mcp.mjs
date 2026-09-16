@@ -35,6 +35,7 @@ import { planAudioFallback } from '../audio-fallback.mjs'
 import { probeMedia } from '../media-tools.mjs'
 import { compileMusicSearch, listMusicCatalogs, searchMusicCatalog } from '../music-catalog/providers.mjs'
 import { putMusicLicense } from '../music-license-ledger.mjs'
+import { compileDubbingRequest } from '../dubbing-compiler.mjs'
 
 const SEEDVR25_MODEL = 'seedvr2.5-video-upscale'
 const SEEDVR25_WORKFLOW_ID = '2099866760106491906'
@@ -177,8 +178,8 @@ export const tools = [
   ['submit_episode_images', '批量提交整集图片生成：先以 confirmed=false 返回逐项摘要；confirmed=true 后以最多 4 路并发执行，RunningHub 同一 API Key 由适配器限制为 2 路；单项失败不阻塞其他图片。每个 items 项目字段与 generate_image 相同。', {
     project_root: { type: 'string' }, items: { type: 'array', minItems: 1, maxItems: 200, items: { type: 'object', properties: batchImageProperties, required: ['provider', 'prompt', 'reference_manifest', 'target', 'prompt_document'], additionalProperties: false } }, confirmed: { type: 'boolean' },
   }, ['project_root', 'items', 'confirmed']],
-  ['generate_audio', '使用用户选择的 Provider 生成语音或提交音频工作流。StarRouter 使用 model/input/voice，RunningHub 使用 prompt/workflow，百炼使用 CosyVoice/qwen TTS 与已登记音色。', {
-    provider, model: { type: 'string' }, input: { type: 'string' }, voice: { type: 'string' }, instructions: { type: 'string' }, speed: { type: 'number', minimum: 0.5, maximum: 2 }, response_format: { type: 'string', enum: ['mp3', 'pcm', 'flac', 'wav', 'opus'] }, language_hints: { type: 'string' }, sample_rate: { type: 'integer' }, volume: { type: 'number', minimum: 0, maximum: 100 }, pitch: { type: 'number', minimum: 0.5, maximum: 2 }, instruction: { type: 'string', maxLength: 100 }, metadata: audioMetadata, prompt: { type: 'string' }, confirmed: { const: true }, ...workflow, ...projectTracking,
+  ['generate_audio', '使用用户选择的 Provider 生成语音或提交音频工作流。已批准的 generated 配音合同会从当前 audio-plan 派生版本、音色授权和编译参数；StarRouter 使用 model/input/voice，RunningHub 使用 prompt/workflow，百炼使用 CosyVoice/qwen TTS 与已登记音色。', {
+    provider, model: { type: 'string' }, input: { type: 'string' }, voice: { type: 'string' }, instructions: { type: 'string' }, speed: { type: 'number', minimum: 0.5, maximum: 2 }, response_format: { type: 'string', enum: ['mp3', 'pcm', 'flac', 'wav', 'opus'] }, language_hints: { type: 'string' }, sample_rate: { type: 'integer' }, volume: { type: 'number', minimum: 0, maximum: 100 }, pitch: { type: 'number', minimum: 0.5, maximum: 2 }, instruction: { type: 'string', maxLength: 100 }, metadata: audioMetadata, prompt: { type: 'string' }, dubbing_attempt: { type: 'integer', minimum: 1, maximum: 3 }, measured_speech_ms: { type: 'integer', minimum: 1 }, runninghub_mapping: { type: 'object' }, confirmed: { const: true }, ...workflow, ...projectTracking,
   }, ['provider', 'confirmed', 'project_root', 'target', 'prompt_document']],
   ['import_external_audio', '把用户有权使用的本地音频复制或规范化为不可变候选资产；不自动选版。', {
     project_root: { type: 'string' }, target: { type: 'string', pattern: '^audio-[a-z0-9]+(?:-[a-z0-9]+)*$' }, local_file: { type: 'string' }, name: { type: 'string' }, usage_scope: { type: 'string', enum: ['non-commercial', 'commercial-authorized'] }, rights_confirmed: { const: true }, confirmed: { const: true },
@@ -350,6 +351,27 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
     if (grid.detected && grid.confidence === 'high') throw new Error(`参考素材疑似宫格/分屏，已阻止提交：${reference.asset_key}@${reference.version_id} 命中 ${grid.lines.map((line) => `${line.line}(${line.frames}/${grid.total_frames}帧)`).join('、')}；请重新生成单格素材，或按流程裁格/登记 other-refpack-* 合板`)
   }
   await validateVideoReferenceBindings(root, providerName, args, manifest)
+}
+
+export function compileGeneratedAudioArguments({ providerArgs, line, audioPlan, audioPlanVersion }) {
+  if (line?.dubbing_contract?.mode !== 'generated') return { arguments: providerArgs, compiled: null }
+  const { dubbing_attempt: attempt = 1, measured_speech_ms: measuredSpeechMs, runninghub_mapping: runninghubMapping, ...adapterArguments } = providerArgs
+  const compiled = compileDubbingRequest({
+    provider: providerArgs.provider,
+    model: providerArgs.model,
+    voice: providerArgs.voice,
+    contract: line.dubbing_contract,
+    attempt,
+    measured_speech_ms: measuredSpeechMs,
+    runninghub_mapping: runninghubMapping,
+    dubbing_contract_version: audioPlanVersion,
+    voice_binding: line.voice_binding,
+    authorized_voice_bindings: audioPlan.voice_bindings,
+    delivery_mode: line.delivery_mode,
+    presentation: line.presentation,
+  })
+  if (!compiled.supported || compiled.capability_gaps.length) throw new Error(`配音能力不匹配：${compiled.capability_gaps.join('、')}`)
+  return { arguments: { ...adapterArguments, ...compiled.arguments }, compiled }
 }
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
@@ -904,15 +926,19 @@ export async function call(name, args = {}) {
   if (!['generate_image', 'generate_audio', 'generate_music'].includes(name)) return selected[action](args)
   if (typeof selected[action] !== 'function') throw new Error(`${args.provider} 不支持 ${name}`)
   const { project_root: projectRoot, target, prompt_document: promptDocument, ...rawProviderArgs } = args
-  const providerArgs = { ...rawProviderArgs }
+  let providerArgs = { ...rawProviderArgs }
   await enforceGenerationStage(projectRoot, name, target)
   if (args.provider === 'runninghub') {
     const workflowEnv = name === 'generate_image' ? 'RUNNINGHUB_IMAGE_WORKFLOW_ID' : 'RUNNINGHUB_AUDIO_WORKFLOW_ID'
     if (providerArgs.model !== 'krea2-normal-v1') providerArgs.workflow_id ||= process.env[workflowEnv]
   }
   const type = name === 'generate_image' ? 'image' : 'audio'
-  await validateProjectInputs(projectRoot, type, target, promptDocument, args.provider, providerArgs, name === 'generate_music' ? 'music' : type)
-  const snapshot = await createRequestSnapshot(projectRoot, { tool: name, target, type, provider: args.provider, modelOrWorkflow: providerArgs.model || providerArgs.workflow_id, promptDocument, arguments: providerArgs })
+  const documentReference = await validateProjectInputs(projectRoot, type, target, promptDocument, args.provider, providerArgs, name === 'generate_music' ? 'music' : type)
+  const compiledAudio = name === 'generate_audio' && documentReference?.line
+    ? compileGeneratedAudioArguments({ providerArgs, line: documentReference.line, audioPlan: documentReference.document, audioPlanVersion: promptDocument.version_id })
+    : null
+  if (compiledAudio) providerArgs = compiledAudio.arguments
+  const snapshot = await createRequestSnapshot(projectRoot, { tool: name, target, type, provider: args.provider, modelOrWorkflow: providerArgs.model || providerArgs.workflow_id, promptDocument, arguments: providerArgs, ...(compiledAudio?.compiled ? { dubbing_compiler: compiledAudio.compiled.snapshot } : {}) })
   await reserveTask(projectRoot, { taskId: snapshot.requestId, target, type, provider: args.provider, requestPath: snapshot.requestPath })
   let result
   try {

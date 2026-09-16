@@ -203,7 +203,7 @@ git commit -m "feat: 强制逐句情感配音合同"
 - Modify: `scripts/generation/providers.mjs`
 
 **Interfaces:**
-- Consumes: `compileDubbingRequest({provider, model, voice, contract, attempt, measured_speech_ms, runninghub_mapping})`。
+- Consumes: `compileDubbingRequest({provider, model, voice, contract, attempt, measured_speech_ms, runninghub_mapping, dubbing_contract_version, voice_binding, authorized_voice_bindings})`。调用入口从当前 selected audio-plan 的版本、当前行音色绑定和计划授权列表派生后三项，不把它们加入 Task 2 的严格合同对象。
 - Produces: `{supported, arguments, capability_gaps, snapshot}`；`arguments` 可直接传给现有 Provider adapter。
 
 - [ ] **Step 1: 写出四条 Provider 路由测试**
@@ -507,6 +507,8 @@ Expected: FAIL，提示未知工具或 schema 缺失。
   attempt: { type: 'integer', minimum: 1, maximum: 3 }, measured_speech_ms: { type: 'integer', minimum: 1 }, runninghub_mapping: { type: 'object' },
 }, ['project_root', 'episode_key', 'audio_plan_version', 'line_index', 'provider', 'model', 'voice', 'attempt']]
 ```
+
+`compile_dubbing_request` 与 `generate_audio` 均从 `audio_plan_version` 读取可信 `dubbing_contract_version`，从当前行和 audio-plan 的 `voice_bindings` 分别传入 `voice_binding` 与 `authorized_voice_bindings`；调用者不得手写或覆盖这些授权上下文。
 
 `analyze_speech_timing` 只接收已有 ASR/对齐结果并绑定 selected 资产，不在内部调用 Provider；需要 ASR 时由现有 `transcribe_audio` 明确确认后单独执行。`review_speech_timing` 创建新版本。`review_dubbing_performance` 和 `build_subtitles_from_audio` 复用前述模块。
 

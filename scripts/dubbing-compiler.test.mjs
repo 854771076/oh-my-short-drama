@@ -77,7 +77,7 @@ test('RunningHub 只注入映射白名单声明的 JSON path', () => {
     node_info_list: [
       { nodeId: '12', fieldName: 'text', fieldValue: '别回头。' },
       { nodeId: '13', fieldName: 'rate', fieldValue: 0.91 },
-      { nodeId: '14', fieldName: 'instruction', fieldValue: '意图：阻止对方看见身后的危险；情绪弧：0.00|克制警觉|0.45→1.00|压低的急迫|0.72；重音：别；停连：别后停70毫秒' },
+      { nodeId: '14', fieldName: 'instruction', fieldValue: '意图：阻止对方看见身后的危险；情绪弧：0|克制警觉|0.45→1|压低的急迫|0.72；重音：别；停连：别后停70毫秒' },
     ],
   })
 })
@@ -108,11 +108,26 @@ test('指令按顺序保留三节情绪弧的 at、情绪和强度', () => {
   const cosy = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', { contract: threeBeat }))
   const openai = compileDubbingRequest(input('starrouter', 'tts-1', { contract: threeBeat }))
   for (const instruction of [cosy.arguments.instruction, openai.arguments.instructions]) {
-    assert.match(instruction, /0\.00\|警觉\|0\.20/)
-    assert.match(instruction, /0\.50\|迟疑\|0\.60/)
-    assert.match(instruction, /1\.00\|急迫\|0\.90/)
-    assert.ok(instruction.indexOf('0.00|警觉|0.20') < instruction.indexOf('0.50|迟疑|0.60'))
-    assert.ok(instruction.indexOf('0.50|迟疑|0.60') < instruction.indexOf('1.00|急迫|0.90'))
+    assert.match(instruction, /0\|警觉\|0\.2/)
+    assert.match(instruction, /0\.5\|迟疑\|0\.6/)
+    assert.match(instruction, /1\|急迫\|0\.9/)
+    assert.ok(instruction.indexOf('0|警觉|0.2') < instruction.indexOf('0.5|迟疑|0.6'))
+    assert.ok(instruction.indexOf('0.5|迟疑|0.6') < instruction.indexOf('1|急迫|0.9'))
+  }
+})
+
+test('情绪弧指令保留合同的完整小数语义，不量化 at 或强度', () => {
+  const precise = structuredClone(contract)
+  precise.performance.intent = '阻止'
+  precise.performance.emotion_arc = [{ at: 0.1234, emotion: '警觉', intensity: 0.4567 }]
+  const cosy = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', { contract: precise }))
+  const openai = compileDubbingRequest(input('starrouter', 'tts-1', { contract: precise }))
+  const runninghub = compileDubbingRequest(input('runninghub', 'custom-audio', {
+    contract: precise,
+    runninghub_mapping: { workflow_id: 'workflow-audio-1', node_info_list: [{ nodeId: '12', fieldName: 'text', json_path: 'text' }, { nodeId: '13', fieldName: 'rate', json_path: 'speed' }, { nodeId: '14', fieldName: 'instruction', json_path: 'instruction' }] },
+  }))
+  for (const instruction of [cosy.arguments.instruction, openai.arguments.instructions, runninghub.arguments.node_info_list[2].fieldValue]) {
+    assert.match(instruction, /0\.1234\|警觉\|0\.4567/)
   }
 })
 

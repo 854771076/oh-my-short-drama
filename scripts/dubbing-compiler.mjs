@@ -88,7 +88,7 @@ function languageHint(text) {
 
 function emotionArc(performance) {
   return performance.emotion_arc
-    .map((beat) => `${beat.at.toFixed(2)}|${beat.emotion.trim()}|${beat.intensity.toFixed(2)}`)
+    .map((beat) => `${String(beat.at)}|${beat.emotion.trim()}|${String(beat.intensity)}`)
     .join('→')
 }
 
