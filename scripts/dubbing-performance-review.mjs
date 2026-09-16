@@ -1,8 +1,8 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { dirname, resolve } from 'node:path'
 import { selectAudioVersionAndInvalidateDerived, verifiedAssetVersion } from './asset-ledger.mjs'
-import { selectedSpeechTiming } from './speech-timing.mjs'
+import { finalSpeechAlignment, selectedSourceSpeechTiming } from './speech-timing.mjs'
 import { withFileLock } from './file-lock.mjs'
 
 export const DUBBING_REVIEW_DIMENSIONS = Object.freeze([
@@ -77,42 +77,60 @@ async function verifyBindings(root, review) {
   if (plan.version_id !== review.audio_plan_version) throw new Error('审核必须绑定当前 selected audio-plan 版本')
   const line = plan.document.lines?.find((item) => item.line_index === review.line_index)
   if (!line || line.dubbing_contract?.mode !== 'generated') throw new Error('审核未绑定有效的生成配音合同')
-  const timing = await selectedSpeechTiming(root, review.episode_key)
-  if (timing.version_id !== review.timing_version_id || line.dubbing_contract.timing_source?.version_id !== timing.version_id) throw new Error('审核必须绑定当前最终 speech-timing 版本')
-  if (line.dubbing_contract.timing_source?.line_index !== review.line_index) throw new Error('审核行与配音合同 timing 行不一致')
-  return audio
+  const sourceTiming = await selectedSourceSpeechTiming(root, line.dubbing_contract.timing_source)
+  if (line.dubbing_contract.timing_source?.line_index !== review.line_index || sourceTiming.version_id !== line.dubbing_contract.timing_source.version_id) throw new Error('审核行与配音合同源 timing 行不一致')
+  const alignment = await finalSpeechAlignment(root, { asset_key: review.asset_key, version_id: review.version_id, sha256: review.asset_sha256 })
+  if (alignment.version_id !== review.timing_version_id) throw new Error('审核必须绑定当前最终词级对齐版本')
+  const document = alignment.document
+  if (document.episode_key !== review.episode_key || document.line_index !== review.line_index || document.audio_plan_version !== review.audio_plan_version) throw new Error('最终词级对齐与审核行或合同版本不一致')
+  const source = line.dubbing_contract.timing_source
+  if (document.source_timing.version_id !== source.version_id || document.source_timing.line_index !== source.line_index || JSON.stringify(document.source_timing.source_asset) !== JSON.stringify(source.source_asset)) throw new Error('最终对齐未绑定配音合同的源 timing')
+  const normalizeText = (value) => String(value || '').normalize('NFKC').replace(/[\p{P}\p{S}\s]/gu, '')
+  if (normalizeText(document.text) !== normalizeText(line.dubbing_contract.adapted_text) || normalizeText(document.words.map((word) => word.text).join('')) !== normalizeText(line.dubbing_contract.adapted_text)) throw new Error('最终词级对齐文本不一致：必须匹配配音合同')
+  const tolerance = Math.ceil(1000 / document.timeline_fps)
+  const target = line.dubbing_contract.target_range
+  if (Math.abs(alignment.timeline_range.start_ms - target.start_ms) > tolerance || Math.abs(alignment.timeline_range.end_ms - target.end_ms) > tolerance) throw new Error('最终词级对齐发声边界超过一帧容差')
+  return { audio, alignment }
 }
 
-export async function putDubbingPerformanceReview(rootArg, input) {
+function sameReview(left, right) {
+  const { selection_state: _leftState, transaction_id: _leftTransaction, ...leftReview } = left
+  return JSON.stringify(leftReview) === JSON.stringify(right)
+}
+
+export async function putDubbingPerformanceReview(rootArg, input, options = {}) {
   const root = resolve(rootArg)
   const review = validateReview(input)
   await verifyBindings(root, review)
   const target = reviewPath(root)
-  return withFileLock(target, async () => {
-    const previousBytes = await readFile(target).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error))
-    const ledger = previousBytes ? JSON.parse(previousBytes) : { version: 1, reviews: {} }
+  const identity = `${review.asset_key}@${review.version_id}`
+  const initial = await withFileLock(target, async () => {
+    const ledger = await readJson(target, { version: 1, reviews: {} })
     const identity = `${review.asset_key}@${review.version_id}`
     const previousReview = ledger.reviews?.[identity]
     if (previousReview) {
-      if (JSON.stringify(previousReview) !== JSON.stringify(review)) throw new Error(`配音审核不可变：${identity}`)
-      return { approved: review.approved, selected: false, invalidated: [], review: structuredClone(previousReview) }
+      if (!sameReview(previousReview, review)) throw new Error(`配音审核不可变：${identity}`)
+      return { state: previousReview.selection_state, transaction_id: previousReview.transaction_id }
     }
     ledger.reviews ||= {}
-    ledger.reviews[identity] = review
+    const transaction = randomUUID()
+    ledger.reviews[identity] = { ...review, selection_state: review.approved ? 'pending' : 'not-required', transaction_id: transaction }
     await writeJsonAtomic(target, ledger)
-    if (!review.approved) return { approved: false, selected: false, invalidated: [], review }
-    try {
-      const selected = await selectAudioVersionAndInvalidateDerived(root, review.asset_key, review.version_id)
-      return { approved: true, selected: true, invalidated: selected.invalidated, review }
-    } catch (error) {
-      // 审核账本和资产选版必须共同成功；选版失败时恢复审核前状态，允许修复后重试。
-      if (previousBytes === null) await rm(target, { force: true })
-      else {
-        const temporary = `${target}.${randomUUID()}.rollback`
-        await writeFile(temporary, previousBytes, { flag: 'wx' })
-        await rename(temporary, target)
-      }
-      throw error
-    }
+    return { state: ledger.reviews[identity].selection_state, transaction_id: transaction }
   })
+  if (!review.approved) return { approved: false, selected: false, invalidated: [], review }
+  if (initial.state === 'committed') return { approved: true, selected: true, invalidated: [], review }
+  if (options.fail_after_review_write) throw new Error('故障注入：审核已落盘但选版尚未提交')
+  // pending 是可重放意图：无论上次中断在选版前还是选版后，重复执行都会收敛到同一 selected 版本。
+  const selected = await selectAudioVersionAndInvalidateDerived(root, review.asset_key, review.version_id, initial.transaction_id)
+  if (options.fail_after_asset_selection) throw new Error('故障注入：资产已选但审核事务尚未提交')
+  await verifyBindings(root, review)
+  await withFileLock(target, async () => {
+    const ledger = await readJson(target, { version: 1, reviews: {} })
+    const current = ledger.reviews?.[identity]
+    if (!current || !sameReview(current, review) || current.selection_state !== 'pending') throw new Error('配音审核事务状态已变化，拒绝提交')
+    current.selection_state = 'committed'
+    await writeJsonAtomic(target, ledger)
+  })
+  return { approved: true, selected: true, invalidated: selected.invalidated, review }
 }

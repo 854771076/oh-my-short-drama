@@ -10,6 +10,7 @@ import { isIP } from 'node:net'
 import { withFileLock } from './file-lock.mjs'
 import { invalidateFrom, invalidateShot } from './invalidate-workflow.mjs'
 import { validDocumentReferenceShape } from './document-reference.mjs'
+import { finalSpeechAlignment } from './speech-timing.mjs'
 
 const TYPES = new Set(['character', 'scene', 'prop', 'storyboard', 'video', 'audio', 'other'])
 const TYPE_DIRECTORIES = { character: 'characters', scene: 'scenes', prop: 'props', storyboard: 'storyboards', video: 'videos', audio: 'audio', other: 'other' }
@@ -236,6 +237,7 @@ export async function selectedAssetVersion(rootArg, key) {
   if (asset.staleVersionIds?.includes(asset.selectedVersionId)) throw new Error(`选中版本已因上游变更失效：${key}@${asset.selectedVersionId}`)
   const version = asset.versions.find((item) => item.id === asset.selectedVersionId)
   if (!version) throw new Error(`选中版本不存在：${key}@${asset.selectedVersionId}`)
+  await assertDialogueAudioSelection(root, asset, version)
   const path = localPath(root, version.localPath)
   const expectedDirectory = resolve(root, 'assets', TYPE_DIRECTORIES[asset.type], key)
   if (!path.startsWith(`${expectedDirectory}${sep}`)) throw new Error(`选中版本不在标准资产目录：${key}@${version.id}`)
@@ -300,7 +302,7 @@ export async function invalidateDerivedAssets(rootArg, source) {
   })
 }
 
-export async function selectAudioVersionAndInvalidateDerived(rootArg, key, versionId) {
+export async function selectAudioVersionAndInvalidateDerived(rootArg, key, versionId, transactionId) {
   const root = resolve(rootArg)
   return withFileLock(ledgerPath(root), async () => {
     const ledger = await readLedger(root)
@@ -313,6 +315,7 @@ export async function selectAudioVersionAndInvalidateDerived(rootArg, key, versi
     const path = localPath(root, version.localPath)
     const fileStat = await stat(path)
     if (!fileStat.isFile() || fileStat.size !== version.sizeBytes || await sha256(path) !== version.sha256) throw new Error(`本地文件哈希或大小不一致：${key}@${versionId}`)
+    await assertDialogueAudioSelection(root, asset, version, true, transactionId)
 
     const previous = asset.selectedVersionId || null
     const invalidated = []
@@ -349,6 +352,17 @@ export async function selectAudioVersionAndInvalidateDerived(rootArg, key, versi
   })
 }
 
+async function assertDialogueAudioSelection(root, asset, version, allowPending = false, transactionId = null) {
+  const prompt = version.provenance?.prompt_document
+  const controlledDubbing = /^audio-ep\d{3}-line-\d{3}$/.test(asset.key) || (prompt?.kind === 'audio-plan' && Number.isInteger(prompt.line_index))
+  if (asset.type !== 'audio' || !controlledDubbing || version.provenance?.parameters?.media_role === 'non-dialogue') return
+  const reviews = JSON.parse(await readFile(resolve(root, '.short-drama', 'dubbing-reviews.json'), 'utf8').catch((error) => error?.code === 'ENOENT' ? '{"reviews":{}}' : Promise.reject(error)))
+  const review = reviews.reviews?.[`${asset.key}@${version.id}`]
+  const validState = review?.selection_state === 'committed' || (allowPending && review?.selection_state === 'pending' && typeof transactionId === 'string' && review.transaction_id === transactionId)
+  if (review?.review_type !== 'dubbing-performance' || review.approved !== true || review.asset_sha256 !== version.sha256 || !validState) throw new Error(`对白音频必须先通过绑定最终对齐的八维审核：${asset.key}@${version.id}`)
+  await finalSpeechAlignment(root, { asset_key: asset.key, version_id: version.id, sha256: version.sha256 })
+}
+
 function shotIdentity(key) {
   const match = /^(?:board|shot)-(ep\d{3})-(\d{3})$/.exec(key)
   return match ? { episodeKey: match[1].replace('ep', 'ep-'), shotNumber: Number(match[2]) } : null
@@ -363,6 +377,7 @@ export async function selectAssetVersion(rootArg, key, versionId) {
     const version = asset.versions.find((item) => item.id === versionId)
     if (!version) throw new Error(`版本不存在：${versionId}`)
     if (asset.staleVersionIds?.includes(versionId)) throw new Error(`版本已因上游变更失效：${key}@${versionId}`)
+    await assertDialogueAudioSelection(root, asset, version)
     if (asset.type === 'character' && version.provenance?.origin === 'generated') {
       const reviews = JSON.parse(await readFile(resolve(root, '.short-drama', 'shot-reviews.json'), 'utf8').catch((error) => error?.code === 'ENOENT' ? '{"reviews":{}}' : Promise.reject(error)))
       const review = reviews.reviews?.[`${key}@${versionId}`]

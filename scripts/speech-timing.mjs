@@ -56,9 +56,14 @@ function validateLine(line, index, method, reviewed, previousEnd) {
   const expected = method === 'manual-direction'
     ? ['line_index', 'start_ms', 'end_ms', 'words', 'evidence']
     : ['line_index', 'start_ms', 'end_ms', 'confidence', 'confidence_source', 'words']
+  if (line?.timeline_mapping !== undefined) expected.push('timeline_mapping')
   exactKeys(line, expected, label)
   if (!Number.isInteger(line.line_index) || line.line_index <= 0 || !Number.isInteger(line.start_ms) || !Number.isInteger(line.end_ms) || line.start_ms < 0 || line.end_ms <= line.start_ms) throw new Error(`${label} 时间区间无效`)
   if (previousEnd !== null && line.start_ms < previousEnd) throw new Error(`${label} 与前一行重叠`)
+  if (line.timeline_mapping !== undefined) {
+    exactKeys(line.timeline_mapping, ['source_in_ms', 'timeline_at_ms'], `${label}.timeline_mapping`)
+    if (!Number.isInteger(line.timeline_mapping.source_in_ms) || line.timeline_mapping.source_in_ms < 0 || line.timeline_mapping.source_in_ms > line.end_ms || !Number.isInteger(line.timeline_mapping.timeline_at_ms) || line.timeline_mapping.timeline_at_ms < 0) throw new Error(`${label} 时间域转换无效`)
+  }
   if (!Array.isArray(line.words)) throw new Error(`${label}.words 必须是数组`)
   if (method === 'manual-direction') {
     if (typeof line.evidence !== 'string' || !line.evidence.trim()) throw new Error(`${label} manual-direction evidence 无效`)
@@ -105,6 +110,79 @@ async function readVersion(rootArg, episode, version) {
 
 function sameSourceAsset(left, right) {
   return left.asset_key === right.asset_key && left.version_id === right.version_id && left.sha256 === right.sha256
+}
+
+export async function selectedSourceSpeechTiming(rootArg, reference) {
+  if (!reference || typeof reference !== 'object') throw new Error('源 speech-timing 引用无效')
+  const episode = episodeKey(reference.episode_key)
+  const selected = await readVersion(resolve(rootArg), episode, reference.version_id)
+  if (selected.document.reviewed !== true || !sameSourceAsset(selected.document.source_asset, reference.source_asset)) throw new Error('源 speech-timing 必须绑定已复核版本及精确来源资产')
+  if (!selected.document.lines.some((line) => line.line_index === reference.line_index)) throw new Error('源 speech-timing 行不存在')
+  return selected
+}
+
+function finalAlignmentDirectory(root, audioAsset) {
+  validateSourceAsset(audioAsset)
+  const episode = /^audio-(ep\d{3})-/.exec(audioAsset.asset_key)?.[1]
+  if (!episode) throw new Error('最终对齐必须绑定带分集身份的音频资产')
+  return resolve(root, 'episodes', episode.replace('ep', 'ep-'), 'final-alignments', audioAsset.asset_key, audioAsset.version_id)
+}
+
+function validateFinalAlignment(document) {
+  exactKeys(document, ['episode_key', 'line_index', 'audio_asset', 'audio_plan_version', 'source_timing', 'text', 'words', 'timeline_mapping', 'timeline_fps', 'reviewed'], 'final-speech-alignment')
+  episodeKey(document.episode_key)
+  validateSourceAsset(document.audio_asset)
+  if (!document.audio_asset.asset_key.startsWith(`audio-${document.episode_key.replace('-', '')}-`)) throw new Error('最终对齐音频资产与分集不一致')
+  exactKeys(document.source_timing, ['version_id', 'line_index', 'source_asset'], 'final-speech-alignment.source_timing')
+  versionId(document.audio_plan_version)
+  versionId(document.source_timing.version_id)
+  validateSourceAsset(document.source_timing.source_asset)
+  if (!Number.isInteger(document.line_index) || document.line_index <= 0 || document.source_timing.line_index !== document.line_index) throw new Error('final-speech-alignment 行引用无效')
+  if (typeof document.text !== 'string' || !document.text.trim() || !Array.isArray(document.words) || document.words.length === 0 || document.reviewed !== true) throw new Error('最终音频必须有已复核的非空词级对齐')
+  exactKeys(document.timeline_mapping, ['audio_in_ms', 'timeline_at_ms'], 'final-speech-alignment.timeline_mapping')
+  if (!Number.isInteger(document.timeline_mapping.audio_in_ms) || document.timeline_mapping.audio_in_ms < 0 || !Number.isInteger(document.timeline_mapping.timeline_at_ms) || document.timeline_mapping.timeline_at_ms < 0 || !Number.isInteger(document.timeline_fps) || document.timeline_fps <= 0) throw new Error('最终对齐时间域转换无效')
+  let previousEnd = -1
+  for (const [index, word] of document.words.entries()) {
+    exactKeys(word, ['text', 'start_ms', 'end_ms'], `final-speech-alignment.words[${index}]`)
+    if (typeof word.text !== 'string' || !word.text.trim() || !Number.isInteger(word.start_ms) || !Number.isInteger(word.end_ms) || word.start_ms < 0 || word.end_ms <= word.start_ms || word.start_ms < previousEnd) throw new Error('最终词级对齐必须非空、按序且边界有效')
+    previousEnd = word.end_ms
+  }
+  return structuredClone(document)
+}
+
+function alignmentTimelineRange(document) {
+  const first = document.words[0]
+  const last = document.words.at(-1)
+  const offset = document.timeline_mapping.timeline_at_ms - document.timeline_mapping.audio_in_ms
+  return { start_ms: first.start_ms + offset, end_ms: last.end_ms + offset }
+}
+
+export async function putFinalSpeechAlignment(rootArg, document) {
+  const root = resolve(rootArg)
+  const checked = validateFinalAlignment(document)
+  const directory = finalAlignmentDirectory(root, checked.audio_asset)
+  return withFileLock(resolve(directory, 'allocation'), async () => {
+    const target = resolve(directory, 'v001.json')
+    const existing = await readFile(target, 'utf8').catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error))
+    if (existing !== null) {
+      if (JSON.stringify(JSON.parse(existing)) !== JSON.stringify(checked)) throw new Error('同一最终音频版本的词级对齐不可变')
+      return { version_id: 'v001', document: checked, timeline_range: alignmentTimelineRange(checked) }
+    }
+    await writeJsonAtomically(target, checked)
+    await writeJsonAtomically(resolve(directory, 'selected.json'), { versionId: 'v001', audio_sha256: checked.audio_asset.sha256 }, { overwrite: true })
+    return { version_id: 'v001', document: checked, timeline_range: alignmentTimelineRange(checked) }
+  })
+}
+
+export async function finalSpeechAlignment(rootArg, audioAsset) {
+  const root = resolve(rootArg)
+  const directory = finalAlignmentDirectory(root, audioAsset)
+  const marker = JSON.parse(await readFile(resolve(directory, 'selected.json'), 'utf8'))
+  exactKeys(marker, ['versionId', 'audio_sha256'], 'final-speech-alignment selected')
+  versionId(marker.versionId)
+  const document = validateFinalAlignment(JSON.parse(await readFile(resolve(directory, `${marker.versionId}.json`), 'utf8')))
+  if (marker.audio_sha256 !== audioAsset.sha256 || !sameSourceAsset(document.audio_asset, audioAsset)) throw new Error('最终对齐音频 SHA 或版本不匹配')
+  return { version_id: marker.versionId, document, timeline_range: alignmentTimelineRange(document) }
 }
 
 function assertCorrectionEvidence(candidate, reviewed) {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
-import { putSpeechTimingCandidate, reviewSpeechTiming, selectedSpeechTiming, validateSpeechTiming } from './speech-timing.mjs'
+import { finalSpeechAlignment, putFinalSpeechAlignment, putSpeechTimingCandidate, reviewSpeechTiming, selectedSourceSpeechTiming, selectedSpeechTiming, validateSpeechTiming } from './speech-timing.mjs'
 
 const sourceAsset = { asset_key: 'audio-ep001-dialogue', version_id: 'v001', sha256: 'a'.repeat(64) }
 
@@ -131,4 +131,43 @@ test('新候选不会覆盖已有版本且 selected 只读取经过复核的标�
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test('逐来源引用读取已复核源 timing，不依赖剧集唯一 selected 槽', async () => {
+  const root = await temporaryRoot()
+  try {
+    const first = await putSpeechTimingCandidate(root, timing())
+    await reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: first.version_id, document: timing({ reviewed: true }), reviewed_by: 'codex' })
+    const otherSource = { asset_key: 'audio-ep001-other', version_id: 'v001', sha256: 'b'.repeat(64) }
+    const second = await putSpeechTimingCandidate(root, timing({ source_asset: otherSource }))
+    const reviewed = await reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: second.version_id, document: timing({ reviewed: true, source_asset: otherSource }), reviewed_by: 'codex' })
+    const firstSource = await selectedSourceSpeechTiming(root, { episode_key: 'ep-001', version_id: 'v002', line_index: 1, source_asset: sourceAsset })
+    const secondSource = await selectedSourceSpeechTiming(root, { episode_key: 'ep-001', version_id: reviewed.version_id, line_index: 1, source_asset: otherSource })
+    assert.equal(firstSource.document.source_asset.asset_key, sourceAsset.asset_key)
+    assert.equal(secondSource.document.source_asset.asset_key, otherSource.asset_key)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('最终对齐独立绑定配音 SHA，并显式换算音频入点到时间线落点', async () => {
+  const root = await temporaryRoot()
+  try {
+    const document = {
+      episode_key: 'ep-001', line_index: 1,
+      audio_asset: { asset_key: 'audio-ep001-line-001', version_id: 'v002', sha256: 'c'.repeat(64) },
+      audio_plan_version: 'v001', source_timing: { version_id: 'v002', line_index: 1, source_asset: sourceAsset },
+      text: '别回头', words: [{ text: '别', start_ms: 200, end_ms: 450 }, { text: '回头', start_ms: 500, end_ms: 980 }],
+      timeline_mapping: { audio_in_ms: 200, timeline_at_ms: 5000 }, timeline_fps: 24, reviewed: true,
+    }
+    const stored = await putFinalSpeechAlignment(root, document)
+    assert.equal(stored.version_id, 'v001')
+    assert.deepEqual(stored.timeline_range, { start_ms: 5000, end_ms: 5780 })
+    assert.deepEqual((await finalSpeechAlignment(root, document.audio_asset)).document, document)
+    await assert.rejects(() => putFinalSpeechAlignment(root, { ...document, text: '别动' }), /不可变/)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('源 timing 可逐行记录源入点到剧集时间线落点的转换', () => {
+  const document = timing({ lines: [line({ timeline_mapping: { source_in_ms: 0, timeline_at_ms: 5000 } })] })
+  assert.doesNotThrow(() => validateSpeechTiming(document))
+  assert.throws(() => validateSpeechTiming(timing({ lines: [line({ timeline_mapping: { source_in_ms: 600, timeline_at_ms: 5000 } })] })), /时间域转换/)
 })
