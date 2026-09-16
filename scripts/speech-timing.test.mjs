@@ -10,17 +10,21 @@ import { finalSpeechAlignment, putFinalSpeechAlignment, putSpeechTimingCandidate
 const sourceBytes = 'source-audio-v1'
 const sourceAsset = { asset_key: 'audio-ep001-dialogue', version_id: 'v001', sha256: createHash('sha256').update(sourceBytes).digest('hex') }
 const provenance = { origin: 'imported', created_by: 'user', provider: null, model_or_workflow: null, task_id: null, prompt_document: null, source_assets: [], parameters: {} }
+const pendingReview = { speaker_checked: false, text_checked: false, visible_mouth_checked: false, notes: '' }
+const completedReview = { speaker_checked: true, text_checked: true, visible_mouth_checked: true, notes: '逐帧核对说话人、逐字文本和可见嘴部' }
 
 function word(overrides = {}) {
   return { text: '别', start_ms: 0, end_ms: 160, confidence: 0.95, confidence_source: 'asr', ...overrides }
 }
 
 function line(overrides = {}) {
-  return { line_index: 1, start_ms: 0, end_ms: 500, confidence: 0.95, confidence_source: 'asr', words: [word()], ...overrides }
+  return { line_index: 1, speaker: '林晚', text: '别', start_ms: 0, end_ms: 500, pauses: [{ start_ms: 160, end_ms: 220 }], review_evidence: pendingReview, confidence: 0.95, confidence_source: 'asr', words: [word()], ...overrides }
 }
 
 function timing(overrides = {}) {
-  return { episode_key: 'ep-001', source_asset: sourceAsset, method: 'asr-forced-alignment', reviewed: false, language: 'zh-CN', lines: [line()], ...overrides }
+  const document = { episode_key: 'ep-001', source_asset: sourceAsset, method: 'asr-forced-alignment', reviewed: false, language: 'zh-CN', lines: [line()], ...overrides }
+  if (document.reviewed) document.lines = document.lines.map((item) => ({ ...item, review_evidence: completedReview }))
+  return document
 }
 
 async function registerSource(root, source, bytes) {
@@ -46,7 +50,7 @@ test('低置信 ASR 只能保存为未复核候选', async () => {
     const saved = await putSpeechTimingCandidate(root, candidate)
     await assert.rejects(
       () => reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: saved.version_id, document: { ...candidate, reviewed: true }, reviewed_by: 'codex' }),
-      /必须人工校正/
+      /必须人工校正|人工复核证据/
     )
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -60,7 +64,7 @@ test('人工复核创建新版本且不改写候选', async () => {
     const saved = await putSpeechTimingCandidate(root, candidate)
     const corrected = timing({
       reviewed: true,
-      lines: [line({ confidence: 0.95, confidence_source: 'manual-correction', words: [word({ text: '别动', end_ms: 180, confidence: 1, confidence_source: 'manual-correction' })] })],
+      lines: [line({ text: '别动', pauses: [{ start_ms: 180, end_ms: 220 }], confidence: 0.95, confidence_source: 'manual-correction', words: [word({ text: '别动', end_ms: 180, confidence: 1, confidence_source: 'manual-correction' })] })],
     })
     const reviewed = await reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: saved.version_id, document: corrected, reviewed_by: 'codex' })
     const selected = await selectedSpeechTiming(root, 'ep-001')
@@ -79,15 +83,26 @@ test('人工复核创建新版本且不改写候选', async () => {
 test('ASR 行拒绝重叠行和越过行边界的词', () => {
   assert.throws(() => validateSpeechTiming(timing({ lines: [line(), line({ line_index: 2, start_ms: 400, end_ms: 900, words: [word({ start_ms: 400, end_ms: 600 })] })] })), /重叠/)
   assert.throws(() => validateSpeechTiming(timing({ lines: [line({ words: [word({ end_ms: 501 })] })] })), /行区间/)
+  assert.throws(() => validateSpeechTiming(timing({ lines: [line({ pauses: [{ start_ms: 100, end_ms: 200 }] })] })), /不得与词级发声区间重叠/)
 })
 
-test('人工指令行必须用 evidence 说明并允许带有已对齐的词', () => {
-  const manual = { episode_key: 'ep-001', source_asset: sourceAsset, method: 'manual-direction', reviewed: false, language: 'zh-CN', lines: [{ line_index: 1, start_ms: 0, end_ms: 500, words: [], evidence: '导演按画面节奏标注起止' }] }
+test('人工指令行必须用 evidence 说明、声明停顿并允许 words 为空', () => {
+  const manual = { episode_key: 'ep-001', source_asset: sourceAsset, method: 'manual-direction', reviewed: false, language: 'zh-CN', lines: [{ line_index: 1, speaker: '林晚', text: '别回头', start_ms: 0, end_ms: 500, pauses: [{ start_ms: 160, end_ms: 220 }], review_evidence: pendingReview, words: [], evidence: '导演按画面节奏标注起止与停顿' }] }
   assert.doesNotThrow(() => validateSpeechTiming(manual))
-  assert.doesNotThrow(() => validateSpeechTiming({ ...manual, lines: [{ ...manual.lines[0], words: [{ text: '别', start_ms: 0, end_ms: 160 }] }] }))
+  assert.doesNotThrow(() => validateSpeechTiming({ ...manual, lines: [{ ...manual.lines[0], text: '别', words: [{ text: '别', start_ms: 0, end_ms: 160 }] }] }))
   assert.throws(() => validateSpeechTiming({ ...manual, lines: [{ ...manual.lines[0], words: [{ text: '别', start_ms: 0, end_ms: 501 }] }] }), /行区间/)
   assert.throws(() => validateSpeechTiming({ ...manual, lines: [{ ...manual.lines[0], evidence: '   ' }] }), /evidence/)
+  assert.throws(() => validateSpeechTiming({ ...manual, lines: [{ ...manual.lines[0], pauses: [] }] }), /停顿/)
   assert.throws(() => validateSpeechTiming(timing({ lines: [line({ evidence: '伪造人工说明' })] })), /字段无效/)
+})
+
+test('已复核版本必须记录说话人、逐字文本和可见嘴部核对证据', () => {
+  assert.doesNotThrow(() => validateSpeechTiming(timing({ reviewed: true })))
+  const missingEvidence = timing({ reviewed: true })
+  missingEvidence.lines[0].review_evidence = pendingReview
+  assert.throws(() => validateSpeechTiming(missingEvidence), /人工复核证据/)
+  assert.throws(() => validateSpeechTiming(timing({ lines: [line({ speaker: '' })] })), /speaker/)
+  assert.throws(() => validateSpeechTiming(timing({ lines: [line({ text: '' })] })), /text/)
 })
 
 test('ASR 复核将行阈值 0.90 与词阈值 0.80 分开校验', () => {
@@ -120,9 +135,9 @@ test('低置信词可用文本或时间边界变更作为人工校正证据', as
   try {
     const candidate = timing({ lines: [line({ words: [word({ confidence: 0.79 })] })] })
     const saved = await putSpeechTimingCandidate(root, candidate)
-    const textCorrected = timing({ reviewed: true, lines: [line({ words: [word({ text: '别动', confidence: 0.8 })] })] })
+    const textCorrected = timing({ reviewed: true, lines: [line({ text: '别动', words: [word({ text: '别动', confidence: 0.8 })] })] })
     assert.equal((await reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: saved.version_id, document: textCorrected, reviewed_by: 'codex' })).version_id, 'v002')
-    const boundaryCorrected = timing({ reviewed: true, lines: [line({ words: [word({ start_ms: 20, end_ms: 180, confidence: 0.8 })] })] })
+    const boundaryCorrected = timing({ reviewed: true, lines: [line({ pauses: [{ start_ms: 180, end_ms: 220 }], words: [word({ start_ms: 20, end_ms: 180, confidence: 0.8 })] })] })
     assert.equal((await reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: saved.version_id, document: boundaryCorrected, reviewed_by: 'codex' })).version_id, 'v003')
     const noEvidence = timing({ reviewed: true, lines: [line({ words: [word({ confidence: 0.8 })] })] })
     await assert.rejects(

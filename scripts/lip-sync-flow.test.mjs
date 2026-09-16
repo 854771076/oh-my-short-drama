@@ -140,7 +140,7 @@ test('保留原生声轨的字幕可绑定 selected 视频及当前 timing', asy
     await writeFile(resolve(root, 'episodes/ep-001/episode.json'), '{}\n')
     const ledger = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
     const video = ledger.assets['shot-ep001-001'].versions[0]
-    const timing = { episode_key: 'ep-001', source_asset: { asset_key: 'shot-ep001-001', version_id: 'v001', sha256: video.sha256 }, method: 'manual-direction', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, start_ms: 0, end_ms: 1000, words: [{ text: '别回头', start_ms: 100, end_ms: 900 }], evidence: '人工核对原生声轨' }] }
+    const timing = { episode_key: 'ep-001', source_asset: { asset_key: 'shot-ep001-001', version_id: 'v001', sha256: video.sha256 }, method: 'manual-direction', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, speaker: '林晚', text: '别回头', start_ms: 0, end_ms: 1000, pauses: [{ start_ms: 420, end_ms: 480 }], review_evidence: { speaker_checked: true, text_checked: true, visible_mouth_checked: true, notes: '人工核对原生声轨与口型' }, words: [{ text: '别', start_ms: 100, end_ms: 420 }, { text: '回头', start_ms: 480, end_ms: 900 }], evidence: '人工核对原生声轨起止与停顿' }] }
     await writeFile(resolve(root, 'episodes/ep-001/speech-timing/v001.json'), `${JSON.stringify(timing)}\n`)
     await writeFile(resolve(root, 'episodes/ep-001/speech-timing/selected.json'), `${JSON.stringify({ versionId: 'v001', path: 'episodes/ep-001/speech-timing/v001.json', source_asset_sha256: video.sha256, reviewed_by: 'codex' })}\n`)
     await writeFile(resolve(root, '.short-drama/shot-reviews.json'), `${JSON.stringify({ version: 1, reviews: { 'shot-ep001-001@v001': { approved: true } } })}\n`)

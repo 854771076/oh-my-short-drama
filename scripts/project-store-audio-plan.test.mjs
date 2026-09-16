@@ -45,7 +45,8 @@ async function fixture(timing = {}, selected = true) {
   await putAsset(root, { key: sourceAsset.asset_key, type: 'video', name: '源镜头' })
   await addAssetVersion(root, sourceAsset.asset_key, { id: 'v001', localPath: 'assets/videos/shot-ep001-001/v001.mp4', provenance })
   await selectAssetVersion(root, sourceAsset.asset_key, 'v001')
-  const document = { episode_key: 'ep-001', source_asset: sourceAsset, method: 'asr-forced-alignment', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, start_ms: 0, end_ms: 500, confidence: 0.95, confidence_source: 'asr', words: [{ text: '别', start_ms: 0, end_ms: 160, confidence: 0.95, confidence_source: 'asr' }] }], ...timing }
+  const baseLine = { line_index: 1, speaker: '林晚', text: '别', start_ms: 0, end_ms: 500, pauses: [{ start_ms: 160, end_ms: 220 }], review_evidence: { speaker_checked: true, text_checked: true, visible_mouth_checked: true, notes: '逐帧复核说话人与口型' }, confidence: 0.95, confidence_source: 'asr', words: [{ text: '别', start_ms: 0, end_ms: 160, confidence: 0.95, confidence_source: 'asr' }] }
+  const document = { episode_key: 'ep-001', source_asset: sourceAsset, method: 'asr-forced-alignment', reviewed: true, language: 'zh-CN', lines: [baseLine], ...timing, ...(timing.lines ? { lines: timing.lines.map((line) => ({ ...baseLine, ...line })) } : {}) }
   await writeJson(resolve(root, 'episodes/ep-001/speech-timing/v001.json'), document)
   if (selected) {
     await writeJson(resolve(root, 'episodes/ep-001/speech-timing/selected.json'), { versionId: 'v001', path: 'episodes/ep-001/speech-timing/v001.json', source_asset_sha256: sourceAsset.sha256, reviewed_by: 'codex' })

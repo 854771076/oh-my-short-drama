@@ -106,7 +106,7 @@ export async function reviewSpeechTiming(rootArg, input) {
 }
 ```
 
-`validateLine` 必须检查行不重叠、词按序位于行区间、ASR 自动通过阈值和人工方法的证据说明；`putSpeechTimingCandidate` 只能写 `reviewed:false`；目录固定为 `episodes/<episode>/speech-timing/vNNN.json`，selected marker 同时保存 `versionId`、相对路径、源资产 SHA 和复核人。
+`validateLine` 必须严格要求每行提供 `speaker`、`text`、`start_ms/end_ms`、`words`、`pauses` 和 `review_evidence`，检查行不重叠、词与停顿按序位于行区间、词级文本与行文本一致、ASR 自动通过阈值和人工方法的证据说明；`reviewed:true` 必须记录说话人、逐字文本和可见嘴部三项人工核对。`manual-direction.words` 可以为空，但必须声明至少一个停顿区间及人工计划证据。`putSpeechTimingCandidate` 只能写 `reviewed:false`；目录固定为 `episodes/<episode>/speech-timing/vNNN.json`，selected marker 同时保存 `versionId`、相对路径、源资产 SHA 和复核人。
 
 辅助函数边界固定如下：`readVersion(root, episodeKey, versionId)` 只读取上述标准目录；`writeNextVersion(root, document, options)` 在文件锁内计算下一个 `vNNN` 并使用 `wx` 原子写入；`assertCorrectionEvidence(candidate, reviewed)` 要求低置信词的文本、边界或置信来源发生人工校正并记录复核人；模块内 `exactKeys` 沿用现有合同模块的严格键集合语义。
 

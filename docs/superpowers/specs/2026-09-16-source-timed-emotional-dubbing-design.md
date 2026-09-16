@@ -67,19 +67,26 @@ selected 视频/原配音频
       "line_index": 1,
       "speaker": "林晚",
       "text": "别回头",
-      "range": { "start_ms": 1240, "end_ms": 2080 },
+      "start_ms": 1240,
+      "end_ms": 2080,
       "words": [
         { "text": "别", "start_ms": 1240, "end_ms": 1460, "confidence": 0.98 },
         { "text": "回头", "start_ms": 1530, "end_ms": 2080, "confidence": 0.97 }
       ],
       "pauses": [{ "start_ms": 1460, "end_ms": 1530 }],
+      "review_evidence": {
+        "speaker_checked": true,
+        "text_checked": true,
+        "visible_mouth_checked": true,
+        "notes": "逐帧核对说话人、逐字文本和可见嘴部"
+      },
       "confidence": 0.97
     }
   ]
 }
 ```
 
-`method` 只允许 `asr-forced-alignment` 或 `manual-direction`。所有时间为相对源资产起点的整数毫秒。行区间不得重叠；词必须按序位于行区间内；`reviewed:true` 前必须核对说话人、逐字文本和可见嘴部。ASR 行置信度低于 `0.90`，或任一词置信度低于 `0.80` 时进入 `unresolved`，不能自动成为配音时间证据；人工校正文本、说话人和词级边界后可以通过 `review_speech_timing` 形成新的已复核版本，不能只翻转原候选的 `reviewed`。
+`method` 只允许 `asr-forced-alignment` 或 `manual-direction`。所有时间为相对源资产起点的整数毫秒。每行严格包含 `speaker`、`text`、`start_ms/end_ms`、`words`、`pauses` 与 `review_evidence`；行区间不得重叠，词和停顿必须按序位于行区间内，非空词级文本必须与行文本一致。未复核候选的三项核对状态必须为 `false`；`reviewed:true` 前必须把说话人、逐字文本和可见嘴部三项都核对为 `true` 并填写说明。ASR 行置信度低于 `0.90`，或任一词置信度低于 `0.80` 时进入 `unresolved`，不能自动成为配音时间证据；人工校正文本、说话人和词级边界后可以通过 `review_speech_timing` 形成新的已复核版本，不能只翻转原候选的 `reviewed`。
 
 没有原声时，`method=manual-direction`，来源改为已选导演本、制作计划和镜头版本。人工计划仍必须给出行区间、停顿位置和证据说明；`words` 在生成前可以为空，但不得伪造成 ASR 结果。
 

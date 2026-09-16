@@ -70,7 +70,7 @@ async function fixture() {
 test('分析和编译工具不创建付费任务且已注册', async () => {
   const root = await fixture()
   try {
-    const analyzed = await call('analyze_speech_timing', { project_root: root, source: { asset_key: 'audio-ep001-source', version_id: 'v001' }, timing: { episode_key: 'ep-001', method: 'manual-direction', language: 'zh-CN', lines: [{ line_index: 1, start_ms: 0, end_ms: 900, words: [{ text: '别回头', start_ms: 0, end_ms: 900 }], evidence: '人工核对源音轨' }] } })
+    const analyzed = await call('analyze_speech_timing', { project_root: root, source: { asset_key: 'audio-ep001-source', version_id: 'v001' }, timing: { episode_key: 'ep-001', method: 'manual-direction', language: 'zh-CN', lines: [{ line_index: 1, speaker: '林晚', text: '别回头', start_ms: 0, end_ms: 900, pauses: [{ start_ms: 350, end_ms: 420 }], review_evidence: { speaker_checked: false, text_checked: false, visible_mouth_checked: false, notes: '' }, words: [{ text: '别', start_ms: 0, end_ms: 350 }, { text: '回头', start_ms: 420, end_ms: 900 }], evidence: '人工核对源音轨起止与停顿' }] } })
     assert.equal(analyzed.version_id, 'v001')
     const compiled = await call('compile_dubbing_request', { project_root: root, episode_key: 'ep-001', audio_plan_version: 'v003', line_index: 1, provider: 'bailian', model: 'cosyvoice-v3.5-plus', voice: 'linwan', attempt: 1 })
     assert.equal(compiled.supported, true)
@@ -196,7 +196,7 @@ test('native-preserve 字幕直接绑定合同来源视频的原生声轨', asyn
     const source = { asset_key: 'shot-ep001-001', version_id: 'v001', sha256: ledger.assets['shot-ep001-001'].versions[0].sha256 }
     const timingDir = resolve(root, 'episodes/ep-001/speech-timing')
     await mkdir(resolve(timingDir, 'selected-sources/shot-ep001-001/v001'), { recursive: true })
-    await writeFile(resolve(timingDir, 'v001.json'), `${JSON.stringify({ episode_key: 'ep-001', source_asset: source, method: 'manual-direction', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, start_ms: 100, end_ms: 900, words: [{ text: '别回头', start_ms: 100, end_ms: 900 }], evidence: '人工核对原声' }] })}\n`)
+    await writeFile(resolve(timingDir, 'v001.json'), `${JSON.stringify({ episode_key: 'ep-001', source_asset: source, method: 'manual-direction', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, speaker: '林晚', text: '别回头', start_ms: 100, end_ms: 900, pauses: [{ start_ms: 420, end_ms: 480 }], review_evidence: { speaker_checked: true, text_checked: true, visible_mouth_checked: true, notes: '人工核对原声与口型' }, words: [{ text: '别', start_ms: 100, end_ms: 420 }, { text: '回头', start_ms: 480, end_ms: 900 }], evidence: '人工核对原声起止与停顿' }] })}\n`)
     await writeFile(resolve(timingDir, 'selected-sources/shot-ep001-001/v001/selected.json'), `${JSON.stringify({ versionId: 'v001', source_asset_sha256: source.sha256 })}\n`)
     const planDir = resolve(root, 'episodes/ep-001/audio-plan')
     await mkdir(planDir, { recursive: true })

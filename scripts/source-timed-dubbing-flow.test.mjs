@@ -60,7 +60,7 @@ test('原声时间到配音选版、字幕和失效传播完整闭环', async ()
     const initialLedger = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
     const sourceSha = initialLedger.assets['shot-ep001-source'].versions[0].sha256
 
-    const timingDocument = { episode_key: 'ep-001', source_asset: { asset_key: 'shot-ep001-source', version_id: 'v001', sha256: sourceSha }, method: 'manual-direction', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, start_ms: 100, end_ms: 900, words: [{ text: '别回头', start_ms: 100, end_ms: 900 }], evidence: '人工逐帧核对' }] }
+    const timingDocument = { episode_key: 'ep-001', source_asset: { asset_key: 'shot-ep001-source', version_id: 'v001', sha256: sourceSha }, method: 'manual-direction', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, speaker: '林晚', text: '别回头', start_ms: 100, end_ms: 900, pauses: [{ start_ms: 420, end_ms: 480 }], review_evidence: { speaker_checked: true, text_checked: true, visible_mouth_checked: true, notes: '人工逐帧核对说话人与口型' }, words: [{ text: '别', start_ms: 100, end_ms: 420 }, { text: '回头', start_ms: 480, end_ms: 900 }], evidence: '人工逐帧核对起止与停顿' }] }
     await json(resolve(root, 'episodes/ep-001/speech-timing/v001.json'), timingDocument)
     await json(resolve(root, 'episodes/ep-001/speech-timing/selected.json'), { versionId: 'v001', path: 'episodes/ep-001/speech-timing/v001.json', source_asset_sha256: sourceSha, reviewed_by: 'codex' })
     await json(resolve(root, 'episodes/ep-001/speech-timing/selected-sources/shot-ep001-source/v001/selected.json'), { versionId: 'v001', source_asset_sha256: sourceSha, reviewed_by: 'codex' })
@@ -68,7 +68,7 @@ test('原声时间到配音选版、字幕和失效传播完整闭环', async ()
     await json(resolve(root, 'episodes/ep-001/audio-plan/v001.json'), { episode_key: 'ep-001', approved: true, unresolved: [], voice_bindings: [{ voice_id: 'linwan' }], lines: [{ line_index: 1, content: '别回头', speaker: '林晚', delivery_mode: 'post_dub', presentation: 'visible-dialogue', voice_binding: { voice_id: 'linwan' }, dubbing_contract: contract }] })
     await json(resolve(root, 'episodes/ep-001/audio-plan/selected.json'), { versionId: 'v001', path: 'episodes/ep-001/audio-plan/v001.json' })
 
-    const putAlignment = (version) => putFinalSpeechAlignment(root, { episode_key: 'ep-001', line_index: 1, audio_asset: { asset_key: 'audio-ep001-line-001', version_id: version.id, sha256: version.sha256 }, audio_plan_version: 'v001', source_timing: { version_id: 'v001', line_index: 1, source_asset: timingDocument.source_asset }, text: '别回头', words: [{ text: '别回头', start_ms: 100, end_ms: 900 }], timeline_mapping: { audio_in_ms: 0, timeline_at_ms: 0 }, timeline_fps: 24, reviewed: true })
+    const putAlignment = (version) => putFinalSpeechAlignment(root, { episode_key: 'ep-001', line_index: 1, audio_asset: { asset_key: 'audio-ep001-line-001', version_id: version.id, sha256: version.sha256 }, audio_plan_version: 'v001', source_timing: { version_id: 'v001', line_index: 1, source_asset: timingDocument.source_asset }, text: '别回头', words: [{ text: '别', start_ms: 100, end_ms: 420 }, { text: '回头', start_ms: 480, end_ms: 900 }], timeline_mapping: { audio_in_ms: 0, timeline_at_ms: 0 }, timeline_fps: 24, reviewed: true })
     await putAlignment(versions[1])
     await putDubbingPerformanceReview(root, review(versions[1].sha256, 'v002'))
     const [subtitle] = await call('build_subtitles_from_audio', { project_root: root, episode_key: 'ep-001', line_index: 1, fps: 24, timeline_end_ms: 1000 })

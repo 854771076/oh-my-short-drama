@@ -27,7 +27,7 @@ async function registerSource(root, key, bytes) {
 function timing(sourceAsset) {
   return {
     episode_key: 'ep-001', source_asset: sourceAsset, method: 'manual-direction', reviewed: true, language: 'zh-CN',
-    lines: [{ line_index: 1, start_ms: 0, end_ms: 900, words: [{ text: '别回头', start_ms: 0, end_ms: 800 }], evidence: '人工核对源音轨' }],
+    lines: [{ line_index: 1, speaker: '林晚', text: '别回头', start_ms: 0, end_ms: 900, pauses: [{ start_ms: 350, end_ms: 420 }], review_evidence: { speaker_checked: true, text_checked: true, visible_mouth_checked: true, notes: '人工核对源音轨与口型' }, words: [{ text: '别', start_ms: 0, end_ms: 350 }, { text: '回头', start_ms: 420, end_ms: 800 }], evidence: '人工核对源音轨起止与停顿' }],
   }
 }
 

@@ -60,7 +60,7 @@ async function fixture(root, alignmentOverrides = {}) {
   await addAssetVersion(root, 'shot-ep001-001', { id: 'v001', localPath: 'assets/videos/shot-ep001-001/v001.mp4', provenance: provenance('transformed', [{ key: 'audio-ep001-line-001', version_id: 'v001' }]) })
   await selectAssetVersion(root, 'shot-ep001-001', 'v001')
 
-  const timing = { episode_key: 'ep-001', source_asset: { asset_key: 'audio-ep001-source', version_id: 'v001', sha256: sourceSha }, method: 'manual-direction', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, start_ms: 0, end_ms: 1000, words: [{ text: '别', start_ms: 0, end_ms: 300 }], evidence: '人工逐帧核对' }] }
+  const timing = { episode_key: 'ep-001', source_asset: { asset_key: 'audio-ep001-source', version_id: 'v001', sha256: sourceSha }, method: 'manual-direction', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, speaker: '林晚', text: '别', start_ms: 0, end_ms: 1000, pauses: [{ start_ms: 300, end_ms: 360 }], review_evidence: { speaker_checked: true, text_checked: true, visible_mouth_checked: true, notes: '人工逐帧核对' }, words: [{ text: '别', start_ms: 0, end_ms: 300 }], evidence: '人工逐帧核对起止与停顿' }] }
   await writeJson(resolve(root, 'episodes/ep-001/speech-timing/v001.json'), timing)
   await writeJson(resolve(root, 'episodes/ep-001/speech-timing/selected.json'), { versionId: 'v001', path: 'episodes/ep-001/speech-timing/v001.json', source_asset_sha256: sourceSha, reviewed_by: 'codex' })
   await writeJson(resolve(root, 'episodes/ep-001/speech-timing/selected-sources/audio-ep001-source/v001/selected.json'), { versionId: 'v001', source_asset_sha256: sourceSha, reviewed_by: 'codex' })

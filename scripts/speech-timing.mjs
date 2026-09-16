@@ -56,15 +56,49 @@ function validateManualWord(word, line, lineIndex, wordIndex) {
   validateWordTiming(word, line, lineIndex, wordIndex)
 }
 
+function normalizedSpeechText(value) {
+  return String(value || '').normalize('NFKC').replace(/[\p{P}\p{S}\s]/gu, '')
+}
+
+function validatePauses(pauses, line, label, required) {
+  if (!Array.isArray(pauses) || required && pauses.length === 0) throw new Error(`${label} 必须声明停顿区间`)
+  let previousEnd = line.start_ms
+  for (const [index, pause] of pauses.entries()) {
+    exactKeys(pause, ['start_ms', 'end_ms'], `${label}.pauses[${index}]`)
+    if (!Number.isInteger(pause.start_ms) || !Number.isInteger(pause.end_ms) || pause.start_ms < line.start_ms || pause.end_ms > line.end_ms || pause.end_ms <= pause.start_ms || pause.start_ms < previousEnd) throw new Error(`${label}.pauses 必须位于行区间内且按序不重叠`)
+    previousEnd = pause.end_ms
+  }
+}
+
+function validateReviewEvidence(evidence, reviewed, label) {
+  exactKeys(evidence, ['speaker_checked', 'text_checked', 'visible_mouth_checked', 'notes'], `${label}.review_evidence`)
+  for (const field of ['speaker_checked', 'text_checked', 'visible_mouth_checked']) if (typeof evidence[field] !== 'boolean') throw new Error(`${label}.review_evidence.${field} 必须是布尔值`)
+  if (typeof evidence.notes !== 'string') throw new Error(`${label}.review_evidence.notes 必须是字符串`)
+  if (reviewed && (!evidence.speaker_checked || !evidence.text_checked || !evidence.visible_mouth_checked || !evidence.notes.trim())) throw new Error(`${label} 已复核版本缺少说话人、逐字文本或可见嘴部人工复核证据`)
+  if (!reviewed && (evidence.speaker_checked || evidence.text_checked || evidence.visible_mouth_checked)) throw new Error(`${label} 未复核候选不得预先声明人工核对完成`)
+}
+
+function validateSemanticFields(line, reviewed, label) {
+  if (typeof line.speaker !== 'string' || !line.speaker.trim()) throw new Error(`${label}.speaker 必填`)
+  if (typeof line.text !== 'string' || !line.text.trim()) throw new Error(`${label}.text 必填`)
+  validateReviewEvidence(line.review_evidence, reviewed, label)
+}
+
+function validatePauseWordSeparation(line, label) {
+  if (line.pauses.some((pause) => line.words.some((word) => pause.start_ms < word.end_ms && pause.end_ms > word.start_ms))) throw new Error(`${label}.pauses 不得与词级发声区间重叠`)
+}
+
 function validateLine(line, index, method, reviewed, previousEnd) {
   const label = `speech-timing lines[${index}]`
   const expected = method === 'manual-direction'
-    ? ['line_index', 'start_ms', 'end_ms', 'words', 'evidence']
-    : ['line_index', 'start_ms', 'end_ms', 'confidence', 'confidence_source', 'words']
+    ? ['line_index', 'speaker', 'text', 'start_ms', 'end_ms', 'pauses', 'review_evidence', 'words', 'evidence']
+    : ['line_index', 'speaker', 'text', 'start_ms', 'end_ms', 'pauses', 'review_evidence', 'confidence', 'confidence_source', 'words']
   if (line?.timeline_mapping !== undefined) expected.push('timeline_mapping')
   exactKeys(line, expected, label)
   if (!Number.isInteger(line.line_index) || line.line_index <= 0 || !Number.isInteger(line.start_ms) || !Number.isInteger(line.end_ms) || line.start_ms < 0 || line.end_ms <= line.start_ms) throw new Error(`${label} 时间区间无效`)
   if (previousEnd !== null && line.start_ms < previousEnd) throw new Error(`${label} 与前一行重叠`)
+  validateSemanticFields(line, reviewed, label)
+  validatePauses(line.pauses, line, label, method === 'manual-direction')
   if (line.timeline_mapping !== undefined) {
     exactKeys(line.timeline_mapping, ['source_in_ms', 'timeline_at_ms'], `${label}.timeline_mapping`)
     if (!Number.isInteger(line.timeline_mapping.source_in_ms) || line.timeline_mapping.source_in_ms < 0 || line.timeline_mapping.source_in_ms > line.end_ms || !Number.isInteger(line.timeline_mapping.timeline_at_ms) || line.timeline_mapping.timeline_at_ms < 0) throw new Error(`${label} 时间域转换无效`)
@@ -78,6 +112,8 @@ function validateLine(line, index, method, reviewed, previousEnd) {
       if (word.start_ms < previousWordEnd) throw new Error(`speech-timing lines[${index}] 词时间未按序`)
       previousWordEnd = word.end_ms
     }
+    validatePauseWordSeparation(line, label)
+    if (line.words.length && normalizedSpeechText(line.words.map((word) => word.text).join('')) !== normalizedSpeechText(line.text)) throw new Error(`${label}.text 与词级文本不一致`)
     return line.end_ms
   }
   if (typeof line.confidence !== 'number' || !Number.isFinite(line.confidence) || line.confidence < 0 || line.confidence > 1 || typeof line.confidence_source !== 'string' || !line.confidence_source.trim()) throw new Error(`${label} 行级置信度无效`)
@@ -88,6 +124,8 @@ function validateLine(line, index, method, reviewed, previousEnd) {
     if (word.start_ms < previousWordEnd) throw new Error(`speech-timing lines[${index}] 词时间未按序`)
     previousWordEnd = word.end_ms
   }
+  validatePauseWordSeparation(line, label)
+  if (!line.words.length || normalizedSpeechText(line.words.map((word) => word.text).join('')) !== normalizedSpeechText(line.text)) throw new Error(`${label}.text 与词级文本不一致`)
   return line.end_ms
 }
 
