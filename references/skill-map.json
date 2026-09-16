@@ -11,7 +11,7 @@
     "manage-drama-projects", "manage-drama-assets", "manage-drama-art-styles",
     "transform-drama-media", "monitor-drama-tasks", "recover-drama-pipeline",
     "configure-generation-providers", "drama-generation-service", "publish-drama-references", "orchestrate-short-drama",
-    "short-drama-skill-index", "use-short-drama-studio"
+    "short-drama-skill-index", "use-short-drama-studio", "analyze-drama-market"
   ],
   "stages": {
     "analysis": ["manage-drama-projects", "analyze-drama-source", "define-drama-brief", "design-drama-bible", "outline-drama-series"],

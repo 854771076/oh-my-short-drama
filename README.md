@@ -251,6 +251,10 @@ node scripts/generation/live-smoke-test.mjs --confirmed --output /absolute/path/
 
 该脚本会对内置图片、视频和音频模型各调用一次，轮询视频到终态，下载本地文件并生成 `report.json`。
 
+## 市场调研
+
+使用 `node scripts/market-research.mjs refresh /absolute/workspace` 手动刷新剧查查公开 Top 30 榜单；用 `list` 查看历史、`report` 读取最新报告，或用 `analyze /absolute/workspace <snapshot-id>` 重算指定历史快照。Studio 的全局 `#/market` 页面提供题材机会、平台覆盖、公司集中度与证据追溯。除显式 `refresh` 外均为离线读取。
+
 ## 进一步阅读
 
 - [Skill 总索引](skills/short-drama-skill-index/SKILL.md)

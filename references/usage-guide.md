@@ -65,6 +65,10 @@
 | `short-drama-skill-index` | 按产物类型查找对应 Skill | 不确定该调用谁时 | 无；只路由 |
 | `use-short-drama-studio` | 使用者入口，解释全流程、依赖、顺序和确认门禁 | 开始制作或询问怎么使用时 | 汇总当前缺失决策，不自行代选 |
 
+## 市场调研流程
+
+显式执行 `node scripts/market-research.mjs refresh /absolute/workspace` 才会联网刷新公开榜单。`list` 查看快照与报告历史，`report` 读取最新报告，`analyze /absolute/workspace <snapshot-id>` 重算指定历史快照；Studio 使用全局 `#/market`。报告持续标注公开 Top 30 样本边界，不作为收益承诺。
+
 ## 通用门禁
 
 项目配置 `automation_mode` 默认为 `true`。开启时由 agent 自主完成下表中的常规确认；关闭时才等待用户逐项确认。阶段门禁、权限/素材权利事实和安全校验始终有效。

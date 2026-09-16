@@ -19,6 +19,15 @@ import { missingPrevizAssets, missingStoryboardAssets } from './workflow-gates.m
 
 const plugin = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const skillMap = JSON.parse(await readFile(resolve(plugin, 'references/skill-map.json'), 'utf8'))
+const skillIndexText = await readFile(resolve(plugin, 'skills/short-drama-skill-index/SKILL.md'), 'utf8')
+const usageGuideText = await readFile(resolve(plugin, 'references/usage-guide.md'), 'utf8')
+const codexManifest = JSON.parse(await readFile(resolve(plugin, '.codex-plugin/plugin.json'), 'utf8'))
+const claudeManifest = JSON.parse(await readFile(resolve(plugin, '.claude-plugin/plugin.json'), 'utf8'))
+const marketplaceManifest = JSON.parse(await readFile(resolve(plugin, '.claude-plugin/marketplace.json'), 'utf8'))
+if (!skillMap.support.includes('analyze-drama-market')) throw new Error('市场分析 Skill 未登记')
+if (!/市场.*analyze-drama-market/.test(skillIndexText)) throw new Error('Skill 索引缺少市场分析路由')
+if (!/market-research\.mjs refresh/.test(usageGuideText)) throw new Error('使用手册缺少市场刷新命令')
+if (codexManifest.version !== '0.8.0' || claudeManifest.version !== codexManifest.version || marketplaceManifest.plugins[0].version !== codexManifest.version) throw new Error('插件版本未统一为 0.8.0')
 const providerPrompts = new Set(skillMap.provider_prompts || [])
 function run(script, ...args) {
   const result = spawnSync(process.execPath, [resolve(plugin, 'scripts', script), ...args], { encoding: 'utf8' })
