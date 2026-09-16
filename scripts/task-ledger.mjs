@@ -37,7 +37,10 @@ export function canonicalProvenanceParameters(request) {
     const args = request.arguments || {}
     return canonical(Object.fromEntries(['operation', 'range', 'mask', 'parameters', 'source_sha256'].filter((key) => args[key] !== undefined).map((key) => [key, args[key]])))
   }
-  return canonical(Object.fromEntries(Object.entries(request.arguments || {}).filter(([key, value]) => value !== undefined && !NON_PROVENANCE_ARGUMENTS.has(key))))
+  const parameters = Object.fromEntries(Object.entries(request.arguments || {}).filter(([key, value]) => value !== undefined && !NON_PROVENANCE_ARGUMENTS.has(key)))
+  // Provider 参数会丢掉业务轮次和合同语义，因此编译证据必须独立进入 provenance。
+  if (request.dubbing_compiler) parameters.dubbing_compiler = request.dubbing_compiler
+  return canonical(parameters)
 }
 
 export function generationProvenance(task, request) {
@@ -71,6 +74,7 @@ export function validateTaskOutput(task, request, asset, version, requireComplet
   if (task.target !== asset.key || task.type !== expectedType || task.provider !== provenance.provider || provenance.task_id !== task.taskId) throw new Error('任务与资产 provenance 身份不一致')
   if (request.target !== task.target || request.type !== task.type || request.provider !== task.provider || request.modelOrWorkflow !== provenance.model_or_workflow) throw new Error('请求、任务与资产模型不一致')
   if (JSON.stringify(canonicalPromptDocument(request.promptDocument, request.tool)) !== JSON.stringify(canonicalPromptDocument(provenance.prompt_document, request.tool))) throw new Error('请求与资产提示词文档不一致')
+  if (request.dubbing_compiler && request.dubbing_compiler.sha256 !== fingerprint(request.dubbing_compiler.snapshot)) throw new Error('配音编译快照 SHA 不一致')
   const expectedParameters = canonicalProvenanceParameters(request)
   const actualParameters = canonical(provenance.parameters || {})
   const { output_processing: outputProcessing, ...requestParameters } = actualParameters
@@ -112,10 +116,23 @@ export async function createRequestSnapshot(rootArg, input) {
   if (!TYPES.has(input.type)) throw new Error(`请求类型无效：${input.type}`)
   if (!input.arguments || typeof input.arguments !== 'object' || Array.isArray(input.arguments)) throw new Error('请求 arguments 必须是对象')
   if (input.tool === 'submit_media_operation') validateMediaOperation(input.arguments)
-  const raw = JSON.stringify(input.arguments)
+  let dubbingCompiler = null
+  if (input.dubbing_compiler !== undefined) {
+    const compiler = input.dubbing_compiler
+    const complete = compiler && typeof compiler === 'object' && !Array.isArray(compiler)
+      && /^ep-\d{3}$/.test(compiler.episode_key || '') && Number.isInteger(compiler.line_index) && compiler.line_index > 0
+      && /^v\d{3}$/.test(compiler.contract_version || '') && /^v\d{3}$/.test(compiler.timing_version || '')
+      && Number.isInteger(compiler.attempt) && compiler.attempt >= 1 && compiler.attempt <= 3
+      && Number.isInteger(compiler.target_range?.start_ms) && Number.isInteger(compiler.target_range?.end_ms) && compiler.target_range.end_ms > compiler.target_range.start_ms
+      && typeof compiler.text_version === 'string' && compiler.text_version.trim() && Array.isArray(compiler.capability_gaps)
+    if (!complete) throw new Error('配音编译快照缺少分集、行、合同、timing、轮次或目标区间')
+    const snapshot = canonical(compiler)
+    dubbingCompiler = { snapshot, sha256: fingerprint(snapshot) }
+  }
+  const raw = JSON.stringify({ arguments: input.arguments, dubbing_compiler: dubbingCompiler })
   if (Buffer.byteLength(raw) > 1024 * 1024) throw new Error('请求快照超过 1MB，请使用文件路径或资产版本引用代替内联媒体')
   const requestId = `req-${randomUUID()}`
-  const snapshot = { version: 1, requestId, tool: input.tool, target: input.target, type: input.type, provider: input.provider, modelOrWorkflow: input.modelOrWorkflow || null, promptDocument: canonicalPromptDocument(input.promptDocument, input.tool), arguments: canonical(input.arguments), inputFingerprint: fingerprint(input.arguments), createdAt: new Date().toISOString() }
+  const snapshot = { version: 1, requestId, tool: input.tool, target: input.target, type: input.type, provider: input.provider, modelOrWorkflow: input.modelOrWorkflow || null, promptDocument: canonicalPromptDocument(input.promptDocument, input.tool), arguments: canonical(input.arguments), ...(dubbingCompiler ? { dubbing_compiler: dubbingCompiler } : {}), inputFingerprint: fingerprint({ arguments: input.arguments, dubbing_compiler: dubbingCompiler }), createdAt: new Date().toISOString() }
   const target = resolve(paths(root).requests, `${requestId}.json`)
   await mkdir(dirname(target), { recursive: true })
   await writeFile(target, `${JSON.stringify(snapshot, null, 2)}\n`, { flag: 'wx' })
@@ -132,7 +149,7 @@ function projectPath(root, value) {
 async function readLedger(root) {
   try { return JSON.parse(await readFile(paths(root).ledger, 'utf8')) }
   catch (error) {
-    if (error?.code === 'ENOENT') return { version: 1, tasks: {} }
+    if (error?.code === 'ENOENT') return { version: 1, tasks: {}, dubbingAttempts: {} }
     throw error
   }
 }
@@ -159,7 +176,7 @@ export async function putTask(rootArg, record) {
     const requestFile = projectPath(root, record.requestPath)
     const request = JSON.parse(await readFile(requestFile, 'utf8'))
     if (request.target !== record.target || request.type !== record.type || request.provider !== record.provider) throw new Error('任务与请求快照不一致')
-    const inputFingerprint = fingerprint(request.arguments)
+    const inputFingerprint = request.inputFingerprint || fingerprint({ arguments: request.arguments, dubbing_compiler: request.dubbing_compiler || null })
     const duplicate = Object.values(ledger.tasks).find((task) => task.taskId !== record.taskId && task.target === record.target && task.inputFingerprint === inputFingerprint && ACTIVE.has(task.status))
     if (duplicate) throw new Error(`存在相同目标与输入的在途任务：${duplicate.taskId}`)
     ledger.tasks[record.taskId] = { attempts: 1, submittedAt: new Date().toISOString(), ...record, requestSha256: await sha256(requestFile), inputFingerprint, updatedAt: new Date().toISOString() }
@@ -169,7 +186,62 @@ export async function putTask(rootArg, record) {
 }
 
 export async function reserveTask(rootArg, record) {
-  return putTask(rootArg, { ...record, status: 'submitting' })
+  const root = resolve(rootArg)
+  return withFileLock(paths(root).ledger, async () => {
+    const ledger = await readLedger(root)
+    rejectSecrets(record)
+    for (const field of ['taskId', 'target', 'type', 'provider', 'requestPath']) if (typeof record[field] !== 'string' || !record[field].trim()) throw new Error(`${field} 必填`)
+    if (!TYPES.has(record.type)) throw new Error(`未知任务类型：${record.type}`)
+    if (ledger.tasks[record.taskId]) throw new Error(`任务已存在：${record.taskId}`)
+    const requestFile = projectPath(root, record.requestPath)
+    const request = JSON.parse(await readFile(requestFile, 'utf8'))
+    if (request.target !== record.target || request.type !== record.type || request.provider !== record.provider) throw new Error('任务与请求快照不一致')
+    const inputFingerprint = request.inputFingerprint || fingerprint({ arguments: request.arguments, dubbing_compiler: request.dubbing_compiler || null })
+    const compiler = request.dubbing_compiler?.snapshot
+    if (request.tool === 'generate_audio' && compiler) {
+      const identity = `${compiler.episode_key}:line-${compiler.line_index}`
+      ledger.dubbingAttempts ||= {}
+      const state = ledger.dubbingAttempts[identity] || { episode_key: compiler.episode_key, line_index: compiler.line_index, reservations: [] }
+      const derivedAttempt = state.reservations.length + 1
+      if (derivedAttempt > 3) throw new Error(`每集每行最多三次付费生成：${identity}`)
+      if (compiler.attempt !== derivedAttempt) throw new Error(`付费轮次必须由账本派生为 ${derivedAttempt}，不能使用调用者提交的 ${compiler.attempt}`)
+      if (derivedAttempt > 1) {
+        const previous = state.reservations.at(-1)
+        if (!previous?.outcome?.alignment_version || previous.outcome.fit_passed !== false) throw new Error(`第 ${derivedAttempt} 轮必须绑定前一轮失败的最终对齐结果`)
+        if (derivedAttempt === 3 && previous.outcome.adaptation_approved !== true) throw new Error('第三轮等义适配必须先获得批准')
+      }
+      state.reservations.push({ attempt: derivedAttempt, reservation_task_id: record.taskId, request_sha256: await sha256(requestFile), status: 'submitting', outcome: null, reserved_at: new Date().toISOString() })
+      ledger.dubbingAttempts[identity] = state
+    } else {
+      const duplicate = Object.values(ledger.tasks).find((task) => task.taskId !== record.taskId && task.target === record.target && task.inputFingerprint === inputFingerprint && ACTIVE.has(task.status))
+      if (duplicate) throw new Error(`存在相同目标与输入的在途任务：${duplicate.taskId}`)
+    }
+    ledger.tasks[record.taskId] = { attempts: 1, submittedAt: new Date().toISOString(), ...record, status: 'submitting', requestSha256: await sha256(requestFile), inputFingerprint, updatedAt: new Date().toISOString() }
+    await saveLedger(root, ledger)
+    return ledger.tasks[record.taskId]
+  })
+}
+
+export async function recordDubbingAttemptOutcome(rootArg, input) {
+  const root = resolve(rootArg)
+  if (!input || !/^ep-\d{3}$/.test(input.episode_key || '') || !Number.isInteger(input.line_index) || input.line_index <= 0 || !Number.isInteger(input.attempt) || input.attempt < 1 || input.attempt > 3 || !/^v\d{3}$/.test(input.alignment_version || '') || typeof input.fit_passed !== 'boolean' || typeof input.adaptation_approved !== 'boolean') throw new Error('配音轮次结果无效')
+  return withFileLock(paths(root).ledger, async () => {
+    const ledger = await readLedger(root)
+    const identity = `${input.episode_key}:line-${input.line_index}`
+    const state = ledger.dubbingAttempts?.[identity]
+    const reservation = state?.reservations?.find((item) => item.attempt === input.attempt)
+    if (!reservation) throw new Error(`配音付费预占不存在：${identity}#${input.attempt}`)
+    if (reservation.status === 'submitting') throw new Error('Provider 请求尚未结算，不能登记对齐结果')
+    const outcome = { alignment_version: input.alignment_version, fit_passed: input.fit_passed, adaptation_approved: input.adaptation_approved }
+    if (reservation.outcome) {
+      const sameFit = reservation.outcome.alignment_version === outcome.alignment_version && reservation.outcome.fit_passed === outcome.fit_passed
+      const onlyApprovalUpgrade = sameFit && reservation.outcome.adaptation_approved === false && outcome.adaptation_approved === true
+      if (!sameFit || (!onlyApprovalUpgrade && JSON.stringify(reservation.outcome) !== JSON.stringify(outcome))) throw new Error('配音轮次结果不可变')
+    }
+    reservation.outcome = outcome
+    await saveLedger(root, ledger)
+    return structuredClone(reservation)
+  })
 }
 
 export async function settleReservedTask(rootArg, reservationId, { taskId = reservationId, status }) {
@@ -182,6 +254,14 @@ export async function settleReservedTask(rootArg, reservationId, { taskId = rese
     if (taskId !== reservationId && ledger.tasks[taskId]) throw new Error(`远端任务已存在：${taskId}`)
     delete ledger.tasks[reservationId]
     ledger.tasks[taskId] = { ...current, taskId, status, updatedAt: new Date().toISOString() }
+    for (const state of Object.values(ledger.dubbingAttempts || {})) {
+      const reservation = state.reservations?.find((item) => item.reservation_task_id === reservationId)
+      if (reservation) {
+        reservation.task_id = taskId
+        reservation.status = status
+        reservation.settled_at = new Date().toISOString()
+      }
+    }
     await saveLedger(root, ledger)
     return ledger.tasks[taskId]
   })
