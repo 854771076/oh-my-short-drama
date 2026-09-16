@@ -12,7 +12,7 @@ function word(overrides = {}) {
 }
 
 function line(overrides = {}) {
-  return { line_index: 1, start_ms: 0, end_ms: 500, words: [word()], ...overrides }
+  return { line_index: 1, start_ms: 0, end_ms: 500, confidence: 0.95, confidence_source: 'asr', words: [word()], ...overrides }
 }
 
 function timing(overrides = {}) {
@@ -26,7 +26,7 @@ async function temporaryRoot() {
 test('低置信 ASR 只能保存为未复核候选', async () => {
   const root = await temporaryRoot()
   try {
-    const candidate = timing({ lines: [line({ words: [word({ confidence: 0.89 })] })] })
+    const candidate = timing({ lines: [line({ confidence: 0.89 })] })
     assert.doesNotThrow(() => validateSpeechTiming(candidate))
     const saved = await putSpeechTimingCandidate(root, candidate)
     await assert.rejects(
@@ -41,11 +41,11 @@ test('低置信 ASR 只能保存为未复核候选', async () => {
 test('人工复核创建新版本且不改写候选', async () => {
   const root = await temporaryRoot()
   try {
-    const candidate = timing({ lines: [line({ words: [word({ confidence: 0.89 })] })] })
+    const candidate = timing({ lines: [line({ confidence: 0.89 })] })
     const saved = await putSpeechTimingCandidate(root, candidate)
     const corrected = timing({
       reviewed: true,
-      lines: [line({ words: [word({ text: '别动', end_ms: 180, confidence: 1, confidence_source: 'manual-correction' })] })],
+      lines: [line({ confidence: 0.95, confidence_source: 'manual-correction', words: [word({ text: '别动', end_ms: 180, confidence: 1, confidence_source: 'manual-correction' })] })],
     })
     const reviewed = await reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: saved.version_id, document: corrected, reviewed_by: 'codex' })
     const selected = await selectedSpeechTiming(root, 'ep-001')
@@ -66,12 +66,38 @@ test('ASR 行拒绝重叠行和越过行边界的词', () => {
   assert.throws(() => validateSpeechTiming(timing({ lines: [line({ words: [word({ end_ms: 501 })] })] })), /行区间/)
 })
 
-test('人工指令行必须用 evidence 说明且不得伪造词级 ASR', () => {
+test('人工指令行必须用 evidence 说明并允许带有已对齐的词', () => {
   const manual = { episode_key: 'ep-001', source_asset: sourceAsset, method: 'manual-direction', reviewed: false, language: 'zh-CN', lines: [{ line_index: 1, start_ms: 0, end_ms: 500, words: [], evidence: '导演按画面节奏标注起止' }] }
   assert.doesNotThrow(() => validateSpeechTiming(manual))
+  assert.doesNotThrow(() => validateSpeechTiming({ ...manual, lines: [{ ...manual.lines[0], words: [{ text: '别', start_ms: 0, end_ms: 160 }] }] }))
+  assert.throws(() => validateSpeechTiming({ ...manual, lines: [{ ...manual.lines[0], words: [{ text: '别', start_ms: 0, end_ms: 501 }] }] }), /行区间/)
   assert.throws(() => validateSpeechTiming({ ...manual, lines: [{ ...manual.lines[0], evidence: '   ' }] }), /evidence/)
-  assert.throws(() => validateSpeechTiming({ ...manual, lines: [{ ...manual.lines[0], words: [word()] }] }), /words/)
   assert.throws(() => validateSpeechTiming(timing({ lines: [line({ evidence: '伪造人工说明' })] })), /字段无效/)
+})
+
+test('ASR 复核将行阈值 0.90 与词阈值 0.80 分开校验', () => {
+  const reviewed = (confidence, wordConfidence) => timing({ reviewed: true, lines: [line({ confidence, words: [word({ confidence: wordConfidence })] })] })
+  assert.doesNotThrow(() => validateSpeechTiming(reviewed(0.9, 0.8)))
+  assert.throws(() => validateSpeechTiming(reviewed(0.9, 0.79)), /词级置信度/)
+  assert.doesNotThrow(() => validateSpeechTiming(reviewed(0.9, 0.85)))
+  assert.throws(() => validateSpeechTiming(reviewed(0.89, 0.85)), /行级置信度/)
+})
+
+test('低置信 ASR 复核必须留下对应的人工校正证据', async () => {
+  const root = await temporaryRoot()
+  try {
+    const candidate = timing({ lines: [line({ confidence: 0.89, words: [word({ confidence: 0.79 })] })] })
+    const saved = await putSpeechTimingCandidate(root, candidate)
+    const onlyReviewed = timing({ reviewed: true, lines: [line({ confidence: 0.9, words: [word({ confidence: 0.8 })] })] })
+    await assert.rejects(
+      () => reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: saved.version_id, document: onlyReviewed, reviewed_by: 'codex' }),
+      /人工校正证据/
+    )
+    const corrected = timing({ reviewed: true, lines: [line({ confidence: 0.9, confidence_source: 'manual-correction', words: [word({ confidence: 0.8, confidence_source: 'manual-correction' })] })] })
+    assert.equal((await reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: saved.version_id, document: corrected, reviewed_by: 'codex' })).version_id, 'v002')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('新候选不会覆盖已有版本且 selected 只读取经过复核的标准版本', async () => {

@@ -4,7 +4,8 @@ import { dirname, relative, resolve } from 'node:path'
 import { withFileLock } from './file-lock.mjs'
 
 const METHODS = new Set(['asr-forced-alignment', 'manual-direction'])
-const ASR_AUTOMATIC_CONFIDENCE = 0.9
+const ASR_LINE_AUTOMATIC_CONFIDENCE = 0.9
+const ASR_WORD_AUTOMATIC_CONFIDENCE = 0.8
 const VERSION = /^v\d{3}$/
 
 function exactKeys(value, expected, label) {
@@ -30,27 +31,47 @@ function validateSourceAsset(value) {
   if (typeof value.asset_key !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.asset_key) || !VERSION.test(value.version_id) || typeof value.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.sha256)) throw new Error('speech-timing.source_asset 无效')
 }
 
+function validateWordTiming(word, line, lineIndex, wordIndex) {
+  const label = `speech-timing lines[${lineIndex}].words[${wordIndex}]`
+  if (typeof word.text !== 'string' || !word.text.trim() || !Number.isInteger(word.start_ms) || !Number.isInteger(word.end_ms) || word.start_ms < line.start_ms || word.end_ms > line.end_ms || word.end_ms <= word.start_ms) throw new Error(`${label} 必须按序位于行区间`)
+  return label
+}
+
 function validateWord(word, line, lineIndex, wordIndex, reviewed) {
   const label = `speech-timing lines[${lineIndex}].words[${wordIndex}]`
   exactKeys(word, ['text', 'start_ms', 'end_ms', 'confidence', 'confidence_source'], label)
-  if (typeof word.text !== 'string' || !word.text.trim() || !Number.isInteger(word.start_ms) || !Number.isInteger(word.end_ms) || word.start_ms < line.start_ms || word.end_ms > line.end_ms || word.end_ms <= word.start_ms) throw new Error(`${label} 必须按序位于行区间`)
+  validateWordTiming(word, line, lineIndex, wordIndex)
   if (typeof word.confidence !== 'number' || !Number.isFinite(word.confidence) || word.confidence < 0 || word.confidence > 1 || typeof word.confidence_source !== 'string' || !word.confidence_source.trim()) throw new Error(`${label} 置信度无效`)
-  if (reviewed && word.confidence < ASR_AUTOMATIC_CONFIDENCE) throw new Error(`${label} 低置信 ASR 必须人工校正`)
+  if (reviewed && word.confidence < ASR_WORD_AUTOMATIC_CONFIDENCE) throw new Error(`${label} 词级置信度低于 0.80，必须人工校正`)
+}
+
+function validateManualWord(word, line, lineIndex, wordIndex) {
+  const label = `speech-timing lines[${lineIndex}].words[${wordIndex}]`
+  exactKeys(word, ['text', 'start_ms', 'end_ms'], label)
+  validateWordTiming(word, line, lineIndex, wordIndex)
 }
 
 function validateLine(line, index, method, reviewed, previousEnd) {
   const label = `speech-timing lines[${index}]`
   const expected = method === 'manual-direction'
     ? ['line_index', 'start_ms', 'end_ms', 'words', 'evidence']
-    : ['line_index', 'start_ms', 'end_ms', 'words']
+    : ['line_index', 'start_ms', 'end_ms', 'confidence', 'confidence_source', 'words']
   exactKeys(line, expected, label)
   if (!Number.isInteger(line.line_index) || line.line_index <= 0 || !Number.isInteger(line.start_ms) || !Number.isInteger(line.end_ms) || line.start_ms < 0 || line.end_ms <= line.start_ms) throw new Error(`${label} 时间区间无效`)
   if (previousEnd !== null && line.start_ms < previousEnd) throw new Error(`${label} 与前一行重叠`)
   if (!Array.isArray(line.words)) throw new Error(`${label}.words 必须是数组`)
   if (method === 'manual-direction') {
-    if (line.words.length !== 0 || typeof line.evidence !== 'string' || !line.evidence.trim()) throw new Error(`${label} manual-direction words/evidence 无效`)
+    if (typeof line.evidence !== 'string' || !line.evidence.trim()) throw new Error(`${label} manual-direction evidence 无效`)
+    let previousWordEnd = line.start_ms
+    for (const [wordIndex, word] of line.words.entries()) {
+      validateManualWord(word, line, index, wordIndex)
+      if (word.start_ms < previousWordEnd) throw new Error(`speech-timing lines[${index}] 词时间未按序`)
+      previousWordEnd = word.end_ms
+    }
     return line.end_ms
   }
+  if (typeof line.confidence !== 'number' || !Number.isFinite(line.confidence) || line.confidence < 0 || line.confidence > 1 || typeof line.confidence_source !== 'string' || !line.confidence_source.trim()) throw new Error(`${label} 行级置信度无效`)
+  if (reviewed && line.confidence < ASR_LINE_AUTOMATIC_CONFIDENCE) throw new Error(`${label} 行级置信度低于 0.90，必须人工校正`)
   let previousWordEnd = line.start_ms
   for (const [wordIndex, word] of line.words.entries()) {
     validateWord(word, line, index, wordIndex, reviewed)
@@ -89,12 +110,19 @@ function sameSourceAsset(left, right) {
 function assertCorrectionEvidence(candidate, reviewed) {
   if (!sameSourceAsset(candidate.source_asset, reviewed.source_asset) || candidate.method !== reviewed.method) throw new Error('人工复核不得更换来源资产或对齐方法')
   if (candidate.method !== 'asr-forced-alignment') return
+  const lowConfidenceLines = candidate.lines
+    .map((line, lineIndex) => ({ line, lineIndex }))
+    .filter(({ line }) => line.confidence < ASR_LINE_AUTOMATIC_CONFIDENCE)
+  for (const { line, lineIndex } of lowConfidenceLines) {
+    const reviewedLine = reviewed.lines[lineIndex]
+    if (!reviewedLine || reviewedLine.confidence_source === line.confidence_source) throw new Error('低置信 ASR 必须保留对应人工校正证据')
+  }
   const lowConfidenceWords = candidate.lines.flatMap((line, lineIndex) => line.words
     .map((word, wordIndex) => ({ word, lineIndex, wordIndex }))
-    .filter(({ word }) => word.confidence < ASR_AUTOMATIC_CONFIDENCE))
+    .filter(({ word }) => word.confidence < ASR_WORD_AUTOMATIC_CONFIDENCE))
   for (const { word, lineIndex, wordIndex } of lowConfidenceWords) {
     const reviewedWord = reviewed.lines[lineIndex]?.words[wordIndex]
-    if (!reviewedWord || (reviewedWord.text === word.text && reviewedWord.start_ms === word.start_ms && reviewedWord.end_ms === word.end_ms && reviewedWord.confidence_source === word.confidence_source)) throw new Error('低置信 ASR 必须人工校正并保留校正证据')
+    if (!reviewedWord || reviewedWord.confidence_source === word.confidence_source) throw new Error('低置信 ASR 必须保留对应人工校正证据')
   }
 }
 
