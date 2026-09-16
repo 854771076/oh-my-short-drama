@@ -7,4 +7,3 @@ test('新能力在主编排流程中有唯一顺序和回退边', () => {
   assert.deepEqual(stageFallback('native-audio-review'), ['audio-fallback'])
   assert.deepEqual(stageFallback('previous-tail'), [])
 })
-

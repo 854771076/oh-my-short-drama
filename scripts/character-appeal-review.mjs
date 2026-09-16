@@ -24,4 +24,3 @@ export function validateCharacterAppealReview(character, review) {
   if (review.approved && review.protection_flags.length) throw new Error('保护性规则失败不能被总体美观分抵消')
   return review.approved && failed.length === 0 && review.protection_flags.length === 0
 }
-

@@ -45,4 +45,3 @@ test('新生成人物候选只能经人物专项审核选版', async () => {
   const result = await putCharacterAppealReview(root, { assetKey: 'char-lin-wan', versionId: 'v001', review_type: 'character-appeal', ...review() })
   assert.equal(result.selected, true)
 })
-

@@ -35,4 +35,3 @@ export function planAudioFallback(report, lines = []) {
   const preserved_ranges = report.dimensions.ambience_action_sync?.passed === true ? [{ kind: 'native-ambience-action', range: { ...report.full_range } }] : []
   return { replacements, preserved_ranges }
 }
-
