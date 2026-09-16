@@ -13,6 +13,8 @@ import { promisify } from 'node:util'
 import { normalizeModelParameters, providerSetupCatalog, testProviderConnection } from './generation/providers.mjs'
 import { saveCredential } from './generation/credentials.mjs'
 import { artStyleCatalog } from './art-styles.mjs'
+import { createMarketStore } from './market/store.mjs'
+import { runMarketResearch } from './market-research.mjs'
 
 const execute = promisify(execFile)
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -374,9 +376,30 @@ async function serveDelivery(response, workspaceRoot, key, episodeKey, kind, ran
   return streamFile(response, file, range)
 }
 
-export function createStudioServer({ workspaceRoot: rootArg, providerTester = testProviderConnection }) {
+function createDefaultMarketService(workspaceRoot) {
+  const store = createMarketStore(workspaceRoot)
+  return {
+    async overview() {
+      const [latest, history] = await Promise.all([store.readLatest(), store.listHistory()])
+      return { status: latest.latestReport ? 'ready' : 'empty', latestReport: latest.latestReport, latestSnapshot: latest.latestSnapshot, history }
+    },
+    async refresh() {
+      await runMarketResearch(['refresh', workspaceRoot])
+      return this.overview()
+    },
+    report: (id) => store.readReport(id),
+    async markdown(id) {
+      const path = resolve(workspaceRoot, '.short-drama-market', 'reports', `${id}.md`)
+      return readFile(path, 'utf8')
+    },
+  }
+}
+
+export function createStudioServer({ workspaceRoot: rootArg, providerTester = testProviderConnection, marketService: marketServiceArg }) {
   const workspaceRoot = resolve(rootArg)
+  const marketService = marketServiceArg ?? createDefaultMarketService(workspaceRoot)
   const csrfToken = randomBytes(24).toString('base64url')
+  let marketRefreshPromise = null
   return createServer(async (request, response) => {
     try {
       if (!validHost(request)) throw Object.assign(new Error('仅允许本机同源访问'), { status: 403 })
@@ -388,6 +411,19 @@ export function createStudioServer({ workspaceRoot: rootArg, providerTester = te
       }
       if (request.method === 'GET' && url.pathname === '/api/v1/providers') return json(response, 200, { providers: providerSetupCatalog() })
       if (request.method === 'GET' && url.pathname === '/api/v1/art-styles') return json(response, 200, { styles: artStyleCatalog(workspaceRoot) })
+      if (request.method === 'GET' && url.pathname === '/api/v1/market') return json(response, 200, await marketService.overview())
+      const marketReportMatch = /^\/api\/v1\/market\/reports\/([^/]+)$/.exec(url.pathname)
+      const marketMarkdownMatch = /^\/api\/v1\/market\/reports\/([^/]+)\/markdown$/.exec(url.pathname)
+      if (request.method === 'GET' && marketMarkdownMatch) {
+        const markdown = await marketService.markdown(decodeURIComponent(marketMarkdownMatch[1]))
+        response.writeHead(200, { ...SAFE_HEADERS, 'content-type': 'text/markdown; charset=utf-8', 'cache-control': 'no-store' })
+        return response.end(markdown)
+      }
+      if (request.method === 'GET' && marketReportMatch) {
+        const report = await marketService.report(decodeURIComponent(marketReportMatch[1]))
+        if (!report) throw Object.assign(new Error('市场报告不存在'), { status: 404 })
+        return json(response, 200, report)
+      }
       if (request.method === 'POST' || request.method === 'DELETE') {
         if (request.headers['x-short-drama-csrf'] !== csrfToken) throw Object.assign(new Error('操作凭证无效，请刷新页面'), { status: 403 })
         if (request.method === 'DELETE') {
@@ -397,6 +433,13 @@ export function createStudioServer({ workspaceRoot: rootArg, providerTester = te
           const key = decodeURIComponent(projectMatch[1])
           await rm(await projectPath(workspaceRoot, key), { recursive: true })
           return json(response, 200, { deleted: true, projectKey: key })
+        }
+        if (url.pathname === '/api/v1/market/refresh') {
+          if (marketRefreshPromise) throw Object.assign(new Error('市场数据正在刷新'), { status: 409 })
+          marketRefreshPromise = Promise.resolve().then(() => marketService.refresh())
+          try { return json(response, 201, await marketRefreshPromise) }
+          catch (error) { throw Object.assign(new Error(error?.message || '市场数据刷新失败'), { status: error?.status || 502 }) }
+          finally { marketRefreshPromise = null }
         }
         if (url.pathname === '/api/v1/projects') return json(response, 201, await createProject(workspaceRoot, await body(request)))
         const credentialMatch = /^\/api\/v1\/providers\/([^/]+)\/credential$/.exec(url.pathname)

@@ -29,6 +29,43 @@ test('结构化文档递归展示字段并转义内容', () => {
   assert.match(renderDocument({ selected_version: null }), /未设置/)
 })
 
+test('市场 API 支持空态、刷新锁和报告读取', async (t) => {
+  const workspace = await mkdtemp(resolve(tmpdir(), 'short-drama-market-api-'))
+  let releaseRefresh
+  const refreshGate = new Promise((resolveGate) => { releaseRefresh = resolveGate })
+  const marketService = {
+    overview: async () => ({ status: 'empty', latestReport: null, latestSnapshot: null, history: [] }),
+    refresh: async () => { await refreshGate; return { status: 'ready', latestReport: { report_id: 'r1' }, history: [{ report_id: 'r1' }] } },
+    report: async (id) => id === 'r1' ? { report_id: 'r1' } : null,
+    markdown: async () => '# 市场报告\n',
+  }
+  const server = createStudioServer({ workspaceRoot: workspace, marketService })
+  await new Promise((done) => server.listen(0, '127.0.0.1', done))
+  t.after(async () => { releaseRefresh(); await new Promise((done) => server.close(done)); await rm(workspace, { recursive: true, force: true }) })
+  const base = `http://127.0.0.1:${server.address().port}`
+  const bootstrap = await fetch(`${base}/api/v1/workspace`).then((response) => response.json())
+  assert.deepEqual(await fetch(`${base}/api/v1/market`).then((response) => response.json()), { status: 'empty', latestReport: null, latestSnapshot: null, history: [] })
+  assert.equal((await fetch(`${base}/api/v1/market/refresh`, { method: 'POST' })).status, 403)
+  const refresh = fetch(`${base}/api/v1/market/refresh`, { method: 'POST', headers: { 'x-short-drama-csrf': bootstrap.csrfToken } })
+  await new Promise((done) => setImmediate(done))
+  assert.equal((await fetch(`${base}/api/v1/market/refresh`, { method: 'POST', headers: { 'x-short-drama-csrf': bootstrap.csrfToken } })).status, 409)
+  releaseRefresh()
+  assert.equal((await refresh).status, 201)
+  assert.equal((await fetch(`${base}/api/v1/market/reports/missing`)).status, 404)
+  const markdown = await fetch(`${base}/api/v1/market/reports/r1/markdown`)
+  assert.equal(markdown.headers.get('content-type'), 'text/markdown; charset=utf-8')
+})
+
+test('市场 API 默认服务在空工作区保持离线空态', async (t) => {
+  const workspace = await mkdtemp(resolve(tmpdir(), 'short-drama-market-empty-'))
+  const server = createStudioServer({ workspaceRoot: workspace })
+  await new Promise((done) => server.listen(0, '127.0.0.1', done))
+  t.after(async () => { await new Promise((done) => server.close(done)); await rm(workspace, { recursive: true, force: true }) })
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/market`)
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { status: 'empty', latestReport: null, latestSnapshot: null, history: [] })
+})
+
 test('Dashboard 通过本地 HTTP API 初始化工作区并创建项目', async (t) => {
   const workspace = await mkdtemp(resolve(tmpdir(), 'short-drama-studio-'))
   await t.test('工作区与项目写入既有项目合同', async () => {
