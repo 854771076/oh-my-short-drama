@@ -52,3 +52,22 @@
 - 新增 `studio/market-inspiration-state.js` 可执行状态转换：三选上限、候选选择、周期重置、请求序号与过期响应丢弃均有单测。生成期间禁用题材、候选、项目选择与生成/登记按钮。
 
 审查修复验证额外通过：`node studio/market-inspiration-state.test.mjs`（1/1），`node scripts/project-store-market-inspiration.test.mjs`（7/7），`node scripts/studio.test.mjs`（12/12）。
+
+## 第二轮状态复位修复
+
+### RED → GREEN
+
+1. 先把状态转换测试改为直接断言 Studio 的真实字段，并模拟已有候选后切换题材/周期。修改前运行 `node studio/market-inspiration-state.test.mjs`，2/2 按预期失败：旧 helper 返回 `topics`、`candidates`、`selectedCandidate`，真实 `marketCandidates` 和 `selectedMarketCandidate` 没有被清空，`marketInspirationBusy` 也保持为 `true`。
+2. 最小修复将 `resetMarketInspiration()` 改为复位真实状态字段，并显式将 `marketInspirationBusy` 设为 `false`；同一测试 2/2 通过。
+3. 扩展 `scripts/studio.test.mjs` 的真实 DOM 事件链：先生成旧候选，切换题材后断言候选消失；再在生成中切换周期，断言 busy 解除且旧请求返回的候选不能写回。Studio 测试 12/12 通过。
+
+### 修改文件
+
+- `studio/market-inspiration-state.js`
+- `studio/market-inspiration-state.test.mjs`
+- `scripts/studio.test.mjs`
+
+### 自审与顾虑
+
+- 周期或题材切换通过请求序号使旧响应失效，并在同一状态复位中解除 busy；即使旧请求的 `finally` 因序号不匹配不再渲染，后续切换触发的渲染也会显示可操作状态。
+- 未改动版本清单、README 或 Task 4 文档。

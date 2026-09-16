@@ -57,15 +57,29 @@ test('市场页面和样式合同完整', async () => {
   assert.match(styles, /prefers-reduced-motion/)
 })
 
-test('市场页面真实 DOM 渲染缺失榜内值为破折号并保留未过滤筛选项', async (t) => {
+test('市场页面真实 DOM 渲染缺失榜内值为破折号，并在切换题材或周期时复位灵感状态', async (t) => {
   const original = { document: globalThis.document, window: globalThis.window, history: globalThis.history, location: globalThis.location, fetch: globalThis.fetch, setInterval: globalThis.setInterval }
   const listeners = new Map(), app = { innerHTML: '', addEventListener: () => {} }, dialog = { addEventListener: () => {}, close: () => {}, showModal: () => {} }, toast = { textContent: '', classList: { add: () => {}, remove: () => {} } }
-  globalThis.document = { querySelector: (selector) => selector === '#app' ? app : selector === '#toast' ? toast : dialog, addEventListener: (type, listener) => listeners.set(type, listener) }
+  const dispatch = (type, target) => {
+    let stopped = false
+    const event = { target, stopImmediatePropagation: () => { stopped = true } }
+    for (const listener of listeners.get(type) || []) {
+      listener(event)
+      if (stopped) break
+    }
+  }
+  globalThis.document = { querySelector: (selector) => selector === '#app' ? app : selector === '#toast' ? toast : dialog, addEventListener: (type, listener) => listeners.set(type, [...(listeners.get(type) || []), listener]) }
   globalThis.window = { confirm: () => true, addEventListener: () => {}, localStorage: { getItem: () => null, setItem: () => {} } }
   globalThis.history = { replaceState: () => {}, pushState: () => {} }
   globalThis.location = { hash: '#/market' }
   const report = marketReportFixture()
-  globalThis.fetch = async (url) => ({ ok: true, json: async () => String(url).startsWith('/api/v1/workspace') ? { workspace: { title: '测试工作区', path: '/tmp' }, projects: [], csrfToken: 'test' } : { status: 'ready', latestReport: report, latestSnapshot: {}, history: [report], filterOptions: { topics: ['悬疑', '甜宠'], audiences: ['女频'], formats: ['真人'], rankingTypes: ['douyin', 'hot'] } } })
+  const pendingGenerations = []
+  const response = (body) => ({ ok: true, json: async () => body })
+  globalThis.fetch = async (url) => {
+    if (String(url).startsWith('/api/v1/workspace')) return response({ workspace: { title: '测试工作区', path: '/tmp' }, projects: [], csrfToken: 'test' })
+    if (String(url) === '/api/v1/market/inspirations/generate') return new Promise((resolve) => pendingGenerations.push(resolve))
+    return response({ status: 'ready', latestReport: report, latestSnapshot: {}, history: [report], filterOptions: { topics: ['悬疑', '甜宠'], audiences: ['女频'], formats: ['真人'], rankingTypes: ['douyin', 'hot'] } })
+  }
   globalThis.setInterval = () => 0
   t.after(() => Object.assign(globalThis, original))
   await import(`../studio/app.js?market-dom=${Date.now()}`)
@@ -73,6 +87,30 @@ test('市场页面真实 DOM 渲染缺失榜内值为破折号并保留未过滤
   assert.match(app.innerHTML, /题材 × 榜单热度/)
   assert.match(app.innerHTML, /— \(n=0\)/)
   assert.match(app.innerHTML, /<option value="甜宠"/)
+
+  const click = (dataset) => {
+    const target = { dataset, closest: (selector) => selector === 'button' ? target : null }
+    dispatch('click', target)
+  }
+  click({ marketInspirationTopic: '悬疑' })
+  click({ marketGenerate: '' })
+  await new Promise((done) => setImmediate(done))
+  assert.match(app.innerHTML, /生成中…/)
+  pendingGenerations.shift()(response({ candidates: [{ id: 'old-candidate', topic: '悬疑', confidence: '低', inference: '旧候选' }] }))
+  await new Promise((done) => setImmediate(done))
+  assert.match(app.innerHTML, /old-candidate/)
+
+  click({ marketInspirationTopic: '甜宠' })
+  assert.doesNotMatch(app.innerHTML, /old-candidate/)
+  click({ marketGenerate: '' })
+  await new Promise((done) => setImmediate(done))
+  assert.match(app.innerHTML, /生成中…/)
+  dispatch('change', { value: report.report_id, dataset: {}, matches: (selector) => selector === '[data-market-period]' })
+  await new Promise((done) => setImmediate(done))
+  assert.doesNotMatch(app.innerHTML, /生成中…/)
+  pendingGenerations.shift()(response({ candidates: [{ id: 'stale-candidate', topic: '甜宠', confidence: '低', inference: '过期响应' }] }))
+  await new Promise((done) => setImmediate(done))
+  assert.doesNotMatch(app.innerHTML, /stale-candidate|生成中…/)
 })
 
 test('结构化文档递归展示字段并转义内容', () => {
