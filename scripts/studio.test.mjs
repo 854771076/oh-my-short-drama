@@ -185,8 +185,11 @@ test('市场灵感 API 限制题材选择、生成本地候选并只登记灵感
   const generatedBody = await generated.json()
   assert.equal(generated.status, 201, generatedBody.error)
   assert.equal(generatedBody.candidates.length, 2)
+  assert.equal(new Set(generatedBody.candidates.map((item) => item.id)).size, generatedBody.candidates.length)
   assert.deepEqual(generatedBody.candidates.map((item) => item.topic), ['悬疑', '甜宠'])
   assert.equal(generatedBody.candidates[0].confidence, '低')
+  const regenerated = await fetch(`${base}/api/v1/market/inspirations/generate`, { method: 'POST', headers, body: JSON.stringify({ reportId: report.report_id, topics: ['甜宠', '悬疑'] }) }).then((response) => response.json())
+  assert.notEqual(regenerated.candidates[0].id, generatedBody.candidates[0].id)
 
   const registered = await fetch(`${base}/api/v1/market/inspirations/register`, { method: 'POST', headers, body: JSON.stringify({ projectKey: 'target-drama', candidateId: generatedBody.candidates[0].id }) })
   const registeredBody = await registered.json()
@@ -196,6 +199,8 @@ test('市场灵感 API 限制题材选择、生成本地候选并只登记灵感
   assert.deepEqual(JSON.parse(await readFile(resolve(projectRoot, '.short-drama/market-inspiration.json'), 'utf8')), registeredBody.marketInspiration)
   assert.equal(JSON.parse(await readFile(resolve(projectRoot, '.short-drama/brief.json'), 'utf8')).platform, '原有平台')
   assert.equal(JSON.parse(await readFile(resolve(projectRoot, '.short-drama/project.json'), 'utf8')).creative.genre, beforeProject.creative.genre)
+  const reRegistered = await fetch(`${base}/api/v1/market/inspirations/register`, { method: 'POST', headers, body: JSON.stringify({ projectKey: 'target-drama', candidateId: regenerated.candidates[0].id }) }).then((response) => response.json())
+  assert.equal(reRegistered.marketInspiration.decision.selected_hypothesis_ids[0], regenerated.candidates[0].id)
 })
 
 test('市场刷新失败返回可重试错误且不泄露上游细节', async (t) => {

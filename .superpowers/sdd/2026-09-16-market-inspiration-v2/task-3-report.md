@@ -44,3 +44,11 @@
 - API 候选保存在 Studio 服务进程内，重启服务后需重新生成候选；这避免将未选创意假设写入项目。
 - 目标项目必须已有 Brief 才能登记；接口返回 409 并提示先保存 Brief，避免生成不完整引用。
 - 当前任务范围未触及版本清单或 Task 4 文档。
+
+## 审查修复
+
+- 候选 ID 改为每次生成的 UUID 命名空间加候选序号；重复生成同一报告、反向题材顺序后，旧候选仍能按自身 ID 正确登记。
+- 新增 `register-market-inspiration` 共享项目存储入口。它在项目锁中先校验市场灵感、报告引用和待写 Brief 的引用一致性，再成组写入两份文档；失败注入与无效 Brief 测试均证明旧 `market-inspiration.json` 和 `brief.json` 保持不变。
+- 新增 `studio/market-inspiration-state.js` 可执行状态转换：三选上限、候选选择、周期重置、请求序号与过期响应丢弃均有单测。生成期间禁用题材、候选、项目选择与生成/登记按钮。
+
+审查修复验证额外通过：`node studio/market-inspiration-state.test.mjs`（1/1），`node scripts/project-store-market-inspiration.test.mjs`（7/7），`node scripts/studio.test.mjs`（12/12）。

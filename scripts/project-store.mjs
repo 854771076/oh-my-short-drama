@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { access, copyFile, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
+import { access, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import { COPYFILE_EXCL } from 'node:constants'
@@ -377,6 +377,35 @@ async function validateStoredMarketInspirationReference(projectRoot, reference) 
   await validateSavedMarketReportReference(projectRoot, inspiration.report_ref, 'brief.market_inspiration_ref')
 }
 
+async function validateMarketInspirationRegistration(projectRoot, marketInspiration, brief) {
+  validateDocument('market-inspiration', marketInspiration)
+  await validateSavedMarketReportReference(projectRoot, marketInspiration.report_ref, 'market-inspiration.report_ref')
+  validateDocument('brief', brief)
+  if (!sameCanonicalJson(brief.market_inspiration_ref, marketInspiration.report_ref)) throw new Error('brief.market_inspiration_ref 必须与待登记 market-inspiration 引用一致')
+}
+
+async function registerMarketInspiration(projectRoot, marketInspiration, brief) {
+  const marketPath = resolve(projectRoot, '.short-drama/market-inspiration.json')
+  const briefPath = resolve(projectRoot, '.short-drama/brief.json')
+  const lockPath = resolve(projectRoot, '.short-drama/market-inspiration-registration')
+  return withFileLock(lockPath, async () => {
+    await validateMarketInspirationRegistration(projectRoot, marketInspiration, brief)
+    const previous = await Promise.all([marketPath, briefPath].map(async (path) => {
+      try { return await readJson(path) } catch (error) { if (error?.code === 'ENOENT') return null; throw error }
+    }))
+    try {
+      await writeJson(marketPath, marketInspiration)
+      if (process.env.SHORT_DRAMA_FAIL_MARKET_REGISTER_AFTER_INSPIRATION === '1') throw new Error('市场灵感登记失败注入')
+      await writeJson(briefPath, brief)
+    } catch (error) {
+      await Promise.all([marketPath, briefPath].map((path, index) => previous[index] === null ? rm(path, { force: true }) : writeJson(path, previous[index])))
+      throw error
+    }
+    await invalidateFrom(projectRoot, 'analysis')
+    return { marketInspiration, brief }
+  })
+}
+
 function validateEvidence(value, field) {
   exactKeys(value, ['snapshot_id', 'ranking_type', 'playlet_id', 'key'], field)
   marketId(value.snapshot_id, `${field}.snapshot_id`)
@@ -744,6 +773,12 @@ async function main() {
     const report = await readSavedMarketReport(root, reportId, 'market-report-ref')
     return console.log(JSON.stringify(buildMarketReportReference(report, selectedHypothesisIds), null, 2))
   }
+  if (command === 'register-market-inspiration') {
+    const [marketInspirationPath, briefPath] = process.argv.slice(4)
+    if (!marketInspirationPath || !briefPath) throw new Error('用法：register-market-inspiration <项目目录> <market-inspiration JSON> <brief JSON>')
+    const result = await registerMarketInspiration(root, await readJson(resolve(marketInspirationPath)), await readJson(resolve(briefPath)))
+    return console.log(JSON.stringify(result, null, 2))
+  }
   if (command === 'validate-project-config') {
     validateProject(await readJson(resolve(root, '.short-drama/project.json')))
     return console.log(JSON.stringify({ valid: true, schema_version: 1 }))
@@ -1005,7 +1040,7 @@ async function main() {
     versionKey(versionId, `${kind} version`)
     return console.log(JSON.stringify(await readJson(resolve(episodeRoot(episodeKey), kind, `${versionId}.json`)), null, 2))
   }
-  throw new Error('用法：project-store.mjs init|project|market-report-ref|validate-project-config|migrate-project-config|update-project|put-source|select-source|put-document|put-episode|update-episode|list-episodes|put-script|select-script|script|put-episode-document|validate-episode-document|select-episode-document|episode-document ...')
+  throw new Error('用法：project-store.mjs init|project|market-report-ref|register-market-inspiration|validate-project-config|migrate-project-config|update-project|put-source|select-source|put-document|put-episode|update-episode|list-episodes|put-script|select-script|script|put-episode-document|validate-episode-document|select-episode-document|episode-document ...')
 }
 
 if (resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) main().catch((error) => { console.error(error.message); process.exitCode = 1 })

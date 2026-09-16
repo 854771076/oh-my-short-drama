@@ -2,7 +2,7 @@
 import { createReadStream, createWriteStream } from 'node:fs'
 import { access, mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { execFile, spawn } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, extname, resolve, sep } from 'node:path'
@@ -42,12 +42,12 @@ function marketFilterOptions(report) {
   return { topics: (report?.topic_metrics || []).map((item) => item.topic).filter(Boolean).sort((left, right) => String(left).localeCompare(String(right), 'zh-CN')), audiences: values('audiences'), formats: values('formats'), rankingTypes: [...new Set(report?.coverage?.successful_ranking_types || [])].sort() }
 }
 
-function localInspirationCandidate(report, topic, index) {
+function localInspirationCandidate(report, topic, index, generationId) {
   const metric = (report.topic_metrics || []).find((item) => item.topic === topic)
   const evidence = (report.platform_matrix || []).find((item) => item.topics?.includes(topic))?.evidence?.[0] || report.evidence?.[0]
   if (!metric || !evidence) return null
   const confidence = metric.confidence === 'high' ? '高' : metric.confidence === 'medium' ? '中' : '低'
-  const id = `hyp-${report.report_id}-${index + 1}`
+  const id = `hyp-${generationId}-${index + 1}`
   return { id, topic, confidence, confidenceCode: metric.confidence, fact: `${topic}在本期公开榜单样本中有 ${metric.supply_count} 个有效作品样本。`, evidence, limitation: report.limitations?.[0] || '数据仅覆盖公开榜单样本，不能代表全量市场。', inference: `可测试以${topic}为基调的原创连续叙事，但不将榜单表现视为收益承诺。`, creativeTransformation: `以原创人物关系和场景重构${topic}的叙事切口，不复制任何榜单作品的标题、人物或情节。`, openingHook: '主角在第一集遇到一条必须立刻回应的未知线索，并承担明确代价。', serialEngine: '每集解决一个局部问题，同时暴露更高代价的新问题。', differentiation: '使用原创世界观与冲突链，不复刻任何公开样本的具体表达。', productionFit: '以可复用场景和有限主要角色控制竖屏短剧的制作复杂度。' }
 }
 
@@ -504,7 +504,8 @@ export function createStudioServer({ workspaceRoot: rootArg, providerTester = te
           if (!report) throw Object.assign(new Error('市场报告不存在'), { status: 404 })
           const available = new Set(marketFilterOptions(report).topics)
           if (input.topics.some((topic) => !available.has(topic))) throw Object.assign(new Error('所选题材不在当前未过滤报告中'), { status: 400 })
-          const candidates = input.topics.map((topic, index) => localInspirationCandidate(report, topic, index)).filter(Boolean)
+          const generationId = randomUUID()
+          const candidates = input.topics.map((topic, index) => localInspirationCandidate(report, topic, index, generationId)).filter(Boolean)
           for (const candidate of candidates) inspirationCandidates.set(candidate.id, { reportId: report.report_id, candidate })
           return json(response, 201, { reportId: report.report_id, candidates })
         }
@@ -522,10 +523,9 @@ export function createStudioServer({ workspaceRoot: rootArg, providerTester = te
             const inspirationPath = resolve(temporary, 'market-inspiration.json')
             const briefPath = resolve(temporary, 'brief.json')
             await writeFile(inspirationPath, `${JSON.stringify(marketInspiration)}\n`)
-            await run('project-store.mjs', ['put-document', root, 'market-inspiration', inspirationPath])
             const nextBrief = { ...brief, market_inspiration_ref: reportRef }
             await writeFile(briefPath, `${JSON.stringify(nextBrief)}\n`)
-            await run('project-store.mjs', ['put-document', root, 'brief', briefPath])
+            await run('project-store.mjs', ['register-market-inspiration', root, inspirationPath, briefPath])
             return json(response, 201, { marketInspiration, brief: nextBrief })
           } finally { await rm(temporary, { recursive: true, force: true }) }
         }

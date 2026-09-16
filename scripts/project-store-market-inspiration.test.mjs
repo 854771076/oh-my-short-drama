@@ -214,3 +214,31 @@ test('market-inspiration.v1 和 Brief 拒绝未知字段', async (t) => {
   assert.notEqual(invalidBrief.status, 0)
   assert.match(invalidBrief.stderr, /brief 顶层字段必须且只能是/)
 })
+
+test('原子市场灵感登记在 Brief 校验或写入失败时保留两份旧文档', async (t) => {
+  const root = await mkdtemp(resolve(tmpdir(), 'project-market-inspiration-atomic-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  assert.equal(run('init', root).status, 0)
+  const report = marketReport()
+  await createMarketStore(root).saveReport(report)
+  const previousInspiration = inspiration(report)
+  const previousBrief = { title: '测试', logline: '', adaptation_mode: 'original', genre: '', audience: '', platform: '原平台', tone: '', core_conflict: '', output_language: 'zh-CN', spoken_language: 'zh-CN', subtitle_language: 'zh-CN', aspect_ratio: '9:16', episode_count: 1, episode_duration_seconds: 30, rating: '', existing_materials: [], required_deliverables: [], prohibited_content: [], ending_type: '', creative_constraints: [], market_inspiration_ref: previousInspiration.report_ref, open_questions: [], approved: true }
+  assert.equal(run('put-document', root, 'market-inspiration', await writeJson(root, 'previous-inspiration.json', previousInspiration)).status, 0)
+  assert.equal(run('put-document', root, 'brief', await writeJson(root, 'previous-brief.json', previousBrief)).status, 0)
+  const nextInspiration = inspiration(report)
+  nextInspiration.decision.confirmed_at = '2026-09-16T16:00:00+08:00'
+  const nextBrief = { ...previousBrief, market_inspiration_ref: nextInspiration.report_ref }
+  const inspirationPath = await writeJson(root, 'next-inspiration.json', nextInspiration)
+  const briefPath = await writeJson(root, 'next-brief.json', nextBrief)
+  const before = await Promise.all(['market-inspiration', 'brief'].map((name) => readFile(resolve(root, `.short-drama/${name}.json`), 'utf8')))
+  const original = process.env.SHORT_DRAMA_FAIL_MARKET_REGISTER_AFTER_INSPIRATION
+  process.env.SHORT_DRAMA_FAIL_MARKET_REGISTER_AFTER_INSPIRATION = '1'
+  t.after(() => original === undefined ? delete process.env.SHORT_DRAMA_FAIL_MARKET_REGISTER_AFTER_INSPIRATION : process.env.SHORT_DRAMA_FAIL_MARKET_REGISTER_AFTER_INSPIRATION = original)
+  const failed = run('register-market-inspiration', root, inspirationPath, briefPath)
+  assert.notEqual(failed.status, 0)
+  assert.deepEqual(await Promise.all(['market-inspiration', 'brief'].map((name) => readFile(resolve(root, `.short-drama/${name}.json`), 'utf8'))), before)
+  const malformedBrief = await writeJson(root, 'malformed-brief.json', { ...nextBrief, market_inspiration_ref: null })
+  const rejected = run('register-market-inspiration', root, inspirationPath, malformedBrief)
+  assert.notEqual(rejected.status, 0)
+  assert.deepEqual(await Promise.all(['market-inspiration', 'brief'].map((name) => readFile(resolve(root, `.short-drama/${name}.json`), 'utf8'))), before)
+})
