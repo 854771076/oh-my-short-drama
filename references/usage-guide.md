@@ -81,7 +81,7 @@
 1. 可选执行 `refresh`；不刷新时只读已有 `.short-drama-market/reports/*.json`。
 2. 在 Studio `#/market` 选择报告周期和筛选范围，查看题材 × 榜单热度、证据和限制。
 3. 在灵感板选择 1–3 个题材并生成本地候选，逐项核对事实、推断、假设和低置信风险。
-4. 选择一个候选和目标项目，点击“用于项目”。该动作只登记 `.short-drama/market-inspiration.json` 并更新 `.short-drama/brief.json` 的引用，不改变项目题材或 Brief 平台。
+4. 选择一个候选和目标项目，点击“登记已选候选”。该动作只登记 `.short-drama/market-inspiration.json` 并更新 `.short-drama/brief.json` 的引用，不改变项目题材或 Brief 平台。
 5. 继续执行 `define-drama-brief`；后续 Bible 和 Outline 只消费已确认的 Brief，不直接读取榜单作品清单。
 
 Agent 只有在用户明确要求“参考市场/排行榜找灵感”时才执行 `ideate-drama-from-market`。命令行工作流先用 `node scripts/project-store.mjs market-report-ref <项目目录> <report-id> <hypothesis-id...>` 生成可校验报告引用，再按 Skill 合同生成并登记灵感；普通创作不强制经过市场步骤。运行 `node scripts/market-inspiration-offline-smoke.mjs` 可在临时工作区验证全程不刷新网络的闭环。

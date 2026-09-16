@@ -255,7 +255,7 @@ node scripts/generation/live-smoke-test.mjs --confirmed --output /absolute/path/
 
 使用 `node scripts/market-research.mjs refresh /absolute/workspace` 手动刷新剧查查公开 Top 30 榜单；用 `list` 查看历史、`report` 读取最新报告，或用 `analyze /absolute/workspace <snapshot-id>` 重算指定历史快照。Studio 的全局 `#/market` 页面提供题材机会、题材 × 榜单热度、平台偏好、公司集中度与证据追溯。除显式 `refresh` 外均为离线读取。
 
-市场报告与创作灵感是两层可选能力：`market-report.v2` 记录公开样本事实和带置信度的分析推断；只有用户在 Studio 灵感板选择 1–3 个题材、审阅原创候选并点击“用于项目”，或明确要求执行 `ideate-drama-from-market` Skill，才会保存 `market-inspiration.v1`，并把报告摘要引用写入目标项目 Brief。候选属于待验证的创作假设，用户选择才成为项目决定；系统不会自动改写项目题材、平台，也不会把市场表现当作收益承诺或复制榜单作品的标题、人物关系和具体情节。
+市场报告与创作灵感是两层可选能力：`market-report.v2` 记录公开样本事实和带置信度的分析推断；只有用户在 Studio 灵感板选择 1–3 个题材、审阅原创候选并点击“登记已选候选”，或明确要求执行 `ideate-drama-from-market` Skill，才会保存 `market-inspiration.v1`，并把报告摘要引用写入目标项目 Brief。候选属于待验证的创作假设，用户选择才成为项目决定；系统不会自动改写项目题材、平台，也不会把市场表现当作收益承诺或复制榜单作品的标题、人物关系和具体情节。
 
 完整路径为：可选联网刷新 → 选择已保存报告/筛选范围 → 审阅事实与推断 → 生成本地原创假设 → 用户明确选择 → 登记到项目 → `define-drama-brief` 继续创作。可用下面的完全离线 smoke 验证“已保存报告 → 灵感 → Brief 引用”闭环：
 
