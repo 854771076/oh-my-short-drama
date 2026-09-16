@@ -27,6 +27,12 @@ function audioPlanWithTiming(timingSource) {
   return plan
 }
 
+function audioPlanWithRange(targetRange) {
+  const plan = audioPlan()
+  plan.lines[0].dubbing_contract = { ...plan.lines[0].dubbing_contract, target_range: targetRange }
+  return plan
+}
+
 async function fixture(timing = {}, selected = true) {
   const root = await mkdtemp(resolve(tmpdir(), 'project-store-audio-plan-'))
   const document = { episode_key: 'ep-001', source_asset: sourceAsset, method: 'asr-forced-alignment', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, start_ms: 0, end_ms: 500, confidence: 0.95, confidence_source: 'asr', words: [{ text: '别', start_ms: 0, end_ms: 160, confidence: 0.95, confidence_source: 'asr' }] }], ...timing }
@@ -41,7 +47,7 @@ async function validate(root, document) {
   return spawnSync(process.execPath, [projectStore, 'validate-episode-document', root, 'audio-plan', 'ep-001', input], { encoding: 'utf8' })
 }
 
-test('project-store 只接受当前已复核 speech-timing 引用', async () => {
+test('project-store 接受与当前 speech-timing 行完全一致的目标区间', async () => {
   const root = await fixture()
   try {
     const result = await validate(root, audioPlan())
@@ -59,6 +65,8 @@ test('project-store 拒绝非当前、未复核、低置信和哈希不匹配的
     { name: 'unselected', selected: false, plan: audioPlan() },
     { name: 'unreviewed', timing: { reviewed: false }, plan: audioPlan() },
     { name: 'low-confidence', timing: { lines: [{ line_index: 1, start_ms: 0, end_ms: 500, confidence: 0.89, confidence_source: 'asr', words: [{ text: '别', start_ms: 0, end_ms: 160, confidence: 0.95, confidence_source: 'asr' }] }] }, plan: audioPlan() },
+    { name: 'low-word-confidence', timing: { lines: [{ line_index: 1, start_ms: 0, end_ms: 500, confidence: 0.95, confidence_source: 'asr', words: [{ text: '别', start_ms: 0, end_ms: 160, confidence: 0.79, confidence_source: 'asr' }] }] }, plan: audioPlan() },
+    { name: 'range-mismatch', plan: audioPlanWithRange({ start_ms: 1, end_ms: 500 }) },
   ]
   for (const item of cases) {
     const root = await fixture(item.timing, item.selected)

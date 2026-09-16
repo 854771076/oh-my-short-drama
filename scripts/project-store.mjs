@@ -469,7 +469,9 @@ async function validateEpisodeDocument(kind, episodeKey, document) {
       if (timing.episode_key !== episodeKey || timing.version_id !== selected.version_id) throw new Error(`audio-plan lines[${index}] 必须引用当前 selected speech-timing`)
       const source = selected.document.source_asset
       if (timing.source_asset.asset_key !== source.asset_key || timing.source_asset.version_id !== source.version_id || timing.source_asset.sha256 !== source.sha256) throw new Error(`audio-plan lines[${index}] speech-timing 来源资产或 SHA 不匹配`)
-      if (!selected.document.lines.some((item) => item.line_index === timing.line_index)) throw new Error(`audio-plan lines[${index}] speech-timing 行不存在`)
+      const timingLine = selected.document.lines.find((item) => item.line_index === timing.line_index)
+      if (!timingLine) throw new Error(`audio-plan lines[${index}] speech-timing 行不存在`)
+      if (line.dubbing_contract.target_range.start_ms !== timingLine.start_ms || line.dubbing_contract.target_range.end_ms !== timingLine.end_ms) throw new Error(`audio-plan lines[${index}] target_range 必须与 speech-timing 行区间完全一致`)
     }
   }
   if (kind === 'asset-plan') {

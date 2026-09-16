@@ -168,13 +168,13 @@ export function validateAudioPlan(document, episodeKey) {
   return structuredClone(document)
 }
 
-export function migrateLegacyAudioLine(input) {
+export function migrateLegacyAudioLine(input, context = {}) {
   const line = structuredClone(input || {})
   const legacy = line.delivery_mode
   let alreadyCurrent = false
   if (DELIVERY.has(legacy) && PRESENTATION.has(line.presentation) && FALLBACK.has(line.fallback_mode)) {
     try {
-      validateAudioLine(line)
+      validateAudioLine(line, 0, { authorizedVoiceBindings: context.authorizedVoiceBindings })
       alreadyCurrent = true
     } catch {}
   }
@@ -192,7 +192,8 @@ export function migrateLegacyAudioLine(input) {
 export function migrateLegacyAudioPlan(input) {
   const document = structuredClone(input || {})
   const migratedTracks = document.music_tracks?.map((track) => track.source_mode ? track : { ...track, source_mode: 'generated' })
-  const migrated = (document.lines || []).map(migrateLegacyAudioLine)
+  const authorizedVoiceBindings = Array.isArray(document.voice_bindings) ? document.voice_bindings : []
+  const migrated = (document.lines || []).map((line) => migrateLegacyAudioLine(line, { authorizedVoiceBindings }))
   const unresolved = [...(document.unresolved || []), ...migrated.flatMap((item) => item.unresolved)]
   const requiresLineMigration = migrated.some((item) => item.unresolved.length)
   return {

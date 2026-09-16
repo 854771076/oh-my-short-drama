@@ -60,6 +60,15 @@ test('不完整但真值的旧 external_audio 合同不得推断生成字段', (
   assert.equal(migrated.document.approved, false)
 })
 
+test('旧生成合同缺少或不匹配项目 voice_binding 时必须迁移为 unresolved', () => {
+  for (const voice_bindings of [undefined, [{ voice_id: 'other-voice' }]]) {
+    const migrated = migrateLegacyAudioPlan({ episode_key: 'ep-001', audio_strategy: strategy, lines: [postDub], voice_bindings, unresolved: [], approved: true })
+    assert.equal(migrated.document.lines[0].dubbing_contract, null)
+    assert.match(migrated.unresolved.join('\n'), /配音合同与时间证据/)
+    assert.equal(migrated.document.approved, false)
+  }
+})
+
 test('旧 narration 只迁移呈现方式并留下来源未决项', () => {
   const migrated = migrateLegacyAudioLine({ ...base, delivery_mode: 'narration' })
   assert.equal(migrated.line.presentation, 'narration')
