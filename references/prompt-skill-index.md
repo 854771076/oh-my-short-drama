@@ -11,6 +11,7 @@
 | 参考视频逐时分析 | `analyze-reference-video` | `reference_video_analysis` |
 | 声明式视频复刻工作流 | `design-video-recreation` | `video_recreation_workflow` |
 | 创作简报 | `define-drama-brief` | `drama_brief` |
+| 市场创作灵感 | `ideate-drama-from-market` | `market_inspiration` |
 | 场次导演本 | `write-drama-director-book` | `director_book` |
 | 剧本质量复核 | `review-drama-script` | `review_drama_script` |
 | 逐镜制作计划 | `plan-drama-production` | `production_plan` |

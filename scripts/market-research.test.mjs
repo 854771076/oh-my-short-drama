@@ -209,7 +209,9 @@ test('市场 Skill 固化触发边界、命令合同与报告输出顺序', asyn
   assert.ok(headings.every((index, position) => index >= 0 && (position === 0 || index > headings[position - 1])))
 
   assert.equal(schema.additionalProperties, false)
-  assert.deepEqual(schema.required, ['schema_version', 'report_id', 'generated_at', 'snapshot_ids', 'coverage', 'filters', 'summary', 'topic_metrics', 'platform_matrix', 'company_concentration', 'new_title_watch', 'evidence', 'limitations'])
+  assert.equal(schema.title, 'Short drama market report v2')
+  assert.equal(schema.properties.schema_version.const, 'market-report.v2')
+  assert.deepEqual(schema.required, ['schema_version', 'report_id', 'generated_at', 'snapshot_ids', 'coverage', 'filters', 'summary', 'topic_metrics', 'topic_cooccurrence', 'supply_demand_quadrants', 'platform_preferences', 'platform_matrix', 'company_concentration', 'new_title_watch', 'evidence', 'limitations'])
 })
 
 test('真实报告通过嵌套 Schema 合同，额外嵌套字段被递归拒绝', async () => {

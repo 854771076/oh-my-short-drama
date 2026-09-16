@@ -32,6 +32,8 @@ const WORKFLOW_TYPES = new Set(['standard', 'viral-recreation'])
 const DOCUMENT_SOURCE_EXTENSIONS = new Set(['.txt', '.md', '.json', '.pdf', '.docx', '.epub'])
 const REFERENCE_VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.webm', '.mkv'])
 const RECREATION_CONSUMER_DOCUMENTS = new Set(EPISODE_DOCUMENT_KINDS.filter((kind) => EPISODE_DOCUMENT_CONFIG[kind].recreationConsumer))
+const MARKET_REPORT_SCHEMA_VERSION = 'market-report.v2'
+const RFC3339_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-])(\d{2}):(\d{2}))$/
 
 async function exists(path) { try { await access(path); return true } catch { return false } }
 
@@ -274,6 +276,194 @@ function exactKeys(value, keys, label) {
   if (Object.keys(value).sort().join() !== [...keys].sort().join()) throw new Error(`${label} 顶层字段必须且只能是：${keys.join(', ')}`)
 }
 
+function validateIsoTime(value, field) {
+  const match = typeof value === 'string' ? RFC3339_DATE_TIME.exec(value) : null
+  if (!match) throw new Error(`${field} 必须是 RFC 3339 date-time`)
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, , offsetHourText, offsetMinuteText] = match
+  const [year, month, day, hour, minute, second] = [yearText, monthText, dayText, hourText, minuteText, secondText].map(Number)
+  const daysInMonth = month >= 1 && month <= 12 ? new Date(Date.UTC(year, month, 0)).getUTCDate() : 0
+  if (day < 1 || day > daysInMonth || hour > 23 || minute > 59 || second > 59 || (offsetHourText !== undefined && (Number(offsetHourText) > 23 || Number(offsetMinuteText) > 59))) throw new Error(`${field} 必须是 RFC 3339 date-time`)
+}
+
+function marketId(value, field) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9+_-]{1,80}$/.test(value)) throw new Error(`${field} 无效`)
+}
+
+function validateStringList(value, field, { min = 0, validate = null } = {}) {
+  if (!Array.isArray(value) || value.length < min) throw new Error(`${field} 必须是${min > 0 ? '非空' : ''}数组`)
+  const seen = new Set()
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !entry.trim()) throw new Error(`${field} 必须只包含非空字符串`)
+    if (seen.has(entry)) throw new Error(`${field} 不得重复`)
+    seen.add(entry)
+    if (validate) validate(entry, field)
+  }
+}
+
+function validateMarketFilters(value, field) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${field} 必须是对象`)
+  const allowed = new Set(['audience', 'era', 'format', 'topic', 'rankingTypes'])
+  for (const [key, item] of Object.entries(value)) {
+    if (!allowed.has(key)) throw new Error(`${field}.${key} 无效`)
+    if (typeof item === 'string' && item.trim()) continue
+    if (Array.isArray(item)) {
+      validateStringList(item, `${field}.${key}`, { min: 1 })
+      continue
+    }
+    throw new Error(`${field}.${key} 必须是非空字符串或字符串数组`)
+  }
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map((entry) => stableJson(entry)).join(',')}]`
+  if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`
+  return value === undefined ? 'null' : JSON.stringify(value)
+}
+
+function canonicalJsonSha256(value) {
+  return createHash('sha256').update(stableJson(value)).digest('hex')
+}
+
+function sameCanonicalJson(left, right) {
+  return stableJson(left) === stableJson(right)
+}
+
+function validateMarketInspirationRef(value, field) {
+  exactKeys(value, ['report_id', 'snapshot_ids', 'generated_at', 'filters', 'sha256', 'selected_hypothesis_ids'], field)
+  marketId(value.report_id, `${field}.report_id`)
+  validateStringList(value.snapshot_ids, `${field}.snapshot_ids`, { min: 1, validate: marketId })
+  validateIsoTime(value.generated_at, `${field}.generated_at`)
+  validateMarketFilters(value.filters, `${field}.filters`)
+  if (typeof value.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.sha256)) throw new Error(`${field}.sha256 必须是 SHA-256 十六进制摘要`)
+  validateStringList(value.selected_hypothesis_ids, `${field}.selected_hypothesis_ids`, { min: 1, validate: safeKey })
+}
+
+async function readSavedMarketReport(projectRoot, reportId, field) {
+  marketId(reportId, `${field}.report_id`)
+  let report
+  for (const reportRoot of [projectRoot, dirname(projectRoot)]) {
+    try {
+      report = await readJson(resolve(reportRoot, '.short-drama-market', 'reports', `${reportId}.json`))
+      break
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
+  }
+  if (!report) throw new Error(`${field} 引用的已保存市场报告不存在或无法读取`)
+  if (!report || typeof report !== 'object' || Array.isArray(report) || report.schema_version !== MARKET_REPORT_SCHEMA_VERSION) throw new Error(`${field} 引用的市场报告必须是 ${MARKET_REPORT_SCHEMA_VERSION}`)
+  if (report.report_id !== reportId) throw new Error(`${field}.report_id 必须与已保存市场报告一致`)
+  return report
+}
+
+function buildMarketReportReference(report, selectedHypothesisIds) {
+  const reference = {
+    report_id: report.report_id,
+    snapshot_ids: report.snapshot_ids,
+    generated_at: report.generated_at,
+    filters: report.filters,
+    sha256: canonicalJsonSha256(report),
+    selected_hypothesis_ids: selectedHypothesisIds,
+  }
+  validateMarketInspirationRef(reference, 'market-report-ref')
+  return reference
+}
+
+async function validateSavedMarketReportReference(projectRoot, reference, field) {
+  const report = await readSavedMarketReport(projectRoot, reference.report_id, field)
+  for (const key of ['report_id', 'snapshot_ids', 'generated_at', 'filters']) {
+    if (!sameCanonicalJson(reference[key], report[key])) throw new Error(`${field}.${key} 必须与已保存市场报告一致`)
+  }
+  if (reference.sha256 !== canonicalJsonSha256(report)) throw new Error(`${field}.sha256 与已保存市场报告摘要不一致`)
+}
+
+async function validateStoredMarketInspirationReference(projectRoot, reference) {
+  const path = resolve(projectRoot, '.short-drama', 'market-inspiration.json')
+  let inspiration
+  try {
+    inspiration = await readJson(path)
+  } catch {
+    throw new Error('brief.market_inspiration_ref 需要已保存的 market-inspiration 文档')
+  }
+  validateDocument('market-inspiration', inspiration)
+  if (!sameCanonicalJson(reference, inspiration.report_ref)) throw new Error('brief.market_inspiration_ref 必须与已保存 market-inspiration 引用一致')
+  await validateSavedMarketReportReference(projectRoot, inspiration.report_ref, 'brief.market_inspiration_ref')
+}
+
+async function validateMarketInspirationRegistration(projectRoot, marketInspiration, brief) {
+  validateDocument('market-inspiration', marketInspiration)
+  await validateSavedMarketReportReference(projectRoot, marketInspiration.report_ref, 'market-inspiration.report_ref')
+  validateDocument('brief', brief)
+  if (!sameCanonicalJson(brief.market_inspiration_ref, marketInspiration.report_ref)) throw new Error('brief.market_inspiration_ref 必须与待登记 market-inspiration 引用一致')
+}
+
+async function registerMarketInspiration(projectRoot, marketInspiration, brief) {
+  const marketPath = resolve(projectRoot, '.short-drama/market-inspiration.json')
+  const briefPath = resolve(projectRoot, '.short-drama/brief.json')
+  const lockPath = resolve(projectRoot, '.short-drama/market-inspiration-registration')
+  return withFileLock(lockPath, async () => {
+    await validateMarketInspirationRegistration(projectRoot, marketInspiration, brief)
+    const previous = await Promise.all([marketPath, briefPath].map(async (path) => {
+      try { return await readJson(path) } catch (error) { if (error?.code === 'ENOENT') return null; throw error }
+    }))
+    try {
+      await writeJson(marketPath, marketInspiration)
+      if (process.env.SHORT_DRAMA_FAIL_MARKET_REGISTER_AFTER_INSPIRATION === '1') throw new Error('市场灵感登记失败注入')
+      await writeJson(briefPath, brief)
+    } catch (error) {
+      await Promise.all([marketPath, briefPath].map((path, index) => previous[index] === null ? rm(path, { force: true }) : writeJson(path, previous[index])))
+      throw error
+    }
+    await invalidateFrom(projectRoot, 'analysis')
+    return { marketInspiration, brief }
+  })
+}
+
+function validateEvidence(value, field) {
+  exactKeys(value, ['snapshot_id', 'ranking_type', 'playlet_id', 'key'], field)
+  marketId(value.snapshot_id, `${field}.snapshot_id`)
+  if (typeof value.ranking_type !== 'string' || !value.ranking_type.trim()) throw new Error(`${field}.ranking_type 必填`)
+  if (!['string', 'number'].includes(typeof value.playlet_id) || (typeof value.playlet_id === 'string' && !value.playlet_id.trim()) || (typeof value.playlet_id === 'number' && !Number.isFinite(value.playlet_id))) throw new Error(`${field}.playlet_id 无效`)
+  if (typeof value.key !== 'string' || !value.key.trim()) throw new Error(`${field}.key 必填`)
+}
+
+function validateMarketInspiration(document) {
+  if (document.schema_version !== 'market-inspiration.v1') throw new Error('market-inspiration.schema_version 必须为 market-inspiration.v1')
+  validateMarketInspirationRef(document.report_ref, 'market-inspiration.report_ref')
+  if (!Array.isArray(document.signals) || document.signals.length === 0) throw new Error('market-inspiration.signals[] 必须为非空数组')
+  const signalIds = new Set()
+  for (const [index, signal] of document.signals.entries()) {
+    exactKeys(signal, ['id', 'fact', 'confidence', 'evidence', 'limitations'], `market-inspiration.signals[${index}]`)
+    safeKey(signal.id, `market-inspiration.signals[${index}].id`)
+    if (signalIds.has(signal.id)) throw new Error('market-inspiration.signals[].id 不得重复')
+    signalIds.add(signal.id)
+    if (typeof signal.fact !== 'string' || !signal.fact.trim()) throw new Error(`market-inspiration.signals[${index}].fact 必填`)
+    if (!['high', 'medium', 'low'].includes(signal.confidence)) throw new Error(`market-inspiration.signals[${index}].confidence 无效`)
+    if (!Array.isArray(signal.evidence) || signal.evidence.length === 0) throw new Error(`market-inspiration.signals[${index}].evidence[] 必须为非空数组`)
+    signal.evidence.forEach((evidence, evidenceIndex) => validateEvidence(evidence, `market-inspiration.signals[${index}].evidence[${evidenceIndex}]`))
+    validateStringList(signal.limitations, `market-inspiration.signals[${index}].limitations`, { min: 1 })
+  }
+  if (!Array.isArray(document.hypotheses) || document.hypotheses.length === 0) throw new Error('market-inspiration.hypotheses[] 必须为非空数组')
+  const hypothesisIds = new Set()
+  for (const [index, hypothesis] of document.hypotheses.entries()) {
+    const label = `market-inspiration.hypotheses[${index}]`
+    exactKeys(hypothesis, ['id', 'derived_signal_ids', 'inference', 'creative_transformation', 'premises', 'opening_hook', 'serial_engine', 'differentiation', 'production_fit', 'risks', 'validation_questions'], label)
+    safeKey(hypothesis.id, `${label}.id`)
+    if (hypothesisIds.has(hypothesis.id)) throw new Error('market-inspiration.hypotheses[].id 不得重复')
+    hypothesisIds.add(hypothesis.id)
+    validateStringList(hypothesis.derived_signal_ids, `${label}.derived_signal_ids`, { min: 1, validate: (id) => { if (!signalIds.has(id)) throw new Error(`${label}.derived_signal_ids 必须引用已存在的 signal`) } })
+    for (const field of ['inference', 'creative_transformation', 'opening_hook', 'serial_engine', 'differentiation', 'production_fit']) if (typeof hypothesis[field] !== 'string' || !hypothesis[field].trim()) throw new Error(`${label}.${field} 必填`)
+    for (const field of ['premises', 'risks', 'validation_questions']) validateStringList(hypothesis[field], `${label}.${field}`, { min: 1 })
+  }
+  exactKeys(document.decision, ['selected_hypothesis_ids', 'rejected_hypothesis_ids', 'confirmed_at'], 'market-inspiration.decision')
+  for (const field of ['selected_hypothesis_ids', 'rejected_hypothesis_ids']) validateStringList(document.decision[field], `market-inspiration.decision.${field}`, { validate: (id) => { if (!hypothesisIds.has(id)) throw new Error(`market-inspiration.decision.${field} 必须引用已存在的 hypothesis`) } })
+  if (document.decision.selected_hypothesis_ids.length === 0) throw new Error('market-inspiration.decision.selected_hypothesis_ids 必须为非空数组')
+  if (document.decision.selected_hypothesis_ids.some((id) => document.decision.rejected_hypothesis_ids.includes(id))) throw new Error('market-inspiration.decision 不得同时选择和拒绝同一 hypothesis')
+  if (document.decision.selected_hypothesis_ids.join('\u0000') !== document.report_ref.selected_hypothesis_ids.join('\u0000')) throw new Error('market-inspiration.report_ref.selected_hypothesis_ids 必须与 decision 一致')
+  if (document.decision.confirmed_at !== null) validateIsoTime(document.decision.confirmed_at, 'market-inspiration.decision.confirmed_at')
+  exactKeys(document.guardrails, ['no_title_copy', 'no_plot_copy', 'no_revenue_promise', 'market_data_non_authoritative'], 'market-inspiration.guardrails')
+  for (const field of ['no_title_copy', 'no_plot_copy', 'no_revenue_promise', 'market_data_non_authoritative']) if (document.guardrails[field] !== true) throw new Error(`market-inspiration.guardrails.${field} 必须为 true`)
+}
+
 function validatePromptRoute(value, label, allowUnresolved = false) {
   if (!PROMPT_PROFILES.has(value.prompt_profile)) {
     if (allowUnresolved && (value.prompt_profile === null || value.prompt_profile === undefined || value.prompt_profile === '')) return
@@ -331,7 +521,7 @@ function validateDocument(kind, document, episodeKey) {
   if (kind === 'reference-video-analysis') return validateReferenceVideoAnalysis(document)
   const contracts = {
     'source-analysis': ['source_scope', 'adaptation_mode', 'facts', 'timeline', 'characters', 'locations', 'props', 'conflicts', 'themes', 'visual_challenges', 'content_constraints', 'user_requirements', 'contradictions', 'open_questions', 'coverage'],
-    brief: document.recreation_workflows === undefined ? ['title', 'logline', 'adaptation_mode', 'genre', 'audience', 'platform', 'tone', 'core_conflict', 'output_language', 'spoken_language', 'subtitle_language', 'aspect_ratio', 'episode_count', 'episode_duration_seconds', 'rating', 'existing_materials', 'required_deliverables', 'prohibited_content', 'ending_type', 'creative_constraints', 'open_questions', 'approved'] : ['title', 'logline', 'adaptation_mode', 'genre', 'audience', 'platform', 'tone', 'core_conflict', 'output_language', 'spoken_language', 'subtitle_language', 'aspect_ratio', 'episode_count', 'episode_duration_seconds', 'rating', 'existing_materials', 'required_deliverables', 'prohibited_content', 'ending_type', 'creative_constraints', 'open_questions', 'approved', 'recreation_workflows'],
+    brief: document.recreation_workflows === undefined ? ['title', 'logline', 'adaptation_mode', 'genre', 'audience', 'platform', 'tone', 'core_conflict', 'output_language', 'spoken_language', 'subtitle_language', 'aspect_ratio', 'episode_count', 'episode_duration_seconds', 'rating', 'existing_materials', 'required_deliverables', 'prohibited_content', 'ending_type', 'creative_constraints', 'market_inspiration_ref', 'open_questions', 'approved'] : ['title', 'logline', 'adaptation_mode', 'genre', 'audience', 'platform', 'tone', 'core_conflict', 'output_language', 'spoken_language', 'subtitle_language', 'aspect_ratio', 'episode_count', 'episode_duration_seconds', 'rating', 'existing_materials', 'required_deliverables', 'prohibited_content', 'ending_type', 'creative_constraints', 'market_inspiration_ref', 'open_questions', 'approved', 'recreation_workflows'],
     bible: ['premise', 'genre', 'tone', 'themes', 'world_rules', 'ending', 'characters', 'relationships', 'three_act', 'conflict_ladder', 'promises_and_payoffs', 'foreshadowing', 'continuity_rules', 'adaptation_constraints', 'open_questions'],
     outline: ['episodes', 'coverage_check', 'continuity_check'],
     'script-review': ['episode_key', 'script_version', 'dimensions', 'issues', 'compliance', 'approved'],
@@ -339,11 +529,16 @@ function validateDocument(kind, document, episodeKey) {
     'production-plan': ['episode_key', 'source_versions', 'shots', 'totals', 'unresolved', 'approved'],
     'art-style': ['mode', 'style', 'decision_reason', 'approved'],
     'audio-plan': document.music_tracks === undefined ? ['episode_key', 'source_versions', 'lines', 'voice_bindings', 'unresolved', 'approved'] : ['episode_key', 'source_versions', 'lines', 'voice_bindings', 'music_tracks', 'unresolved', 'approved'],
+    'market-inspiration': ['schema_version', 'report_ref', 'signals', 'hypotheses', 'decision', 'guardrails'],
   }
   if (contracts[kind]) exactKeys(document, contracts[kind], kind)
   if (kind === 'source-analysis' && !['original', 'faithful_adaptation', 'authorized_adaptation'].includes(document.adaptation_mode)) throw new Error('source-analysis adaptation_mode 无效')
   if (kind === 'source-analysis' && document.coverage?.complete !== true) throw new Error('source-analysis coverage.complete 必须为 true')
-  if (kind === 'brief' && (typeof document.approved !== 'boolean' || !Array.isArray(document.open_questions))) throw new Error('brief approved/open_questions 无效')
+  if (kind === 'brief') {
+    if (typeof document.approved !== 'boolean' || !Array.isArray(document.open_questions)) throw new Error('brief approved/open_questions 无效')
+    if (document.market_inspiration_ref !== null) validateMarketInspirationRef(document.market_inspiration_ref, 'brief.market_inspiration_ref')
+  }
+  if (kind === 'market-inspiration') validateMarketInspiration(document)
   if (kind === 'bible') {
     if (!Array.isArray(document.characters)) throw new Error('bible characters[] 必填')
     const fields = ['name', 'dramatic_function', 'desire', 'need', 'fear', 'hidden_fact', 'arc_start', 'arc_turn', 'arc_end']
@@ -592,6 +787,18 @@ async function main() {
     return console.log(root)
   }
   if (command === 'project') return console.log(JSON.stringify(validateProject(await readJson(resolve(root, '.short-drama/project.json'))), null, 2))
+  if (command === 'market-report-ref') {
+    const [reportId, ...selectedHypothesisIds] = process.argv.slice(4)
+    if (!reportId || selectedHypothesisIds.length === 0) throw new Error('用法：market-report-ref <项目目录> <report ID> <已选 hypothesis ID>...')
+    const report = await readSavedMarketReport(root, reportId, 'market-report-ref')
+    return console.log(JSON.stringify(buildMarketReportReference(report, selectedHypothesisIds), null, 2))
+  }
+  if (command === 'register-market-inspiration') {
+    const [marketInspirationPath, briefPath] = process.argv.slice(4)
+    if (!marketInspirationPath || !briefPath) throw new Error('用法：register-market-inspiration <项目目录> <market-inspiration JSON> <brief JSON>')
+    const result = await registerMarketInspiration(root, await readJson(resolve(marketInspirationPath)), await readJson(resolve(briefPath)))
+    return console.log(JSON.stringify(result, null, 2))
+  }
   if (command === 'validate-project-config') {
     validateProject(await readJson(resolve(root, '.short-drama/project.json')))
     return console.log(JSON.stringify({ valid: true, schema_version: 1 }))
@@ -740,10 +947,12 @@ async function main() {
   }
   if (command === 'put-document') {
     const [kind, inputPath] = process.argv.slice(4)
-    if (!['source-analysis', 'brief', 'bible', 'outline', 'art-style', 'reference-video-analysis'].includes(kind) || !inputPath) throw new Error('用法：put-document <项目目录> <source-analysis|brief|bible|outline|art-style|reference-video-analysis> <JSON>')
+    if (!['source-analysis', 'brief', 'bible', 'outline', 'art-style', 'reference-video-analysis', 'market-inspiration'].includes(kind) || !inputPath) throw new Error('用法：put-document <项目目录> <source-analysis|brief|bible|outline|art-style|reference-video-analysis|market-inspiration> <JSON>')
     const document = await readJson(resolve(inputPath))
     validateDocument(kind, document)
     if (kind === 'brief') await validateRecreationConsumerBinding(root, kind, null, document)
+    if (kind === 'market-inspiration') await validateSavedMarketReportReference(root, document.report_ref, 'market-inspiration.report_ref')
+    if (kind === 'brief' && document.market_inspiration_ref !== null) await validateStoredMarketInspirationReference(root, document.market_inspiration_ref)
     await invalidateFrom(root, kind === 'art-style' ? 'asset-analysis' : 'analysis')
     await writeJson(resolve(root, '.short-drama', `${kind}.json`), document)
     return console.log(kind)
@@ -877,7 +1086,7 @@ async function main() {
     versionKey(versionId, `${kind} version`)
     return console.log(JSON.stringify(await readJson(resolve(episodeRoot(episodeKey), kind, `${versionId}.json`)), null, 2))
   }
-  throw new Error('用法：project-store.mjs init|project|validate-project-config|migrate-project-config|update-project|put-source|select-source|put-document|put-episode|update-episode|list-episodes|put-script|select-script|script|put-episode-document|validate-episode-document|select-episode-document|episode-document ...')
+  throw new Error('用法：project-store.mjs init|project|market-report-ref|register-market-inspiration|validate-project-config|migrate-project-config|update-project|put-source|select-source|put-document|put-episode|update-episode|list-episodes|put-script|select-script|script|put-episode-document|validate-episode-document|select-episode-document|episode-document ...')
 }
 
 if (resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) main().catch((error) => { console.error(error.message); process.exitCode = 1 })

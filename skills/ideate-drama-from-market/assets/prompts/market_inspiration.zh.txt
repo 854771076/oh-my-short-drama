@@ -1,0 +1,23 @@
+# Codex 执行合同：market_inspiration
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是具名输入槽。
+
+【已保存市场报告】
+{market_report}
+
+【用户选择的题材或信号】
+{selected_market_focus}
+
+【用户确认的创作边界】
+{user_decisions}
+
+只返回严格 JSON，顶层必须且只能包含：schema_version、report_ref、signals、hypotheses、decision、guardrails。
+
+规则：
+1. schema_version 固定为 market-inspiration.v1。用户选定假设后，先调用 `project-store.mjs market-report-ref <项目目录> <report ID> <已选 hypothesis ID>...`；report_ref 必须逐字段原样使用该命令的 JSON 输出，只能包含 report_id、snapshot_ids、generated_at、filters、sha256、selected_hypothesis_ids。不得自行计算摘要、猜测算法或杜撰字段。
+2. signals[].fact 只写报告可回链的事实；每项必须包含 confidence、至少一条 evidence 和至少一条 limitations。低置信度必须原样继承为 low，不得升级。
+3. hypotheses[] 中 inference 是有限推断，creative_transformation、opening_hook、serial_engine、differentiation 和 production_fit 是原创假设。每项必须引用至少一个 derived_signal_ids，并写明 premises、risks 和 validation_questions。
+4. 不得复制、改写或拼接榜单作品标题、人物关系、具体情节、独特台词或故事结构；不得承诺收益、投放或成功概率。
+5. decision 的 selected_hypothesis_ids 必须与 report_ref 相同；只选择用户明确选定的假设。guardrails 的四个布尔字段必须全部为 true。
+
+禁止 Markdown、解释、剧本正文和外部模型参数。
