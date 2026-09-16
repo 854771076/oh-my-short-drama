@@ -65,6 +65,15 @@ test('缺失热度增长新剧和持久度不按零计分，并公开指标覆�
   assert.equal(metric.confidence_detail.metric_coverage, 0.25)
 })
 
+test('榜内热度摘要忽略缺失值，全部缺失时返回 null', () => {
+  const metric = topicMetrics([
+    { key: 'a', topics: ['题材'], rankingType: 'hot', ranking: 1 },
+    { key: 'b', topics: ['题材'], rankingType: 'hot', ranking: 2 },
+  ], ['hot'])[0]
+
+  assert.deepEqual(metric.ranking_heat, [{ ranking_type: 'hot', demand_strength: null, sample_count: 2 }])
+})
+
 test('跨平台同剧在平台矩阵中合并且证据只保留引用', () => {
   const matrix = platformMatrix([
     { key: 'a', playletId: 9, title: '同剧', topics: ['悬疑探案'], rankingType: 'hot', ranking: 2, snapshotId: 's1' },

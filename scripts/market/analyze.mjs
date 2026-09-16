@@ -244,7 +244,7 @@ export function topicMetrics(items, successfulRankingTypes) {
     const sourceRatio = sourceTagRatio(entries)
     const rankingHeat = [...new Set(entries.map(({ item }) => item.rankingType).filter(Boolean))].sort(compareText).map((rankingType) => {
       const matching = entries.filter(({ item }) => item.rankingType === rankingType)
-      return { ranking_type: rankingType, demand_strength: average(matching.map((entry) => demandPercentiles.get(entry) ?? 0)), sample_count: matching.length }
+      return { ranking_type: rankingType, demand_strength: averageWithCoverage(matching.map((entry) => demandPercentiles.get(entry))).value, sample_count: matching.length }
     })
     return {
       topic,

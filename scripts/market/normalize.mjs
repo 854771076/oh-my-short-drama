@@ -1,43 +1,39 @@
 import { createHash } from 'node:crypto'
 
 const TITLE_ROOTS = Object.freeze([
-  ['都市情感', ['都市情感']],
-  ['霸道总裁', ['霸道总裁', '霸总', '总裁']],
-  ['甜宠', ['甜宠']],
-  ['末日重生', ['末日重生']],
-  ['重生穿越', ['重生穿越', '重生', '穿越']],
-  ['战神归来', ['战神归来', '战神']],
-  ['古装宫廷', ['古装宫廷', '宫廷', '宫斗']],
-  ['励志逆袭', ['励志逆袭', '逆袭']],
-  ['家庭伦理', ['家庭伦理']],
-  ['萌宝', ['萌宝']],
-  ['悬疑探案', ['悬疑探案', '悬疑', '探案', '推理']],
-  ['软科幻', ['软科幻', '科幻']],
-  ['喜剧', ['喜剧']],
+  [['都市日常'], ['都市情感', '都市']],
+  [['总裁'], ['霸道总裁', '霸总', '总裁']],
+  [['甜宠'], ['甜宠']],
+  [['末日重生'], ['末日重生']],
+  [['重生', '穿越'], ['重生穿越']],
+  [['重生'], ['重生']],
+  [['穿越'], ['穿越']],
+  [['战神归来'], ['战神归来', '战神']],
+  [['古装宫廷'], ['古装宫廷', '宫廷', '宫斗']],
+  [['逆袭'], ['励志逆袭', '逆袭']],
+  [['家庭伦理'], ['家庭伦理']],
+  [['萌宝'], ['萌宝']],
+  [['悬疑推理'], ['悬疑探案', '悬疑', '探案', '推理']],
+  [['软科幻'], ['软科幻', '科幻']],
+  [['喜剧'], ['喜剧']],
 ])
 
 const TOPIC_TAXONOMY = Object.freeze([
-  ['古装宫廷', ['古装宫廷', '宫廷', '宫斗', '古装']],
-  ['家庭伦理', ['家庭伦理', '婆媳', '伦理', '家庭']],
-  ['悬疑探案', ['悬疑探案', '悬疑', '探案', '推理']],
-  ['霸道总裁', ['霸道总裁', '霸总', '总裁']],
-  ['末日重生', ['末日重生', '末日', '丧尸']],
-  ['重生穿越', ['重生穿越', '重生', '穿越']],
-  ['战神归来', ['战神归来', '战神']],
-  ['励志逆袭', ['励志逆袭', '逆袭']],
-  ['软科幻', ['软科幻', '科幻']],
-  ['都市情感', ['都市情感', '都市', '职场', '爱情', '情感']],
-  ['萌宝', ['萌宝']],
-  ['喜剧', ['喜剧', '搞笑']],
+  [['重生', '穿越'], ['重生穿越']],
+  [['古装宫廷'], ['古装宫廷', '宫廷', '宫斗', '古装']],
+  [['都市日常'], ['都市情感', '都市', '职场', '爱情', '情感', '日常']],
+  [['总裁'], ['霸道总裁', '霸总', '总裁']],
+  [['悬疑推理'], ['悬疑探案', '悬疑', '探案', '推理']],
+  [['逆袭'], ['励志逆袭', '逆袭']],
+  [['家庭伦理'], ['家庭伦理', '婆媳', '伦理', '家庭']],
+  [['末日重生'], ['末日重生', '末日', '丧尸']],
+  [['重生'], ['重生']],
+  [['穿越'], ['穿越']],
+  [['战神归来'], ['战神归来', '战神']],
+  [['软科幻'], ['软科幻', '科幻']],
+  [['萌宝'], ['萌宝']],
+  [['喜剧'], ['喜剧', '搞笑']],
 ])
-
-const SOURCE_TOPIC_ROOTS = Object.freeze([
-  ...TITLE_ROOTS.flatMap(([, roots]) => roots),
-  '都市', '职场', '爱情', '情感', '古装', '家庭', '婆媳', '伦理', '系统', '异能', '丧尸', '搞笑',
-  '日常',
-])
-
-const SOURCE_TOPIC_SUFFIXES = Object.freeze(['故事', '剧', '题材', '文'])
 
 const NON_TOPIC_TAGS = new Set([
   '真人', '短剧', '微短剧', '短视频', '已完结', '完结', '连载中', '连载', '热播', '新剧', '上新', '独播',
@@ -178,21 +174,9 @@ function cleanListToken(value) {
 
 function isSourceTopicTag(tag) {
   const label = compactLabel(tag)
-  if (!label || label.length > 16) return false
+  if (!label) return false
   if (/(?:非|不|无|不是|拒绝|榜|第\d|推荐|热播|用户|运营|热门|官方|投票|点击|播放|指数|数据|排序)/u.test(label)) return false
-  let remaining = label
-  let matched = 0
-  while (remaining) {
-    const root = [...SOURCE_TOPIC_ROOTS].sort((left, right) => right.length - left.length).find((candidate) => remaining.startsWith(compactLabel(candidate)))
-    if (root) {
-      remaining = remaining.slice(compactLabel(root).length)
-      matched += 1
-      continue
-    }
-    if (matched > 0 && SOURCE_TOPIC_SUFFIXES.some((suffix) => remaining === suffix)) return true
-    return false
-  }
-  return matched > 0
+  return true
 }
 
 export function parseList(value) {
@@ -246,20 +230,20 @@ function titleTopics(title) {
   const compactTitle = compactText(title)
   if (!compactTitle) return []
   const result = []
-  for (const [genre, roots] of TITLE_ROOTS) {
-    if (roots.some((root) => compactTitle.includes(compactText(root)))) result.push(genre)
+  for (const [topics, roots] of TITLE_ROOTS) {
+    if (roots.some((root) => compactTitle.includes(compactText(root)))) result.push(...topics)
   }
-  return result
+  return [...new Set(result)]
 }
 
-function canonicalTopic(rawTopic) {
+function canonicalTopics(rawTopic) {
   const label = compactLabel(rawTopic)
   const matched = TOPIC_TAXONOMY.find(([, aliases]) => aliases.some((alias) => label.includes(compactLabel(alias))))
-  return matched?.[0] ?? rawTopic
+  return matched?.[0] ?? [rawTopic]
 }
 
 function mapTopics(rawTopics, source) {
-  const mappings = rawTopics.map((rawTopic) => ({ rawTopic, canonicalTopic: canonicalTopic(rawTopic), source }))
+  const mappings = rawTopics.flatMap((rawTopic) => canonicalTopics(rawTopic).map((canonicalTopic) => ({ rawTopic, canonicalTopic, source })))
   return {
     topics: [...new Set(mappings.map(({ canonicalTopic: topic }) => topic))],
     mappings,

@@ -13,7 +13,7 @@ test('合并数组和字符串标签并保留来源', () => {
     douyin: [{ playletId: 2, playletName: '今晚查寝，别开门', ranking: 1, playCountAddRaw: 900000, tags: '["女频","悬疑"]', isNew: 1 }],
   }, { observedAt: '2026-09-16T15:30:00+08:00' })
 
-  assert.deepEqual(result[0].topics, ['都市情感'])
+  assert.deepEqual(result[0].topics, ['都市日常'])
   assert.equal(result[0].audience, '男频')
   assert.equal(result[0].provenance.topicSource, 'source-tag')
   assert.equal(result[1].growthValue, 900000)
@@ -39,20 +39,20 @@ test('损坏 JSON 数组清洗括号、引号和字符串 null，并保留可恢
     tags: '["男频",null,"都市日常"',
   })
   assert.equal(observation.audience, '男频')
-  assert.deepEqual(observation.topics, ['都市情感'])
+  assert.deepEqual(observation.topics, ['都市日常'])
   assert.deepEqual(observation.provenance.evidence.rawTags, ['男频', '都市日常'])
 })
 
-test('状态和形式标签不是题材证据，未知标签不会伪装成 source-tag', () => {
+test('状态和形式标签不作为题材，未知来源标签原样保留', () => {
   const observation = normalizeRankingItem('hot', {
     title: '没有明确题材的作品',
-    tags: ['真人', '短剧', '已完结', '神秘标签'],
+    tags: ['真人', '短剧', '已完结', '这是一个超过十六个字符的未知题材标签'],
   })
 
-  assert.deepEqual(observation.topics, ['未分类'])
-  assert.equal(observation.provenance.topicSource, 'unclassified')
+  assert.deepEqual(observation.topics, ['这是一个超过十六个字符的未知题材标签'])
+  assert.equal(observation.provenance.topicSource, 'source-tag')
   assert.equal(observation.format, null)
-  assert.deepEqual(observation.provenance.evidence.rawTags, ['真人', '短剧', '已完结', '神秘标签'])
+  assert.deepEqual(observation.provenance.evidence.rawTags, ['真人', '短剧', '已完结', '这是一个超过十六个字符的未知题材标签'])
 })
 
 test('来源细分题材映射为受控题材', () => {
@@ -61,22 +61,27 @@ test('来源细分题材映射为受控题材', () => {
     tags: ['都市职场', '婆媳伦理', '古装爱情'],
   })
 
-  assert.deepEqual(observation.topics, ['都市情感', '家庭伦理', '古装宫廷'])
+  assert.deepEqual(observation.topics, ['都市日常', '家庭伦理', '古装宫廷'])
   assert.deepEqual(observation.rawTopics, ['都市职场', '婆媳伦理', '古装爱情'])
   assert.equal(observation.provenance.topicSource, 'source-tag')
 })
 
-test('来源题材映射为规范题材并保留原始标签和映射证据', () => {
+test('来源题材按精确 taxonomy 映射，支持一对多并保留未知标签', () => {
   const observation = normalizeRankingItem('hot', {
     title: '一部普通作品',
-    tags: ['悬疑', '都市职场'],
+    tags: ['悬疑', '都市职场', '霸道总裁', '重生穿越', '励志逆袭', '神秘标签'],
   })
 
-  assert.deepEqual(observation.topics, ['悬疑探案', '都市情感'])
-  assert.deepEqual(observation.rawTopics, ['悬疑', '都市职场'])
+  assert.deepEqual(observation.topics, ['悬疑推理', '都市日常', '总裁', '重生', '穿越', '逆袭', '神秘标签'])
+  assert.deepEqual(observation.rawTopics, ['悬疑', '都市职场', '霸道总裁', '重生穿越', '励志逆袭', '神秘标签'])
   assert.deepEqual(observation.provenance.topicMappings, [
-    { rawTopic: '悬疑', canonicalTopic: '悬疑探案', source: 'source-tag' },
-    { rawTopic: '都市职场', canonicalTopic: '都市情感', source: 'source-tag' },
+    { rawTopic: '悬疑', canonicalTopic: '悬疑推理', source: 'source-tag' },
+    { rawTopic: '都市职场', canonicalTopic: '都市日常', source: 'source-tag' },
+    { rawTopic: '霸道总裁', canonicalTopic: '总裁', source: 'source-tag' },
+    { rawTopic: '重生穿越', canonicalTopic: '重生', source: 'source-tag' },
+    { rawTopic: '重生穿越', canonicalTopic: '穿越', source: 'source-tag' },
+    { rawTopic: '励志逆袭', canonicalTopic: '逆袭', source: 'source-tag' },
+    { rawTopic: '神秘标签', canonicalTopic: '神秘标签', source: 'source-tag' },
   ])
 })
 
@@ -147,7 +152,7 @@ test('标题词根只推断受控题材，不从题材推断受众和时代', ()
     tags: ['现代'],
   }, { observedAt: '2026-09-16T15:30:00+08:00' })
 
-  assert.deepEqual(observation.topics, ['霸道总裁', '重生穿越'])
+  assert.deepEqual(observation.topics, ['总裁', '重生'])
   assert.equal(observation.audience, null)
   assert.equal(observation.era, '现代')
   assert.equal(observation.provenance.topicSource, 'title-keyword')
@@ -211,7 +216,7 @@ test('合并结果是与输入及其他结果隔离的深快照', () => {
   merged[0].rankings[0].provenance.evidence.titleKeywords.push('被修改')
   merged[0].companies.producer.push('被修改')
 
-  assert.deepEqual(observations[0].topics, ['悬疑探案'])
+  assert.deepEqual(observations[0].topics, ['悬疑推理'])
   assert.deepEqual(observations[0].provenance.evidence.rawTags, ['悬疑'])
   assert.deepEqual(other[0].observations[0].provenance.evidence.rawTags, ['悬疑'])
   assert.deepEqual(other[0].companies, { platform: [], contractor: [], copyrightHolder: [], producer: ['公司'] })
