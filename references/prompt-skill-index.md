@@ -9,6 +9,7 @@
 | 单集资产分析 | `plan-drama-assets` | `asset_analysis` |
 | 来源与要求分析 | `analyze-drama-source` | `source_analysis` |
 | 创作简报 | `define-drama-brief` | `drama_brief` |
+| 市场创作灵感 | `ideate-drama-from-market` | `market_inspiration` |
 | 场次导演本 | `write-drama-director-book` | `director_book` |
 | 剧本质量复核 | `review-drama-script` | `review_drama_script` |
 | 逐镜制作计划 | `plan-drama-production` | `production_plan` |

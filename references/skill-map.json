@@ -11,7 +11,7 @@
     "manage-drama-projects", "manage-drama-assets", "manage-drama-art-styles",
     "transform-drama-media", "monitor-drama-tasks", "recover-drama-pipeline",
     "configure-generation-providers", "drama-generation-service", "publish-drama-references", "orchestrate-short-drama",
-    "short-drama-skill-index", "use-short-drama-studio", "analyze-drama-market"
+    "short-drama-skill-index", "use-short-drama-studio", "analyze-drama-market", "ideate-drama-from-market"
   ],
   "stages": {
     "analysis": ["manage-drama-projects", "analyze-drama-source", "define-drama-brief", "design-drama-bible", "outline-drama-series"],
@@ -41,6 +41,7 @@
     "review_drama_script": "review-drama-script",
     "source_analysis": "analyze-drama-source",
     "drama_brief": "define-drama-brief",
+    "market_inspiration": "ideate-drama-from-market",
     "director_book": "write-drama-director-book",
     "production_plan": "plan-drama-production",
     "config_generation": "generate-drama-art-style",

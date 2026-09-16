@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Short drama market inspiration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "report_ref", "signals", "hypotheses", "decision", "guardrails"],
+  "properties": {
+    "schema_version": {"const": "market-inspiration.v1"},
+    "report_ref": {"$ref": "#/$defs/reportRef"},
+    "signals": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/signal"}},
+    "hypotheses": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/hypothesis"}},
+    "decision": {"$ref": "#/$defs/decision"},
+    "guardrails": {"$ref": "#/$defs/guardrails"}
+  },
+  "$defs": {
+    "marketId": {"type": "string", "pattern": "^[A-Za-z0-9+_-]{1,80}$"},
+    "localId": {"type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$"},
+    "nonEmptyString": {"type": "string", "minLength": 1},
+    "nonEmptyStrings": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/nonEmptyString"}},
+    "filters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "audience": {"$ref": "#/$defs/filterValue"},
+        "era": {"$ref": "#/$defs/filterValue"},
+        "format": {"$ref": "#/$defs/filterValue"},
+        "topic": {"$ref": "#/$defs/filterValue"},
+        "rankingTypes": {"$ref": "#/$defs/filterValue"}
+      }
+    },
+    "filterValue": {"oneOf": [{"$ref": "#/$defs/nonEmptyString"}, {"$ref": "#/$defs/nonEmptyStrings"}]},
+    "reportRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["report_id", "snapshot_ids", "generated_at", "filters", "sha256", "selected_hypothesis_ids"],
+      "properties": {
+        "report_id": {"$ref": "#/$defs/marketId"},
+        "snapshot_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/marketId"}},
+        "generated_at": {"type": "string", "format": "date-time"},
+        "filters": {"$ref": "#/$defs/filters"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "selected_hypothesis_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/localId"}}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshot_id", "ranking_type", "playlet_id", "key"],
+      "properties": {
+        "snapshot_id": {"$ref": "#/$defs/marketId"},
+        "ranking_type": {"$ref": "#/$defs/nonEmptyString"},
+        "playlet_id": {"type": ["string", "number"]},
+        "key": {"$ref": "#/$defs/nonEmptyString"}
+      }
+    },
+    "signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "fact", "confidence", "evidence", "limitations"],
+      "properties": {
+        "id": {"$ref": "#/$defs/localId"},
+        "fact": {"$ref": "#/$defs/nonEmptyString"},
+        "confidence": {"enum": ["high", "medium", "low"]},
+        "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/evidence"}},
+        "limitations": {"$ref": "#/$defs/nonEmptyStrings"}
+      }
+    },
+    "hypothesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "derived_signal_ids", "inference", "creative_transformation", "premises", "opening_hook", "serial_engine", "differentiation", "production_fit", "risks", "validation_questions"],
+      "properties": {
+        "id": {"$ref": "#/$defs/localId"},
+        "derived_signal_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/localId"}},
+        "inference": {"$ref": "#/$defs/nonEmptyString"},
+        "creative_transformation": {"$ref": "#/$defs/nonEmptyString"},
+        "premises": {"$ref": "#/$defs/nonEmptyStrings"},
+        "opening_hook": {"$ref": "#/$defs/nonEmptyString"},
+        "serial_engine": {"$ref": "#/$defs/nonEmptyString"},
+        "differentiation": {"$ref": "#/$defs/nonEmptyString"},
+        "production_fit": {"$ref": "#/$defs/nonEmptyString"},
+        "risks": {"$ref": "#/$defs/nonEmptyStrings"},
+        "validation_questions": {"$ref": "#/$defs/nonEmptyStrings"}
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selected_hypothesis_ids", "rejected_hypothesis_ids", "confirmed_at"],
+      "properties": {
+        "selected_hypothesis_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/localId"}},
+        "rejected_hypothesis_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/localId"}},
+        "confirmed_at": {"type": ["string", "null"], "format": "date-time"}
+      }
+    },
+    "guardrails": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["no_title_copy", "no_plot_copy", "no_revenue_promise", "market_data_non_authoritative"],
+      "properties": {
+        "no_title_copy": {"const": true},
+        "no_plot_copy": {"const": true},
+        "no_revenue_promise": {"const": true},
+        "market_data_non_authoritative": {"const": true}
+      }
+    }
+  }
+}

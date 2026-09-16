@@ -9,6 +9,7 @@ description: 本地标准短剧插件的总索引。用于查询画风、人物/
 
 - 小说/要求分析、简报、故事圣经、分集、剧本、自然化与复核 → `analyze-drama-source`、`define-drama-brief`、`design-drama-bible`、`outline-drama-series`、`short-drama`、`write-drama-episode`、`humanizer`、`review-drama-script`
 - 市场题材、公开榜单、平台差异、竞争格局与新剧势能 → `analyze-drama-market`
+- 用户明确要求把已保存市场信号转为原创立项假设或登记项目引用 → `ideate-drama-from-market`
 - 导演本 → `write-drama-director-book`
 - 本地项目、剧集、剧本和分镜版本 → `manage-drama-projects`
 - 资产清单和本地媒体版本 → `plan-drama-assets`、`manage-drama-assets`

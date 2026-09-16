@@ -262,6 +262,92 @@ function exactKeys(value, keys, label) {
   if (Object.keys(value).sort().join() !== [...keys].sort().join()) throw new Error(`${label} 顶层字段必须且只能是：${keys.join(', ')}`)
 }
 
+function validateIsoTime(value, field) {
+  if (typeof value !== 'string' || !value.trim() || !Number.isFinite(Date.parse(value))) throw new Error(`${field} 必须是 ISO 时间`)
+}
+
+function marketId(value, field) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9+_-]{1,80}$/.test(value)) throw new Error(`${field} 无效`)
+}
+
+function validateStringList(value, field, { min = 0, validate = null } = {}) {
+  if (!Array.isArray(value) || value.length < min) throw new Error(`${field} 必须是${min > 0 ? '非空' : ''}数组`)
+  const seen = new Set()
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !entry.trim()) throw new Error(`${field} 必须只包含非空字符串`)
+    if (seen.has(entry)) throw new Error(`${field} 不得重复`)
+    seen.add(entry)
+    if (validate) validate(entry, field)
+  }
+}
+
+function validateMarketFilters(value, field) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${field} 必须是对象`)
+  const allowed = new Set(['audience', 'era', 'format', 'topic', 'rankingTypes'])
+  for (const [key, item] of Object.entries(value)) {
+    if (!allowed.has(key)) throw new Error(`${field}.${key} 无效`)
+    if (typeof item === 'string' && item.trim()) continue
+    if (Array.isArray(item) && item.every((entry) => typeof entry === 'string' && entry.trim())) continue
+    throw new Error(`${field}.${key} 必须是非空字符串或字符串数组`)
+  }
+}
+
+function validateMarketInspirationRef(value, field) {
+  exactKeys(value, ['report_id', 'snapshot_ids', 'generated_at', 'filters', 'sha256', 'selected_hypothesis_ids'], field)
+  marketId(value.report_id, `${field}.report_id`)
+  validateStringList(value.snapshot_ids, `${field}.snapshot_ids`, { min: 1, validate: marketId })
+  validateIsoTime(value.generated_at, `${field}.generated_at`)
+  validateMarketFilters(value.filters, `${field}.filters`)
+  if (typeof value.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(value.sha256)) throw new Error(`${field}.sha256 必须是 SHA-256 十六进制摘要`)
+  validateStringList(value.selected_hypothesis_ids, `${field}.selected_hypothesis_ids`, { min: 1, validate: safeKey })
+}
+
+function validateEvidence(value, field) {
+  exactKeys(value, ['snapshot_id', 'ranking_type', 'playlet_id', 'key'], field)
+  marketId(value.snapshot_id, `${field}.snapshot_id`)
+  if (typeof value.ranking_type !== 'string' || !value.ranking_type.trim()) throw new Error(`${field}.ranking_type 必填`)
+  if (!['string', 'number'].includes(typeof value.playlet_id) || (typeof value.playlet_id === 'string' && !value.playlet_id.trim()) || (typeof value.playlet_id === 'number' && !Number.isFinite(value.playlet_id))) throw new Error(`${field}.playlet_id 无效`)
+  if (typeof value.key !== 'string' || !value.key.trim()) throw new Error(`${field}.key 必填`)
+}
+
+function validateMarketInspiration(document) {
+  if (document.schema_version !== 'market-inspiration.v1') throw new Error('market-inspiration.schema_version 必须为 market-inspiration.v1')
+  validateMarketInspirationRef(document.report_ref, 'market-inspiration.report_ref')
+  if (!Array.isArray(document.signals) || document.signals.length === 0) throw new Error('market-inspiration.signals[] 必须为非空数组')
+  const signalIds = new Set()
+  for (const [index, signal] of document.signals.entries()) {
+    exactKeys(signal, ['id', 'fact', 'confidence', 'evidence', 'limitations'], `market-inspiration.signals[${index}]`)
+    safeKey(signal.id, `market-inspiration.signals[${index}].id`)
+    if (signalIds.has(signal.id)) throw new Error('market-inspiration.signals[].id 不得重复')
+    signalIds.add(signal.id)
+    if (typeof signal.fact !== 'string' || !signal.fact.trim()) throw new Error(`market-inspiration.signals[${index}].fact 必填`)
+    if (!['high', 'medium', 'low'].includes(signal.confidence)) throw new Error(`market-inspiration.signals[${index}].confidence 无效`)
+    if (!Array.isArray(signal.evidence) || signal.evidence.length === 0) throw new Error(`market-inspiration.signals[${index}].evidence[] 必须为非空数组`)
+    signal.evidence.forEach((evidence, evidenceIndex) => validateEvidence(evidence, `market-inspiration.signals[${index}].evidence[${evidenceIndex}]`))
+    validateStringList(signal.limitations, `market-inspiration.signals[${index}].limitations`, { min: 1 })
+  }
+  if (!Array.isArray(document.hypotheses) || document.hypotheses.length === 0) throw new Error('market-inspiration.hypotheses[] 必须为非空数组')
+  const hypothesisIds = new Set()
+  for (const [index, hypothesis] of document.hypotheses.entries()) {
+    const label = `market-inspiration.hypotheses[${index}]`
+    exactKeys(hypothesis, ['id', 'derived_signal_ids', 'inference', 'creative_transformation', 'premises', 'opening_hook', 'serial_engine', 'differentiation', 'production_fit', 'risks', 'validation_questions'], label)
+    safeKey(hypothesis.id, `${label}.id`)
+    if (hypothesisIds.has(hypothesis.id)) throw new Error('market-inspiration.hypotheses[].id 不得重复')
+    hypothesisIds.add(hypothesis.id)
+    validateStringList(hypothesis.derived_signal_ids, `${label}.derived_signal_ids`, { min: 1, validate: (id) => { if (!signalIds.has(id)) throw new Error(`${label}.derived_signal_ids 必须引用已存在的 signal`) } })
+    for (const field of ['inference', 'creative_transformation', 'opening_hook', 'serial_engine', 'differentiation', 'production_fit']) if (typeof hypothesis[field] !== 'string' || !hypothesis[field].trim()) throw new Error(`${label}.${field} 必填`)
+    for (const field of ['premises', 'risks', 'validation_questions']) validateStringList(hypothesis[field], `${label}.${field}`, { min: 1 })
+  }
+  exactKeys(document.decision, ['selected_hypothesis_ids', 'rejected_hypothesis_ids', 'confirmed_at'], 'market-inspiration.decision')
+  for (const field of ['selected_hypothesis_ids', 'rejected_hypothesis_ids']) validateStringList(document.decision[field], `market-inspiration.decision.${field}`, { validate: (id) => { if (!hypothesisIds.has(id)) throw new Error(`market-inspiration.decision.${field} 必须引用已存在的 hypothesis`) } })
+  if (document.decision.selected_hypothesis_ids.length === 0) throw new Error('market-inspiration.decision.selected_hypothesis_ids 必须为非空数组')
+  if (document.decision.selected_hypothesis_ids.some((id) => document.decision.rejected_hypothesis_ids.includes(id))) throw new Error('market-inspiration.decision 不得同时选择和拒绝同一 hypothesis')
+  if (document.decision.selected_hypothesis_ids.join('\u0000') !== document.report_ref.selected_hypothesis_ids.join('\u0000')) throw new Error('market-inspiration.report_ref.selected_hypothesis_ids 必须与 decision 一致')
+  if (document.decision.confirmed_at !== null) validateIsoTime(document.decision.confirmed_at, 'market-inspiration.decision.confirmed_at')
+  exactKeys(document.guardrails, ['no_title_copy', 'no_plot_copy', 'no_revenue_promise', 'market_data_non_authoritative'], 'market-inspiration.guardrails')
+  for (const field of ['no_title_copy', 'no_plot_copy', 'no_revenue_promise', 'market_data_non_authoritative']) if (document.guardrails[field] !== true) throw new Error(`market-inspiration.guardrails.${field} 必须为 true`)
+}
+
 function validatePromptRoute(value, label, allowUnresolved = false) {
   if (!PROMPT_PROFILES.has(value.prompt_profile)) {
     if (allowUnresolved && (value.prompt_profile === null || value.prompt_profile === undefined || value.prompt_profile === '')) return
@@ -318,7 +404,7 @@ export function validateVideoPrompts(document, episodeKey) {
 function validateDocument(kind, document, episodeKey) {
   const contracts = {
     'source-analysis': ['source_scope', 'adaptation_mode', 'facts', 'timeline', 'characters', 'locations', 'props', 'conflicts', 'themes', 'visual_challenges', 'content_constraints', 'user_requirements', 'contradictions', 'open_questions', 'coverage'],
-    brief: ['title', 'logline', 'adaptation_mode', 'genre', 'audience', 'platform', 'tone', 'core_conflict', 'output_language', 'spoken_language', 'subtitle_language', 'aspect_ratio', 'episode_count', 'episode_duration_seconds', 'rating', 'existing_materials', 'required_deliverables', 'prohibited_content', 'ending_type', 'creative_constraints', 'open_questions', 'approved'],
+    brief: ['title', 'logline', 'adaptation_mode', 'genre', 'audience', 'platform', 'tone', 'core_conflict', 'output_language', 'spoken_language', 'subtitle_language', 'aspect_ratio', 'episode_count', 'episode_duration_seconds', 'rating', 'existing_materials', 'required_deliverables', 'prohibited_content', 'ending_type', 'creative_constraints', 'market_inspiration_ref', 'open_questions', 'approved'],
     bible: ['premise', 'genre', 'tone', 'themes', 'world_rules', 'ending', 'characters', 'relationships', 'three_act', 'conflict_ladder', 'promises_and_payoffs', 'foreshadowing', 'continuity_rules', 'adaptation_constraints', 'open_questions'],
     outline: ['episodes', 'coverage_check', 'continuity_check'],
     'script-review': ['episode_key', 'script_version', 'dimensions', 'issues', 'compliance', 'approved'],
@@ -326,11 +412,16 @@ function validateDocument(kind, document, episodeKey) {
     'production-plan': ['episode_key', 'source_versions', 'shots', 'totals', 'unresolved', 'approved'],
     'art-style': ['mode', 'style', 'decision_reason', 'approved'],
     'audio-plan': document.music_tracks === undefined ? ['episode_key', 'source_versions', 'lines', 'voice_bindings', 'unresolved', 'approved'] : ['episode_key', 'source_versions', 'lines', 'voice_bindings', 'music_tracks', 'unresolved', 'approved'],
+    'market-inspiration': ['schema_version', 'report_ref', 'signals', 'hypotheses', 'decision', 'guardrails'],
   }
   if (contracts[kind]) exactKeys(document, contracts[kind], kind)
   if (kind === 'source-analysis' && !['original', 'faithful_adaptation', 'authorized_adaptation'].includes(document.adaptation_mode)) throw new Error('source-analysis adaptation_mode 无效')
   if (kind === 'source-analysis' && document.coverage?.complete !== true) throw new Error('source-analysis coverage.complete 必须为 true')
-  if (kind === 'brief' && (typeof document.approved !== 'boolean' || !Array.isArray(document.open_questions))) throw new Error('brief approved/open_questions 无效')
+  if (kind === 'brief') {
+    if (typeof document.approved !== 'boolean' || !Array.isArray(document.open_questions)) throw new Error('brief approved/open_questions 无效')
+    if (document.market_inspiration_ref !== null) validateMarketInspirationRef(document.market_inspiration_ref, 'brief.market_inspiration_ref')
+  }
+  if (kind === 'market-inspiration') validateMarketInspiration(document)
   if (kind === 'bible') {
     if (!Array.isArray(document.characters)) throw new Error('bible characters[] 必填')
     const fields = ['name', 'dramatic_function', 'desire', 'need', 'fear', 'hidden_fact', 'arc_start', 'arc_turn', 'arc_end']
@@ -704,7 +795,7 @@ async function main() {
   }
   if (command === 'put-document') {
     const [kind, inputPath] = process.argv.slice(4)
-    if (!['source-analysis', 'brief', 'bible', 'outline', 'art-style'].includes(kind) || !inputPath) throw new Error('用法：put-document <项目目录> <source-analysis|brief|bible|outline|art-style> <JSON>')
+    if (!['source-analysis', 'brief', 'bible', 'outline', 'art-style', 'market-inspiration'].includes(kind) || !inputPath) throw new Error('用法：put-document <项目目录> <source-analysis|brief|bible|outline|art-style|market-inspiration> <JSON>')
     const document = await readJson(resolve(inputPath))
     validateDocument(kind, document)
     await invalidateFrom(root, kind === 'art-style' ? 'asset-analysis' : 'analysis')

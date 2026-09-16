@@ -25,7 +25,9 @@ const codexManifest = JSON.parse(await readFile(resolve(plugin, '.codex-plugin/p
 const claudeManifest = JSON.parse(await readFile(resolve(plugin, '.claude-plugin/plugin.json'), 'utf8'))
 const marketplaceManifest = JSON.parse(await readFile(resolve(plugin, '.claude-plugin/marketplace.json'), 'utf8'))
 if (!skillMap.support.includes('analyze-drama-market')) throw new Error('市场分析 Skill 未登记')
+if (!skillMap.support.includes('ideate-drama-from-market')) throw new Error('市场灵感 Skill 未登记为 support')
 if (!/市场.*analyze-drama-market/.test(skillIndexText)) throw new Error('Skill 索引缺少市场分析路由')
+if (!/市场.*ideate-drama-from-market/.test(skillIndexText)) throw new Error('Skill 索引缺少市场灵感路由')
 if (!/market-research\.mjs refresh/.test(usageGuideText)) throw new Error('使用手册缺少市场刷新命令')
 if (codexManifest.version !== '0.8.0' || claudeManifest.version !== codexManifest.version || marketplaceManifest.plugins[0].version !== codexManifest.version) throw new Error('插件版本未统一为 0.8.0')
 const providerPrompts = new Set(skillMap.provider_prompts || [])
@@ -338,7 +340,18 @@ async function main() {
       throw new Error('分析阶段仍可调用媒体生成')
     } catch (error) { if (!String(error.message).includes('只能在 asset-generation 或 media-production')) throw error }
     const source = { source_scope: {}, adaptation_mode: 'original', facts: [], timeline: [], characters: [], locations: [], props: [], conflicts: [], themes: [], visual_challenges: [], content_constraints: [], user_requirements: [], contradictions: [], open_questions: [], coverage: { complete: true, ranges: [] } }
-    const brief = { title: '测试', logline: '', adaptation_mode: 'original', genre: '', audience: '', platform: '', tone: '', core_conflict: '', output_language: 'zh-CN', spoken_language: 'zh-CN', subtitle_language: 'zh-CN', aspect_ratio: '9:16', episode_count: 1, episode_duration_seconds: 30, rating: '', existing_materials: [], required_deliverables: [], prohibited_content: [], ending_type: '', creative_constraints: [], open_questions: [], approved: true }
+    const brief = { title: '测试', logline: '', adaptation_mode: 'original', genre: '', audience: '', platform: '', tone: '', core_conflict: '', output_language: 'zh-CN', spoken_language: 'zh-CN', subtitle_language: 'zh-CN', aspect_ratio: '9:16', episode_count: 1, episode_duration_seconds: 30, rating: '', existing_materials: [], required_deliverables: [], prohibited_content: [], ending_type: '', creative_constraints: [], market_inspiration_ref: null, open_questions: [], approved: true }
+    const marketInspiration = {
+      schema_version: 'market-inspiration.v1',
+      report_ref: { report_id: 'market-report-integration', snapshot_ids: ['snapshot-integration'], generated_at: '2026-09-16T15:30:00.000+08:00', filters: { topic: ['悬疑推理'] }, sha256: 'a'.repeat(64), selected_hypothesis_ids: ['hyp-original-hook'] },
+      signals: [{ id: 'signal-verified', fact: '已保存报告中的公开样本信号。', confidence: 'low', evidence: [{ snapshot_id: 'snapshot-integration', ranking_type: 'hot', playlet_id: 'sample-1', key: 'playlet-id:sample-1' }], limitations: ['公开 Top 30 样本并不代表全量市场。'] }],
+      hypotheses: [{ id: 'hyp-original-hook', derived_signal_ids: ['signal-verified'], inference: '可测试线索回收的连续叙事。', creative_transformation: '使用原创档案室设定和人物冲突。', premises: ['用户接受悬疑基调。'], opening_hook: '一段未知来源录音要求主角立刻自证清白。', serial_engine: '每集揭示一条证据并引入新代价。', differentiation: '不使用榜单作品的人物关系或情节。', production_fit: '固定场景与少量演员适配竖屏制作。', risks: ['低置信信号需要后续验证。'], validation_questions: ['目标受众是否接受声音证据链？'] }],
+      decision: { selected_hypothesis_ids: ['hyp-original-hook'], rejected_hypothesis_ids: [], confirmed_at: null },
+      guardrails: { no_title_copy: true, no_plot_copy: true, no_revenue_promise: true, market_data_non_authoritative: true },
+    }
+    run('project-store.mjs', 'put-document', root, 'market-inspiration', await json(root, 'market-inspiration.json', marketInspiration))
+    const storedMarketInspiration = JSON.parse(await readFile(resolve(root, '.short-drama/market-inspiration.json'), 'utf8'))
+    if (storedMarketInspiration.report_ref.sha256 !== marketInspiration.report_ref.sha256 || storedMarketInspiration.decision.selected_hypothesis_ids.join() !== 'hyp-original-hook') throw new Error('市场灵感产物未被完整保存')
     const bible = { premise: '', genre: '', tone: '', themes: [], world_rules: [], ending: {}, characters: [{ name: '测试角色', dramatic_function: '主角', desire: '完成目标', need: '面对真相', fear: '失去同伴', hidden_fact: '隐瞒了过去', arc_start: '逃避', arc_turn: '承担', arc_end: '和解' }], relationships: [], three_act: {}, conflict_ladder: [], promises_and_payoffs: [], foreshadowing: [], continuity_rules: [], adaptation_constraints: [], open_questions: [] }
     const outline = { episodes: [{ key: 'ep-001', order: 1 }], coverage_check: { complete: true, gaps: [], overlaps: [] }, continuity_check: { valid: true, issues: [] } }
     for (const [kind, value] of Object.entries({ 'source-analysis': source, brief, bible, outline })) run('project-store.mjs', 'put-document', root, kind, await json(root, `${kind}.json`, value))
