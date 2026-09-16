@@ -6,6 +6,7 @@ import { dirname, relative, resolve, sep } from 'node:path'
 import { withFileLock } from './file-lock.mjs'
 import { invalidateFrom } from './invalidate-workflow.mjs'
 import { getMusicLicense, validateMusicUse } from './music-license-ledger.mjs'
+import { finalSpeechAlignment } from './speech-timing.mjs'
 
 const TRANSITIONS = new Set(['none', 'hard-cut', 'action-cut', 'eyeline-cut', 'composition-match', 'j-cut', 'l-cut', 'occlusion', 'fade', 'dissolve'])
 const AUDIO_ROLES = new Set(['dialogue', 'voiceover', 'ambient', 'bgm', 'sfx', 'native'])
@@ -96,6 +97,36 @@ function sourcePromptDocument(assets, assetKey, version, seen = new Set()) {
   return null
 }
 
+async function dialogueBindingContext(root, episodeKey) {
+  const planMarker = JSON.parse(await readFile(resolve(root, 'episodes', episodeKey, 'audio-plan', 'selected.json'), 'utf8'))
+  const plan = JSON.parse(await readFile(resolve(root, planMarker.path || `episodes/${episodeKey}/audio-plan/${planMarker.versionId}.json`), 'utf8'))
+  const timingMarker = JSON.parse(await readFile(resolve(root, 'episodes', episodeKey, 'speech-timing', 'selected.json'), 'utf8'))
+  const timing = JSON.parse(await readFile(resolve(root, timingMarker.path || `episodes/${episodeKey}/speech-timing/${timingMarker.versionId}.json`), 'utf8'))
+  const reviewBytes = await readFile(resolve(root, '.short-drama', 'dubbing-reviews.json'), 'utf8').catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error))
+  const reviews = reviewBytes ? JSON.parse(reviewBytes) : { reviews: {} }
+  return { planMarker, plan, timingMarker, timing, reviews }
+}
+
+async function verifyCurrentDialogueBinding(root, context, assets, binding) {
+  const asset = assets.assets?.[binding.asset_key]
+  const version = asset?.versions?.find((item) => item.id === binding.version_id)
+  if (!asset || asset.selectedVersionId !== binding.version_id || asset.staleVersionIds?.includes(binding.version_id) || version?.sha256 !== binding.sha256) throw new Error('对白绑定必须引用当前 selected、未失效且 SHA 一致的真实资产')
+  if (binding.dubbing_contract_version !== context.planMarker.versionId) throw new Error('对白绑定的配音合同已过期')
+  const line = context.plan.approved === true && !context.plan.unresolved?.length && context.plan.lines?.find((item) => item.line_index === binding.line_index)
+  const timingLine = context.timing.reviewed === true && context.timing.lines?.find((item) => item.line_index === binding.line_index)
+  if (!line || !timingLine || line.dubbing_contract?.timing_source?.version_id !== context.timingMarker.versionId || line.dubbing_contract.timing_source.line_index !== binding.line_index) throw new Error('对白绑定未命中当前已批准合同与已复核 timing 行')
+  if (line.dubbing_contract.mode === 'native-preserve') {
+    const source = line.dubbing_contract.timing_source.source_asset
+    if (binding.speech_timing_version !== context.timingMarker.versionId || asset.type !== 'video' || source.asset_key !== binding.asset_key || source.version_id !== binding.version_id || source.sha256 !== binding.sha256 || context.timing.source_asset?.sha256 !== binding.sha256) throw new Error('原生声轨字幕必须绑定 timing 实际来源视频')
+    return { asset, version, line, native: true }
+  }
+  const review = context.reviews.reviews?.[`${binding.asset_key}@${binding.version_id}`]
+  if (asset.type !== 'audio' || review?.approved !== true || review.asset_sha256 !== binding.sha256 || review.episode_key !== context.plan.episode_key || review.line_index !== binding.line_index || review.audio_plan_version !== binding.dubbing_contract_version || review.timing_version_id !== binding.speech_timing_version) throw new Error('配音字幕必须绑定当前 selected 配音及其八维审核')
+  const alignment = await finalSpeechAlignment(root, { asset_key: binding.asset_key, version_id: binding.version_id, sha256: binding.sha256 })
+  if (alignment.version_id !== binding.speech_timing_version || alignment.document.audio_plan_version !== binding.dubbing_contract_version || alignment.document.line_index !== binding.line_index) throw new Error('配音字幕的最终词级对齐已过期')
+  return { asset, version, line, native: false }
+}
+
 async function validateCatalogMusicTrack(root, timeline, track, version, segments) {
   const receiptKey = version.provenance?.parameters?.music_license_receipt
   const reference = track.audio_plan
@@ -126,6 +157,7 @@ export async function validateTimeline(root, timeline) {
   if (!Array.isArray(audioTracks) || !Array.isArray(labels) || !Array.isArray(graphics)) throw new Error('timeline audio_tracks[]、labels[]、graphics[] 必须是数组')
   const assets = JSON.parse(await readFile(resolve(root, '.short-drama', 'assets.json'), 'utf8'))
   const reviews = JSON.parse(await readFile(resolve(root, '.short-drama', 'shot-reviews.json'), 'utf8'))
+  let dialogueContext = null
   const keys = new Set()
   let previousEnd = 0
   const segments = []
@@ -158,15 +190,14 @@ export async function validateTimeline(root, timeline) {
     previousEnd = segment.timeline_end_ms
     segments.push({ ...segment, transition, source: version.localPath })
   }
+  if (timeline.subtitles.length) dialogueContext = await dialogueBindingContext(root, timeline.episode_key)
   for (const subtitle of timeline.subtitles) {
     if (typeof subtitle.text !== 'string' || !subtitle.text || !Number.isInteger(subtitle.startMs) || !Number.isInteger(subtitle.endMs) || !Number.isInteger(subtitle.timestampMs) || typeof subtitle.confidence !== 'number' || subtitle.confidence < 0 || subtitle.confidence > 1 || subtitle.startMs < 0 || subtitle.endMs <= subtitle.startMs || subtitle.timestampMs < subtitle.startMs || subtitle.timestampMs > subtitle.endMs || subtitle.endMs > previousEnd) throw new Error('字幕必须符合 Remotion Caption 时间与置信度合同')
     if ('speaker' in subtitle && (typeof subtitle.speaker !== 'string' || !subtitle.speaker.trim())) throw new Error('字幕 speaker 必须是非空字符串')
     if ('show_speaker' in subtitle && typeof subtitle.show_speaker !== 'boolean') throw new Error('字幕 show_speaker 必须是布尔值（默认 false，电影式隐藏）')
     if ('speakers' in subtitle && (!Array.isArray(subtitle.speakers) || subtitle.speakers.length < 1 || subtitle.speakers.length > 2 || subtitle.speakers.some((name) => typeof name !== 'string' || !name.trim()))) throw new Error('字幕 speakers 必须是 1–2 个非空字符串（双人对白）')
     if (!validAudioBinding(subtitle.audio_binding)) throw new Error('字幕必须绑定最终 selected 配音、timing 与合同版本')
-    const boundAsset = assets.assets?.[subtitle.audio_binding.asset_key]
-    const boundVersion = boundAsset?.versions?.find((item) => item.id === subtitle.audio_binding.version_id)
-    if (boundAsset?.type !== 'audio' || boundAsset.selectedVersionId !== subtitle.audio_binding.version_id || boundVersion?.sha256 !== subtitle.audio_binding.sha256 || boundAsset.staleVersionIds?.includes(boundVersion?.id)) throw new Error('字幕必须绑定当前 selected 配音及 SHA')
+    await verifyCurrentDialogueBinding(root, dialogueContext, assets, subtitle.audio_binding)
   }
   if (timeline.subtitles.length) {
     const source = timeline.subtitle_source
@@ -189,6 +220,7 @@ export async function validateTimeline(root, timeline) {
     if (asset.type === 'video' && sourcePromptDocument(assets, track.asset_key, version)?.episode_key !== timeline.episode_key) throw new Error(`${track.asset_key} 原生声轨不属于 ${timeline.episode_key}`)
     if (['dialogue', 'voiceover'].includes(track.role)) {
       if (!validAudioBinding(track.audio_binding) || track.audio_binding.asset_key !== track.asset_key || track.audio_binding.version_id !== track.version_id || track.audio_binding.sha256 !== version.sha256) throw new Error(`${track.asset_key} 对白音轨必须绑定同一 selected 配音、timing 与合同版本`)
+      await verifyCurrentDialogueBinding(root, dialogueContext, assets, track.audio_binding)
       if (!timeline.subtitles.some((subtitle) => sameAudioBinding(subtitle.audio_binding, track.audio_binding))) throw new Error(`${track.asset_key} 对白音轨与字幕未使用同一 selected 配音`)
     }
     const envelope = track.volume_envelope || []

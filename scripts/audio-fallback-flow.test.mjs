@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { addAssetVersion, putAsset } from './asset-ledger.mjs'
 
-const { call, tools } = await import('./generation/mcp.mjs')
+const { call, persistDerivedFallbackContract, tools } = await import('./generation/mcp.mjs')
 
 async function rootFixture() {
   const root = await mkdtemp(resolve(tmpdir(), 'short-drama-audio-fallback-'))
@@ -69,5 +69,21 @@ test('兜底预检保存异常、区间和混音来源且不产生付费任务',
     assert.equal(preview.provenance.native_audio_exception.reason, 'narration-performance-failed')
     assert.deepEqual(preview.provenance.replaced_ranges, [{ start_ms: 1000, end_ms: 2500 }])
     assert.ok(tools.some((tool) => tool.name === 'generate_audio_fallback'))
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('兜底生成合同必须连同原声失败证据持久化', async () => {
+  const root = await rootFixture()
+  try {
+    const record = {
+      version: 1, episode_key: 'ep-001', line_index: 1, audio_plan_version: 'v001',
+      source_video: { asset_key: 'shot-ep001-001', version_id: 'v001' },
+      native_audio_exception: { reason: 'speech-intelligibility-failed', evidence: '原声含混', range: { start_ms: 0, end_ms: 900 } },
+      generated_contract: { mode: 'generated', target_range: { start_ms: 0, end_ms: 900 } },
+    }
+    const saved = await persistDerivedFallbackContract(root, record)
+    assert.match(saved.path, /^episodes\/ep-001\/audio-plan\/fallback-contracts\/line-001-/)
+    assert.deepEqual(JSON.parse(await readFile(resolve(root, saved.path), 'utf8')), record)
+    await assert.rejects(() => persistDerivedFallbackContract(root, { ...record, native_audio_exception: null }), /失败证据/)
   } finally { await rm(root, { recursive: true, force: true }) }
 })

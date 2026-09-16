@@ -3,6 +3,9 @@ import { createReadStream } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, resolve, sep } from 'node:path'
+import { validateTimeline } from './editing-store.mjs'
+import { probeMedia } from './media-tools.mjs'
+import { finalSpeechAlignment } from './speech-timing.mjs'
 
 function parseIdentity(value, label) {
   const match = /^([a-z0-9]+(?:-[a-z0-9]+)*)@(v\d{3})$/.exec(value || '')
@@ -22,14 +25,16 @@ function assetVersion(root, ledger, identity, requireSelected) {
   return { asset, version, path }
 }
 
-function wordErrors(timingLine, alignment) {
-  if (!Array.isArray(alignment?.words) || !alignment.words.length) return { status: 'missing', items: [] }
+export function assessWordAlignment(timingLine, alignment, toleranceMs) {
+  if (!Array.isArray(alignment?.words) || !alignment.words.length) return { status: 'missing', max_error_ms: null, items: [] }
   const expected = timingLine.words || []
   const items = expected.map((word, index) => {
     const actual = alignment.words[index]
     return { index, text: word.text, actual_text: actual?.text ?? null, start_error_ms: actual ? actual.start_ms - word.start_ms : null, end_error_ms: actual ? actual.end_ms - word.end_ms : null }
   })
-  return { status: items.length === alignment.words.length && items.every((item) => item.text === item.actual_text) ? 'measured' : 'mismatch', items }
+  const maxError = items.length ? Math.max(...items.flatMap((item) => [Math.abs(item.start_error_ms ?? Number.POSITIVE_INFINITY), Math.abs(item.end_error_ms ?? Number.POSITIVE_INFINITY)])) : null
+  const sameWords = items.length === alignment.words.length && items.every((item) => item.text === item.actual_text)
+  return { status: !sameWords ? 'mismatch' : maxError <= toleranceMs ? 'passed' : 'out-of-tolerance', max_error_ms: Number.isFinite(maxError) ? maxError : null, items }
 }
 
 export async function runDubbingLiveAcceptance(rootArg, episodeKey, lineIndex, options) {
@@ -42,6 +47,9 @@ export async function runDubbingLiveAcceptance(rootArg, episodeKey, lineIndex, o
   const dub = assetVersion(root, ledger, dubId, true)
   const [originalSha, dubSha] = await Promise.all([sha256(original.path), sha256(dub.path)])
   if (originalSha !== original.version.sha256 || dubSha !== dub.version.sha256) throw new Error('原声或配音文件 SHA 与资产账本不一致')
+  const originalMedia = probeMedia(original.path)
+  const dubMedia = probeMedia(dub.path)
+  if ((!originalMedia.has_video && !originalMedia.has_audio) || !dubMedia.has_audio) throw new Error('真实验收资产必须包含可解码原声媒体和配音音轨')
 
   const reviewFile = resolve(options.review)
   if (reviewFile !== root && !reviewFile.startsWith(`${root}${sep}`)) throw new Error('审核账本必须位于项目目录内')
@@ -52,23 +60,42 @@ export async function runDubbingLiveAcceptance(rootArg, episodeKey, lineIndex, o
   const timingMarker = await json(resolve(root, 'episodes', episodeKey, 'speech-timing', 'selected.json'))
   const timing = await json(resolve(root, 'episodes', episodeKey, 'speech-timing', `${timingMarker.versionId}.json`))
   const timingLine = timing.lines?.find((line) => line.line_index === lineIndex)
-  if (!timingLine || review.timing_version_id !== timingMarker.versionId) throw new Error('验收必须绑定当前 selected speech-timing')
-  const measuredWords = wordErrors(timingLine, review.final_alignment)
-
+  if (!timingLine) throw new Error('验收必须绑定当前 selected speech-timing')
   const timeline = await json(resolve(root, 'editing', episodeKey, 'timeline.json')).catch(() => null)
+  const toleranceMs = Math.ceil(1000 / (timeline?.fps || 24))
+  const finalAlignment = await finalSpeechAlignment(root, { asset_key: dubId.key, version_id: dubId.version_id, sha256: dubSha })
+  if (review.timing_version_id !== finalAlignment.version_id) throw new Error('验收必须绑定当前最终配音词级对齐')
+  const offset = finalAlignment.document.timeline_mapping.timeline_at_ms - finalAlignment.document.timeline_mapping.audio_in_ms
+  const measuredWords = assessWordAlignment(timingLine, { words: finalAlignment.document.words.map((word) => ({ ...word, start_ms: word.start_ms + offset, end_ms: word.end_ms + offset })) }, toleranceMs)
+
   const subtitle = timeline?.subtitles?.find((item) => item.audio_binding?.line_index === lineIndex)
   const audioBinding = subtitle?.audio_binding
   const subtitleBound = audioBinding?.asset_key === dubId.key && audioBinding?.version_id === dubId.version_id && audioBinding?.sha256 === dubSha && audioBinding?.speech_timing_version === timingMarker.versionId
-  const lipSegment = timeline?.segments?.find((segment) => segment.dialogue_sync === 'lip-synced' && ledger.assets?.[segment.asset_key]?.versions?.find((item) => item.id === segment.version_id)?.provenance?.parameters?.parameters?.audio_binding?.sha256 === dubSha)
+  let timelineValid = false
+  try { if (timeline) { await validateTimeline(root, timeline); timelineValid = true } } catch {}
+  const planMarker = await json(resolve(root, 'episodes', episodeKey, 'audio-plan', 'selected.json'))
+  const plan = await json(resolve(root, planMarker.path || `episodes/${episodeKey}/audio-plan/${planMarker.versionId}.json`))
+  const contractRange = plan.lines?.find((line) => line.line_index === lineIndex)?.dubbing_contract?.target_range
+  const lipSegment = timeline?.segments?.find((segment) => {
+    const asset = ledger.assets?.[segment.asset_key]
+    const version = asset?.versions?.find((item) => item.id === segment.version_id)
+    const parameters = version?.provenance?.parameters
+    const requestBinding = parameters?.parameters?.audio_binding
+    const range = parameters?.range
+    return segment.dialogue_sync === 'lip-synced' && asset?.selectedVersionId === segment.version_id && !asset.staleVersionIds?.includes(segment.version_id) && requestBinding?.sha256 === dubSha && range?.start_ms === contractRange?.start_ms && range?.end_ms === contractRange?.end_ms
+  })
   const dimensionPassed = review.watched_full === true && Object.values(review.dimensions || {}).length === 8 && Object.values(review.dimensions || {}).every((dimension) => dimension.status === 'passed')
-  const accepted = dimensionPassed && measuredWords.status === 'measured' && subtitleBound === true && Boolean(lipSegment) && !review.issues?.some((issue) => ['P0', 'P1'].includes(issue.severity))
+  const subtitleErrors = subtitle ? { start: subtitle.startMs - timingLine.start_ms, end: subtitle.endMs - timingLine.end_ms } : null
+  const subtitleToleranceMs = toleranceMs * 4
+  const subtitleWithinTolerance = subtitleErrors && Math.abs(subtitleErrors.start) <= subtitleToleranceMs && Math.abs(subtitleErrors.end) <= subtitleToleranceMs
+  const accepted = dimensionPassed && measuredWords.status === 'passed' && subtitleBound === true && subtitleWithinTolerance === true && timelineValid && Boolean(lipSegment) && !review.issues?.some((issue) => ['P0', 'P1'].includes(issue.severity))
   const report = {
     version: 1, episode_key: episodeKey, line_index: lineIndex, created_at: new Date().toISOString(), accepted,
     original: { asset_key: originalId.key, version_id: originalId.version_id, sha256: originalSha },
     dub: { asset_key: dubId.key, version_id: dubId.version_id, sha256: dubSha },
     timing: { version_id: timingMarker.versionId, word_errors: measuredWords },
     production_duration_ms: Number.isInteger(review.production_duration_ms) ? review.production_duration_ms : null,
-    subtitle: { bound: subtitleBound, start_error_ms: subtitle ? subtitle.startMs - timingLine.start_ms : null, end_error_ms: subtitle ? subtitle.endMs - timingLine.end_ms : null },
+    subtitle: { bound: subtitleBound, within_tolerance: subtitleWithinTolerance, tolerance_ms: subtitleToleranceMs, start_error_ms: subtitleErrors?.start ?? null, end_error_ms: subtitleErrors?.end ?? null },
     lip_sync: { bound: Boolean(lipSegment), segment: lipSegment ? `${lipSegment.asset_key}@${lipSegment.version_id}` : null },
     performance_review: { watched_full: review.watched_full === true, dimensions: review.dimensions, issues: review.issues || [] },
   }
@@ -85,7 +112,9 @@ async function main() {
   const options = {}
   for (let index = 0; index < rest.length; index += 2) options[rest[index]?.replace(/^--/, '')] = rest[index + 1]
   if (!root || !episode || !/^\d+$/.test(lineArg || '') || !options.original || !options.dub || !options.review) throw new Error('用法：dubbing-live-acceptance.mjs <project-root> ep-001 <line> --original asset@v001 --dub audio@v003 --review <dubbing-reviews.json>')
-  console.log(JSON.stringify(await runDubbingLiveAcceptance(root, episode, Number(lineArg), options), null, 2))
+  const result = await runDubbingLiveAcceptance(root, episode, Number(lineArg), options)
+  console.log(JSON.stringify(result, null, 2))
+  if (!result.report.accepted) process.exitCode = 2
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { console.error(error.message); process.exitCode = 1 })

@@ -29,6 +29,25 @@ test('生成入口从当前 audio-plan 派生合同版本、voice binding 和授
   assert.equal('measured_speech_ms' in result.arguments, false)
 })
 
+test('普通生成入口拒绝 native-preserve 合同', () => {
+  const nativeLine = {
+    line_index: 1,
+    voice_binding: { voice_id: 'linwan' },
+    dubbing_contract: {
+      mode: 'native-preserve',
+      timing_source: contract.timing_source,
+      target_range: contract.target_range,
+      performance_reference: contract.performance,
+    },
+  }
+  assert.throws(() => compileGeneratedAudioArguments({
+    providerArgs: { provider: 'bailian', model: 'cosyvoice-v3.5-plus', voice: 'linwan', input: '伪造直接配音', speed: 2 },
+    line: nativeLine,
+    audioPlan: { voice_bindings: [{ voice_id: 'linwan' }] },
+    audioPlanVersion: 'v003',
+  }), /native-preserve|原声保留|兜底/)
+})
+
 async function fixture() {
   const root = await mkdtemp(resolve(tmpdir(), 'dubbing-mcp-'))
   const audioPath = resolve(root, 'assets/audio/audio-ep001-source/v001.wav')
@@ -63,4 +82,16 @@ test('编译工具拒绝第四轮付费生成', async () => {
   try {
     await assert.rejects(() => call('compile_dubbing_request', { project_root: root, episode_key: 'ep-001', audio_plan_version: 'v003', line_index: 1, provider: 'bailian', model: 'cosyvoice-v3.5-plus', voice: 'linwan', attempt: 4 }), /最多 3 次|attempt|轮次|能力不匹配/)
   } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('字幕 MCP 拒绝调用者伪造资产、SHA 和 timing 证据', async () => {
+  await assert.rejects(() => call('build_subtitles_from_audio', {
+    input: {
+      audio: { asset_key: 'audio-does-not-exist', version_id: 'v999', sha256: 'f'.repeat(64) },
+      timing: { version_id: 'v999', lines: [{ line_index: 1, start_ms: 0, end_ms: 900, words: [] }] },
+      contracts: [{ line_index: 1, content: '伪造字幕', dubbing_contract_version: 'v999', dubbing_contract: { target_range: { start_ms: 0, end_ms: 900 } } }],
+      fps: 24,
+      timeline_end_ms: 1000,
+    },
+  }), /项目|project_root|selected|资产/)
 })
