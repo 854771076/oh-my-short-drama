@@ -1,0 +1,89 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { resolve } from 'node:path'
+import { putSpeechTimingCandidate, reviewSpeechTiming, selectedSpeechTiming, validateSpeechTiming } from './speech-timing.mjs'
+
+const sourceAsset = { asset_key: 'audio-ep001-dialogue', version_id: 'v001', sha256: 'a'.repeat(64) }
+
+function word(overrides = {}) {
+  return { text: '别', start_ms: 0, end_ms: 160, confidence: 0.95, confidence_source: 'asr', ...overrides }
+}
+
+function line(overrides = {}) {
+  return { line_index: 1, start_ms: 0, end_ms: 500, words: [word()], ...overrides }
+}
+
+function timing(overrides = {}) {
+  return { episode_key: 'ep-001', source_asset: sourceAsset, method: 'asr-forced-alignment', reviewed: false, language: 'zh-CN', lines: [line()], ...overrides }
+}
+
+async function temporaryRoot() {
+  return mkdtemp(resolve(tmpdir(), 'speech-timing-'))
+}
+
+test('低置信 ASR 只能保存为未复核候选', async () => {
+  const root = await temporaryRoot()
+  try {
+    const candidate = timing({ lines: [line({ words: [word({ confidence: 0.89 })] })] })
+    assert.doesNotThrow(() => validateSpeechTiming(candidate))
+    const saved = await putSpeechTimingCandidate(root, candidate)
+    await assert.rejects(
+      () => reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: saved.version_id, document: { ...candidate, reviewed: true }, reviewed_by: 'codex' }),
+      /必须人工校正/
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('人工复核创建新版本且不改写候选', async () => {
+  const root = await temporaryRoot()
+  try {
+    const candidate = timing({ lines: [line({ words: [word({ confidence: 0.89 })] })] })
+    const saved = await putSpeechTimingCandidate(root, candidate)
+    const corrected = timing({
+      reviewed: true,
+      lines: [line({ words: [word({ text: '别动', end_ms: 180, confidence: 1, confidence_source: 'manual-correction' })] })],
+    })
+    const reviewed = await reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: saved.version_id, document: corrected, reviewed_by: 'codex' })
+    const selected = await selectedSpeechTiming(root, 'ep-001')
+    const candidatePath = resolve(root, 'episodes/ep-001/speech-timing/v001.json')
+    const marker = JSON.parse(await readFile(resolve(root, 'episodes/ep-001/speech-timing/selected.json'), 'utf8'))
+    assert.equal(reviewed.version_id, 'v002')
+    assert.equal(selected.version_id, 'v002')
+    assert.equal(selected.document.reviewed, true)
+    assert.equal(JSON.parse(await readFile(candidatePath, 'utf8')).reviewed, false)
+    assert.deepEqual(marker, { versionId: 'v002', path: 'episodes/ep-001/speech-timing/v002.json', source_asset_sha256: sourceAsset.sha256, reviewed_by: 'codex' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('ASR 行拒绝重叠行和越过行边界的词', () => {
+  assert.throws(() => validateSpeechTiming(timing({ lines: [line(), line({ line_index: 2, start_ms: 400, end_ms: 900, words: [word({ start_ms: 400, end_ms: 600 })] })] })), /重叠/)
+  assert.throws(() => validateSpeechTiming(timing({ lines: [line({ words: [word({ end_ms: 501 })] })] })), /行区间/)
+})
+
+test('人工指令行必须用 evidence 说明且不得伪造词级 ASR', () => {
+  const manual = { episode_key: 'ep-001', source_asset: sourceAsset, method: 'manual-direction', reviewed: false, language: 'zh-CN', lines: [{ line_index: 1, start_ms: 0, end_ms: 500, words: [], evidence: '导演按画面节奏标注起止' }] }
+  assert.doesNotThrow(() => validateSpeechTiming(manual))
+  assert.throws(() => validateSpeechTiming({ ...manual, lines: [{ ...manual.lines[0], evidence: '   ' }] }), /evidence/)
+  assert.throws(() => validateSpeechTiming({ ...manual, lines: [{ ...manual.lines[0], words: [word()] }] }), /words/)
+  assert.throws(() => validateSpeechTiming(timing({ lines: [line({ evidence: '伪造人工说明' })] })), /字段无效/)
+})
+
+test('新候选不会覆盖已有版本且 selected 只读取经过复核的标准版本', async () => {
+  const root = await temporaryRoot()
+  try {
+    const first = await putSpeechTimingCandidate(root, timing({ language: 'zh-CN' }))
+    const second = await putSpeechTimingCandidate(root, timing({ language: 'en-US' }))
+    assert.equal(first.version_id, 'v001')
+    assert.equal(second.version_id, 'v002')
+    assert.equal(JSON.parse(await readFile(resolve(root, 'episodes/ep-001/speech-timing/v001.json'), 'utf8')).language, 'zh-CN')
+    await assert.rejects(() => selectedSpeechTiming(root, 'ep-001'), /不存在|已复核/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
