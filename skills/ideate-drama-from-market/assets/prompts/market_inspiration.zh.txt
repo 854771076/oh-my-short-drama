@@ -14,7 +14,7 @@
 只返回严格 JSON，顶层必须且只能包含：schema_version、report_ref、signals、hypotheses、decision、guardrails。
 
 规则：
-1. schema_version 固定为 market-inspiration.v1。report_ref 必须且只能包含 report_id、snapshot_ids、generated_at、filters、sha256、selected_hypothesis_ids，均来自已保存报告或用户选择；不得杜撰。
+1. schema_version 固定为 market-inspiration.v1。用户选定假设后，先调用 `project-store.mjs market-report-ref <项目目录> <report ID> <已选 hypothesis ID>...`；report_ref 必须逐字段原样使用该命令的 JSON 输出，只能包含 report_id、snapshot_ids、generated_at、filters、sha256、selected_hypothesis_ids。不得自行计算摘要、猜测算法或杜撰字段。
 2. signals[].fact 只写报告可回链的事实；每项必须包含 confidence、至少一条 evidence 和至少一条 limitations。低置信度必须原样继承为 low，不得升级。
 3. hypotheses[] 中 inference 是有限推断，creative_transformation、opening_hook、serial_engine、differentiation 和 production_fit 是原创假设。每项必须引用至少一个 derived_signal_ids，并写明 premises、risks 和 validation_questions。
 4. 不得复制、改写或拼接榜单作品标题、人物关系、具体情节、独特台词或故事结构；不得承诺收益、投放或成功概率。

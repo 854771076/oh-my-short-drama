@@ -87,6 +87,31 @@ function inspiration(report = marketReport()) {
   }
 }
 
+test('market-report-ref 从已保存报告生成可直接保存的完整引用', async (t) => {
+  const root = await mkdtemp(resolve(tmpdir(), 'project-market-report-ref-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  assert.equal(run('init', root).status, 0)
+
+  const report = marketReport()
+  await createMarketStore(root).saveReport(report)
+  const generated = run('market-report-ref', root, report.report_id, 'hyp-suspense-hook')
+  assert.equal(generated.status, 0, generated.stderr)
+  const reportRef = JSON.parse(generated.stdout)
+  assert.deepEqual(reportRef, {
+    report_id: 'market-report-20260916',
+    snapshot_ids: ['20260916T153000+0800'],
+    generated_at: '2026-09-16T15:30:00.000+08:00',
+    filters: { topic: ['悬疑推理'], rankingTypes: ['hot'] },
+    sha256: '132620867404785da2ee8dda34242161c8fedfee8e4c840d9316f66f3d39bc8f',
+    selected_hypothesis_ids: ['hyp-suspense-hook'],
+  })
+
+  const document = inspiration(report)
+  document.report_ref = reportRef
+  const saved = run('put-document', root, 'market-inspiration', await writeJson(root, 'generated-ref-inspiration.json', document))
+  assert.equal(saved.status, 0, saved.stderr)
+})
+
 test('market-inspiration.v1 可验证、保存并回读，且 Brief 保留完整可空市场引用', async (t) => {
   const root = await mkdtemp(resolve(tmpdir(), 'project-market-inspiration-'))
   t.after(() => rm(root, { recursive: true, force: true }))

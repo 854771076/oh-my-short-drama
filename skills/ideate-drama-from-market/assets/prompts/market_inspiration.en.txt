@@ -14,7 +14,7 @@ This file is read by the owning Skill to constrain Codex input, reasoning, and o
 Return strict JSON whose only top-level keys are: schema_version, report_ref, signals, hypotheses, decision, guardrails.
 
 Rules:
-1. schema_version is always market-inspiration.v1. report_ref must contain only report_id, snapshot_ids, generated_at, filters, sha256, and selected_hypothesis_ids. Use only saved-report facts or explicit user selections.
+1. schema_version is always market-inspiration.v1. After the user selects hypotheses, run `project-store.mjs market-report-ref <project-root> <report ID> <selected hypothesis ID>...`. Use that command's JSON output verbatim as report_ref; it may contain only report_id, snapshot_ids, generated_at, filters, sha256, and selected_hypothesis_ids. Never calculate the digest yourself, guess its algorithm, or invent fields.
 2. signals[].fact contains only report-backed facts. Each signal requires confidence, at least one evidence item, and at least one limitation. Preserve low confidence as low.
 3. In every hypothesis, inference is a bounded inference; creative_transformation, opening_hook, serial_engine, differentiation, and production_fit are original creative hypotheses. Cite at least one derived_signal_ids and include premises, risks, and validation_questions.
 4. Do not copy, rewrite, or combine ranking-work titles, character relationships, concrete plots, distinctive dialogue, or story structures. Do not promise revenue, media-buying results, or success probability.

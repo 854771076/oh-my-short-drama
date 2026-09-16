@@ -326,8 +326,9 @@ function validateMarketInspirationRef(value, field) {
   validateStringList(value.selected_hypothesis_ids, `${field}.selected_hypothesis_ids`, { min: 1, validate: safeKey })
 }
 
-async function validateSavedMarketReportReference(projectRoot, reference, field) {
-  const reportPath = resolve(projectRoot, '.short-drama-market', 'reports', `${reference.report_id}.json`)
+async function readSavedMarketReport(projectRoot, reportId, field) {
+  marketId(reportId, `${field}.report_id`)
+  const reportPath = resolve(projectRoot, '.short-drama-market', 'reports', `${reportId}.json`)
   let report
   try {
     report = await readJson(reportPath)
@@ -335,6 +336,25 @@ async function validateSavedMarketReportReference(projectRoot, reference, field)
     throw new Error(`${field} 引用的已保存市场报告不存在或无法读取`)
   }
   if (!report || typeof report !== 'object' || Array.isArray(report) || report.schema_version !== MARKET_REPORT_SCHEMA_VERSION) throw new Error(`${field} 引用的市场报告必须是 ${MARKET_REPORT_SCHEMA_VERSION}`)
+  if (report.report_id !== reportId) throw new Error(`${field}.report_id 必须与已保存市场报告一致`)
+  return report
+}
+
+function buildMarketReportReference(report, selectedHypothesisIds) {
+  const reference = {
+    report_id: report.report_id,
+    snapshot_ids: report.snapshot_ids,
+    generated_at: report.generated_at,
+    filters: report.filters,
+    sha256: canonicalJsonSha256(report),
+    selected_hypothesis_ids: selectedHypothesisIds,
+  }
+  validateMarketInspirationRef(reference, 'market-report-ref')
+  return reference
+}
+
+async function validateSavedMarketReportReference(projectRoot, reference, field) {
+  const report = await readSavedMarketReport(projectRoot, reference.report_id, field)
   for (const key of ['report_id', 'snapshot_ids', 'generated_at', 'filters']) {
     if (!sameCanonicalJson(reference[key], report[key])) throw new Error(`${field}.${key} 必须与已保存市场报告一致`)
   }
@@ -715,6 +735,12 @@ async function main() {
     return console.log(root)
   }
   if (command === 'project') return console.log(JSON.stringify(validateProject(await readJson(resolve(root, '.short-drama/project.json'))), null, 2))
+  if (command === 'market-report-ref') {
+    const [reportId, ...selectedHypothesisIds] = process.argv.slice(4)
+    if (!reportId || selectedHypothesisIds.length === 0) throw new Error('用法：market-report-ref <项目目录> <report ID> <已选 hypothesis ID>...')
+    const report = await readSavedMarketReport(root, reportId, 'market-report-ref')
+    return console.log(JSON.stringify(buildMarketReportReference(report, selectedHypothesisIds), null, 2))
+  }
   if (command === 'validate-project-config') {
     validateProject(await readJson(resolve(root, '.short-drama/project.json')))
     return console.log(JSON.stringify({ valid: true, schema_version: 1 }))
@@ -976,7 +1002,7 @@ async function main() {
     versionKey(versionId, `${kind} version`)
     return console.log(JSON.stringify(await readJson(resolve(episodeRoot(episodeKey), kind, `${versionId}.json`)), null, 2))
   }
-  throw new Error('用法：project-store.mjs init|project|validate-project-config|migrate-project-config|update-project|put-source|select-source|put-document|put-episode|update-episode|list-episodes|put-script|select-script|script|put-episode-document|validate-episode-document|select-episode-document|episode-document ...')
+  throw new Error('用法：project-store.mjs init|project|market-report-ref|validate-project-config|migrate-project-config|update-project|put-source|select-source|put-document|put-episode|update-episode|list-episodes|put-script|select-script|script|put-episode-document|validate-episode-document|select-episode-document|episode-document ...')
 }
 
 if (resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) main().catch((error) => { console.error(error.message); process.exitCode = 1 })
