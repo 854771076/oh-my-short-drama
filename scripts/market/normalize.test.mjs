@@ -13,12 +13,12 @@ test('合并数组和字符串标签并保留来源', () => {
     douyin: [{ playletId: 2, playletName: '今晚查寝，别开门', ranking: 1, playCountAddRaw: 900000, tags: '["女频","悬疑"]', isNew: 1 }],
   }, { observedAt: '2026-09-16T15:30:00+08:00' })
 
-  assert.deepEqual(result[0].topics, ['都市日常'])
+  assert.deepEqual(result[0].topics, ['都市情感'])
   assert.equal(result[0].audience, '男频')
   assert.equal(result[0].provenance.topicSource, 'source-tag')
   assert.equal(result[1].growthValue, 900000)
   assert.deepEqual(Object.keys(result[0]).sort(), [
-    'audience', 'companies', 'era', 'format', 'growthValue', 'heatValue', 'isNew', 'key', 'persistenceDays', 'playletId', 'provenance', 'ranking', 'rankingType', 'title', 'topics', 'observedAt',
+    'audience', 'companies', 'era', 'format', 'growthValue', 'heatValue', 'isNew', 'key', 'persistenceDays', 'playletId', 'provenance', 'ranking', 'rankingType', 'rawTopics', 'title', 'topics', 'observedAt',
   ].sort())
 })
 
@@ -39,7 +39,7 @@ test('损坏 JSON 数组清洗括号、引号和字符串 null，并保留可恢
     tags: '["男频",null,"都市日常"',
   })
   assert.equal(observation.audience, '男频')
-  assert.deepEqual(observation.topics, ['都市日常'])
+  assert.deepEqual(observation.topics, ['都市情感'])
   assert.deepEqual(observation.provenance.evidence.rawTags, ['男频', '都市日常'])
 })
 
@@ -55,14 +55,29 @@ test('状态和形式标签不是题材证据，未知标签不会伪装成 sour
   assert.deepEqual(observation.provenance.evidence.rawTags, ['真人', '短剧', '已完结', '神秘标签'])
 })
 
-test('来源细分题材按受控语义词根保留原标签', () => {
+test('来源细分题材映射为受控题材', () => {
   const observation = normalizeRankingItem('hot', {
     title: '一部普通作品',
     tags: ['都市职场', '婆媳伦理', '古装爱情'],
   })
 
-  assert.deepEqual(observation.topics, ['都市职场', '婆媳伦理', '古装爱情'])
+  assert.deepEqual(observation.topics, ['都市情感', '家庭伦理', '古装宫廷'])
+  assert.deepEqual(observation.rawTopics, ['都市职场', '婆媳伦理', '古装爱情'])
   assert.equal(observation.provenance.topicSource, 'source-tag')
+})
+
+test('来源题材映射为规范题材并保留原始标签和映射证据', () => {
+  const observation = normalizeRankingItem('hot', {
+    title: '一部普通作品',
+    tags: ['悬疑', '都市职场'],
+  })
+
+  assert.deepEqual(observation.topics, ['悬疑探案', '都市情感'])
+  assert.deepEqual(observation.rawTopics, ['悬疑', '都市职场'])
+  assert.deepEqual(observation.provenance.topicMappings, [
+    { rawTopic: '悬疑', canonicalTopic: '悬疑探案', source: 'source-tag' },
+    { rawTopic: '都市职场', canonicalTopic: '都市情感', source: 'source-tag' },
+  ])
 })
 
 test('JSON 非数组不降级拆分，普通文本支持中文顿号，JSON 对象不进入证据', () => {
@@ -196,7 +211,7 @@ test('合并结果是与输入及其他结果隔离的深快照', () => {
   merged[0].rankings[0].provenance.evidence.titleKeywords.push('被修改')
   merged[0].companies.producer.push('被修改')
 
-  assert.deepEqual(observations[0].topics, ['悬疑'])
+  assert.deepEqual(observations[0].topics, ['悬疑探案'])
   assert.deepEqual(observations[0].provenance.evidence.rawTags, ['悬疑'])
   assert.deepEqual(other[0].observations[0].provenance.evidence.rawTags, ['悬疑'])
   assert.deepEqual(other[0].companies, { platform: [], contractor: [], copyrightHolder: [], producer: ['公司'] })

@@ -89,6 +89,17 @@ test('报告 JSON 与 Markdown 绑定同一 ID 和快照集合，历史按生成
   assert.deepEqual((await readdir(resolve(root, '.short-drama-market/reports'))).filter((name) => name.includes('.tmp-')), [])
 })
 
+test('市场报告 v2 可保存并作为最新报告回读', async () => {
+  const root = await createRoot()
+  const store = createMarketStore(root)
+  const value = report({ schema_version: 'market-report.v2', report_id: 'market-report-v2' })
+
+  await store.saveReport(value)
+
+  assert.equal((await store.readReport(value.report_id)).schema_version, 'market-report.v2')
+  assert.equal((await store.readLatest()).latestReport.schema_version, 'market-report.v2')
+})
+
 test('Markdown 转义外部文本且限制章节始终存在', async () => {
   const root = await createRoot()
   const store = createMarketStore(root)

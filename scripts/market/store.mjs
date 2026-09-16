@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { renderMarketReportMarkdown } from './report.mjs'
 
 const ID_PATTERN = /^[A-Za-z0-9+_-]{1,80}$/
+const REPORT_SCHEMA_VERSIONS = new Set(['market-report.v1', 'market-report.v2'])
 const coordinators = new Map()
 
 function isRecord(value) {
@@ -39,7 +40,7 @@ function isSnapshot(value, expectedId = null) {
 }
 
 function isReport(value, expectedId = null) {
-  if (!isRecord(value) || value.schema_version !== 'market-report.v1' || !Array.isArray(value.snapshot_ids) || value.snapshot_ids.length === 0) return false
+  if (!isRecord(value) || !REPORT_SCHEMA_VERSIONS.has(value.schema_version) || !Array.isArray(value.snapshot_ids) || value.snapshot_ids.length === 0) return false
   try {
     assertId(value.report_id, 'report ID')
     for (const snapshotId of value.snapshot_ids) assertId(snapshotId, 'snapshot ID')

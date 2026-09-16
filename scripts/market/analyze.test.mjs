@@ -41,6 +41,30 @@ test('重复 observation 不重复供给且持久度截尾归一化', () => {
   assert.equal(metric.persistence_strength, 1)
 })
 
+test('缺失热度增长新剧和持久度不按零计分，并公开指标覆盖', () => {
+  const metrics = topicMetrics([
+    { key: 'a', topics: ['甲'], rankingType: 'hot', ranking: 1, heatValue: 100, provenance: { topicSource: 'source-tag' } },
+    { key: 'b', topics: ['乙'], rankingType: 'hot', ranking: 2, heatValue: 0, growthValue: 0, isNew: false, persistenceDays: 0, provenance: { topicSource: 'source-tag' } },
+  ], ['hot'])
+  const metric = metrics.find(({ topic }) => topic === '甲')
+
+  assert.equal(metric.demand_strength, 1)
+  assert.equal(metric.growth_strength, null)
+  assert.equal(metric.new_title_rate, null)
+  assert.equal(metric.persistence_strength, null)
+  assert.deepEqual(metric.metric_coverage, {
+    rank_strength: 1,
+    demand_strength: 1,
+    growth_strength: 0,
+    new_title_rate: 0,
+    platform_coverage: 1,
+    persistence_strength: 0,
+  })
+  assert.equal(metric.opportunity_score, 90)
+  assert.equal(metric.confidence, 'low')
+  assert.equal(metric.confidence_detail.metric_coverage, 0.25)
+})
+
 test('跨平台同剧在平台矩阵中合并且证据只保留引用', () => {
   const matrix = platformMatrix([
     { key: 'a', playletId: 9, title: '同剧', topics: ['悬疑探案'], rankingType: 'hot', ranking: 2, snapshotId: 's1' },
@@ -84,7 +108,23 @@ test('筛选后空结果仍返回完整零值报告且输入不变', () => {
   assert.deepEqual(report.topic_metrics, [])
   assert.equal(report.company_concentration.cr3, 0)
   assert.equal(report.new_title_watch.length, 0)
-  assert.equal(Object.keys(report).join(','), 'schema_version,report_id,generated_at,snapshot_ids,coverage,filters,summary,topic_metrics,platform_matrix,company_concentration,new_title_watch,evidence,limitations')
+  assert.equal(Object.keys(report).join(','), 'schema_version,report_id,generated_at,snapshot_ids,coverage,filters,summary,topic_metrics,topic_cooccurrence,supply_demand_quadrants,platform_preferences,platform_matrix,company_concentration,new_title_watch,evidence,limitations')
+})
+
+test('单榜筛选保留采集榜单口径，但平台覆盖按当前分析榜单计算', () => {
+  const report = analyzeMarket({
+    items: [
+      { key: 'hot', topics: ['题材'], rankingType: 'hot', ranking: 1 },
+      { key: 'douyin', topics: ['题材'], rankingType: 'douyin', ranking: 1 },
+    ],
+    successfulRankingTypes: ['hot', 'douyin'],
+    snapshotIds: ['s1'],
+    filters: { ...fixedFilters, rankingTypes: ['hot'] },
+  })
+
+  assert.deepEqual(report.coverage.successful_ranking_types, ['douyin', 'hot'])
+  assert.deepEqual(report.coverage.analysis_ranking_types, ['hot'])
+  assert.equal(report.topic_metrics[0].platform_coverage, 1)
 })
 
 test('部分榜单失败、历史口径不同不生成趋势', () => {
@@ -150,6 +190,16 @@ test('快照成功榜单集合忽略输入顺序，并要求两边都有实际 o
   assert.equal(compareSnapshots({ items: [], successfulRankingTypes: ['hot'] }, { items: [{ key: 'b', rankingType: 'hot' }], successfulRankingTypes: ['hot'] }).trend, null)
 })
 
+test('趋势报告间隔小时数，少于二十四小时标记为瞬时快照', () => {
+  const result = compareSnapshots(
+    { items: [{ key: 'now', rankingType: 'hot', observedAt: '2026-09-16T10:00:00.000Z' }], successfulRankingTypes: ['hot'] },
+    { items: [{ key: 'before', rankingType: 'hot', observedAt: '2026-09-16T09:30:00.000Z' }], successfulRankingTypes: ['hot'] },
+  )
+
+  assert.equal(result.trend.elapsed_hours, 0.5)
+  assert.equal(result.trend.period_kind, 'instant')
+})
+
 test('报告的平台矩阵用快照 id 回填无 observation 快照字段的证据', () => {
   const report = analyzeMarket({
     items: [{ key: 'a', playletId: 1, rankingType: 'hot', ranking: 1 }],
@@ -175,6 +225,10 @@ test('来源标签在相同样本量和平台覆盖下比标题推断有更高�
     key: `${topicSource}-${index}`,
     topics: ['题材'],
     rankingType: index % 2 === 0 ? 'hot' : 'douyin',
+    heatValue: index,
+    growthValue: index,
+    isNew: index % 2 === 0,
+    persistenceDays: index,
     provenance: { topicSource },
   }))
   const sourceTag = topicMetrics(makeItems('source-tag'), ['hot', 'douyin'])[0]
@@ -259,4 +313,33 @@ test('snapshotIds 首项始终作为当前快照回填各类当前证据', () =>
   assert.equal(report.evidence[0].snapshot_id, currentSnapshot)
   assert.equal(report.platform_matrix[0].evidence[0].snapshot_id, currentSnapshot)
   assert.equal(report.new_title_watch[0].evidence[0].snapshot_id, currentSnapshot)
+})
+
+test('报告派生题材共现、供需象限和平台偏好，并为每项保留证据引用', () => {
+  const report = analyzeMarket({
+    items: [
+      { key: 'a', title: '甲乙', topics: ['甲', '乙'], rankingType: 'hot', ranking: 1, heatValue: 100 },
+      { key: 'b', title: '甲', topics: ['甲'], rankingType: 'hot', ranking: 2, heatValue: 0 },
+      { key: 'c', title: '乙', topics: ['乙'], rankingType: 'douyin', ranking: 1, heatValue: 50 },
+    ],
+    successfulRankingTypes: ['hot', 'douyin'],
+    snapshotIds: ['snapshot-current'],
+    filters: fixedFilters,
+  })
+
+  assert.deepEqual(report.topic_cooccurrence, [{
+    topics: ['甲', '乙'],
+    cooccurrence_count: 1,
+    evidence: [{ snapshot_id: 'snapshot-current', ranking_type: 'hot', playlet_id: 'a', key: 'a' }],
+  }])
+  assert.ok(report.supply_demand_quadrants.every((entry) => entry.evidence.length > 0))
+  assert.deepEqual(report.platform_preferences[0], {
+    ranking_type: 'douyin',
+    topic_preferences: [{
+      topic: '乙',
+      sample_count: 1,
+      share: 1,
+      evidence: [{ snapshot_id: 'snapshot-current', ranking_type: 'douyin', playlet_id: 'c', key: 'c' }],
+    }],
+  })
 })

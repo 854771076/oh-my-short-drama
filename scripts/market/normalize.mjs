@@ -16,6 +16,21 @@ const TITLE_ROOTS = Object.freeze([
   ['喜剧', ['喜剧']],
 ])
 
+const TOPIC_TAXONOMY = Object.freeze([
+  ['古装宫廷', ['古装宫廷', '宫廷', '宫斗', '古装']],
+  ['家庭伦理', ['家庭伦理', '婆媳', '伦理', '家庭']],
+  ['悬疑探案', ['悬疑探案', '悬疑', '探案', '推理']],
+  ['霸道总裁', ['霸道总裁', '霸总', '总裁']],
+  ['末日重生', ['末日重生', '末日', '丧尸']],
+  ['重生穿越', ['重生穿越', '重生', '穿越']],
+  ['战神归来', ['战神归来', '战神']],
+  ['励志逆袭', ['励志逆袭', '逆袭']],
+  ['软科幻', ['软科幻', '科幻']],
+  ['都市情感', ['都市情感', '都市', '职场', '爱情', '情感']],
+  ['萌宝', ['萌宝']],
+  ['喜剧', ['喜剧', '搞笑']],
+])
+
 const SOURCE_TOPIC_ROOTS = Object.freeze([
   ...TITLE_ROOTS.flatMap(([, roots]) => roots),
   '都市', '职场', '爱情', '情感', '古装', '家庭', '婆媳', '伦理', '系统', '异能', '丧尸', '搞笑',
@@ -237,6 +252,20 @@ function titleTopics(title) {
   return result
 }
 
+function canonicalTopic(rawTopic) {
+  const label = compactLabel(rawTopic)
+  const matched = TOPIC_TAXONOMY.find(([, aliases]) => aliases.some((alias) => label.includes(compactLabel(alias))))
+  return matched?.[0] ?? rawTopic
+}
+
+function mapTopics(rawTopics, source) {
+  const mappings = rawTopics.map((rawTopic) => ({ rawTopic, canonicalTopic: canonicalTopic(rawTopic), source }))
+  return {
+    topics: [...new Set(mappings.map(({ canonicalTopic: topic }) => topic))],
+    mappings,
+  }
+}
+
 function detectFormat(values, rankingType) {
   for (const entry of values) {
     const text = compactText(entry.value)
@@ -316,8 +345,10 @@ export function normalizeRankingItem(rankingType, item, context = {}) {
   const explicitEra = eraSource.value === undefined ? null : labelValue(parseList(eraSource.value), ERA_LABELS)
   const era = explicitEra || labelValue(uniqueTags, ERA_LABELS)
   const inferredTopics = titleTopics(title)
-  const topics = sourceTopics.length > 0 ? sourceTopics : (inferredTopics.length > 0 ? inferredTopics : ['未分类'])
+  const rawTopics = sourceTopics.length > 0 ? sourceTopics : inferredTopics
   const topicSource = sourceTopics.length > 0 ? 'source-tag' : (inferredTopics.length > 0 ? 'title-keyword' : 'unclassified')
+  const mappedTopics = mapTopics(rawTopics, topicSource)
+  const topics = mappedTopics.topics.length > 0 ? mappedTopics.topics : ['未分类']
   const ranking = firstSafeNumber(source, FIELD_ALIASES.ranking, (value) => Number.isInteger(value) && value >= 1)
   const heatValue = firstSafeNumber(source, FIELD_ALIASES.heatValue)
   const growthValue = firstSafeNumber(source, FIELD_ALIASES.growthValue)
@@ -353,6 +384,7 @@ export function normalizeRankingItem(rankingType, item, context = {}) {
     ranking: ranking.value,
     observedAt,
     topics,
+    rawTopics,
     audience,
     era,
     format: format.value,
@@ -364,6 +396,7 @@ export function normalizeRankingItem(rankingType, item, context = {}) {
     provenance: {
       rankingType: String(rankingType ?? ''),
       topicSource,
+      topicMappings: mappedTopics.mappings,
       rawRef: {
         snapshotId: context?.snapshotId ?? null,
         rankingType: String(rankingType ?? ''),
