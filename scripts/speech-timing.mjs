@@ -115,14 +115,14 @@ function assertCorrectionEvidence(candidate, reviewed) {
     .filter(({ line }) => line.confidence < ASR_LINE_AUTOMATIC_CONFIDENCE)
   for (const { line, lineIndex } of lowConfidenceLines) {
     const reviewedLine = reviewed.lines[lineIndex]
-    if (!reviewedLine || reviewedLine.confidence_source === line.confidence_source) throw new Error('低置信 ASR 必须保留对应人工校正证据')
+    if (!reviewedLine || (reviewedLine.start_ms === line.start_ms && reviewedLine.end_ms === line.end_ms && reviewedLine.confidence_source === line.confidence_source)) throw new Error('低置信 ASR 必须保留对应人工校正证据')
   }
   const lowConfidenceWords = candidate.lines.flatMap((line, lineIndex) => line.words
     .map((word, wordIndex) => ({ word, lineIndex, wordIndex }))
     .filter(({ word }) => word.confidence < ASR_WORD_AUTOMATIC_CONFIDENCE))
   for (const { word, lineIndex, wordIndex } of lowConfidenceWords) {
     const reviewedWord = reviewed.lines[lineIndex]?.words[wordIndex]
-    if (!reviewedWord || reviewedWord.confidence_source === word.confidence_source) throw new Error('低置信 ASR 必须保留对应人工校正证据')
+    if (!reviewedWord || (reviewedWord.text === word.text && reviewedWord.start_ms === word.start_ms && reviewedWord.end_ms === word.end_ms && reviewedWord.confidence_source === word.confidence_source)) throw new Error('低置信 ASR 必须保留对应人工校正证据')
   }
 }
 

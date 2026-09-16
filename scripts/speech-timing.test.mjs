@@ -100,6 +100,25 @@ test('低置信 ASR 复核必须留下对应的人工校正证据', async () => 
   }
 })
 
+test('低置信词可用文本或时间边界变更作为人工校正证据', async () => {
+  const root = await temporaryRoot()
+  try {
+    const candidate = timing({ lines: [line({ words: [word({ confidence: 0.79 })] })] })
+    const saved = await putSpeechTimingCandidate(root, candidate)
+    const textCorrected = timing({ reviewed: true, lines: [line({ words: [word({ text: '别动', confidence: 0.8 })] })] })
+    assert.equal((await reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: saved.version_id, document: textCorrected, reviewed_by: 'codex' })).version_id, 'v002')
+    const boundaryCorrected = timing({ reviewed: true, lines: [line({ words: [word({ start_ms: 20, end_ms: 180, confidence: 0.8 })] })] })
+    assert.equal((await reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: saved.version_id, document: boundaryCorrected, reviewed_by: 'codex' })).version_id, 'v003')
+    const noEvidence = timing({ reviewed: true, lines: [line({ words: [word({ confidence: 0.8 })] })] })
+    await assert.rejects(
+      () => reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: saved.version_id, document: noEvidence, reviewed_by: 'codex' }),
+      /人工校正证据/
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('新候选不会覆盖已有版本且 selected 只读取经过复核的标准版本', async () => {
   const root = await temporaryRoot()
   try {
