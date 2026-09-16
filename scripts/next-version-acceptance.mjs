@@ -4,6 +4,7 @@ import { access, readFile, realpath } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { dirname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { probeMedia } from './media-tools.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUTPUT_LIMIT = 4000
@@ -107,6 +108,11 @@ export async function verifySourceTimedDubbingEvidence(projectArg = process.env.
   const dubPath = projectPath(project, dub.version.localPath, '配音')
   const [originalSha, dubSha] = await Promise.all([sha256(originalPath), sha256(dubPath)])
   if (originalSha !== report.original.sha256 || dubSha !== report.dub.sha256) throw new Error('真实媒体文件 SHA 与 A/B 报告不一致')
+  let originalMedia
+  let dubMedia
+  try { originalMedia = probeMedia(originalPath); dubMedia = probeMedia(dubPath) }
+  catch (error) { throw new Error(`真实 A/B 媒体不可解码：${error.message}`) }
+  if (!originalMedia.has_video || !originalMedia.has_audio || !dubMedia.has_audio) throw new Error('真实 A/B 必须包含可解码原视频、原声音轨和第三方配音音轨')
   const review = reviews.reviews?.[`${report.dub.asset_key}@${report.dub.version_id}`]
   if (review?.asset_sha256 !== dubSha || review.episode_key !== report.episode_key || review.line_index !== report.line_index) throw new Error('八维复听未绑定当前配音 SHA、分集和台词行')
   fullDubbingReview(review, report)
