@@ -75,7 +75,9 @@ export function calibratedSpeed(contract, attempt = 1, measuredSpeechMs, previou
   const target = targetSpeechMs(contract)
   if (!target || !Number.isInteger(measuredSpeechMs) || measuredSpeechMs <= 0) return Number.NaN
   if (!Number.isFinite(previousSpeed) || previousSpeed <= 0) return Number.NaN
-  return Number((previousSpeed * measuredSpeechMs / target).toFixed(2))
+  // 实测比例可能要求极端语速；第二轮仍应落在自然边界生成一次，才能留下真实失败证据并进入第三轮等义适配。
+  const calibrated = previousSpeed * measuredSpeechMs / target
+  return Number(Math.min(MAX_SPEED, Math.max(MIN_SPEED, calibrated)).toFixed(2))
 }
 
 function sameRange(left, right) {

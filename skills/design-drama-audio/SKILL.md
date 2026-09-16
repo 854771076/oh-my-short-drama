@@ -11,7 +11,7 @@ description: 设计并在本地管理短剧声音资产。用于角色声音分�
 
 每条声音把三类语义分开保存：`delivery_mode ∈ native|post_dub|external_audio` 表示来源，`presentation ∈ visible-dialogue|offscreen-dialogue|narration` 表示画面关系，`fallback_mode ∈ none|post-dub|cinematic-tts|sound-design` 表示失败预案。兜底 reason 只能是 `provider-no-native-audio`、`voice-identity-drift`、`speech-intelligibility-failed`、`narration-performance-failed`、`audio-sync-failed`、`native-ambience-failed`，并记录证据、精确替换区间与最终混音来源。旧 `narration/offscreen` 只迁移 presentation，来源进入 unresolved，不能冒充已经完成配音。
 
-所有对白与旁白都必须先从当前 selected 原声资产建立不可变 `speech-timing`，ASR 行级置信度至少 `0.90`、词级至少 `0.80`，低于阈值必须留下人工校正证据；禁止根据文字或文件名补造词级时间。随后才写 `dubbing_contract`，普通对白同样必须明确意图、潜台词、情绪弧、强弱、重音、停连和呼吸，不能只给“紧张”“自然”等单标签。生成最多三轮：原文、参数重生、经批准的等义适配；每轮使用当前 timing 和合同编译，第四次付费动作必须阻断。最终只允许不超过 `±3%` 的确定性 tempo 修正和合同声明停顿，并用最终词级 alignment 重新验收。
+所有对白与旁白都必须先从当前 selected 原声资产建立不可变 `speech-timing`，ASR 行级置信度至少 `0.90`、词级至少 `0.80`，低于阈值必须留下人工校正证据；禁止根据文字或文件名补造词级时间。StarRouter 需要词级时间时使用 `response_format=verbose_json` 与 `timestamp_granularities=["word"]`，其他格式不得伪装成词级输出。随后才写 `dubbing_contract`，普通对白同样必须明确意图、潜台词、情绪弧、强弱、重音、停连和呼吸，不能只给“紧张”“自然”等单标签。生成最多三轮：原文、参数重生、经批准的等义适配；第二轮按实测发声时长计算语速后必须钳制在合同的 `0.85–1.15` 自然范围，超出边界也要实际生成边界值，不能在尚未耗尽三轮前误报无法适配；第四次付费动作必须阻断。最终只允许不超过 `±3%` 的确定性 tempo 修正和合同声明停顿，并用最终词级 alignment 重新验收。可见对白的硬门禁比较首词起点与末词终点相对目标区间的误差，均不得超过一帧；中间逐词边界完整记录供节奏审核，但自然停连造成的内部重分配不单独判失败。
 
 候选生成后必须完整听看并做八维审核：语义完整、说话人身份、情绪弧、强度与潜台词、重音停连呼吸、时间拟合、画面互动、技术音频。任一维失败或出现 P0/P1 都不得选版。换选配音会使旧字幕、口型及其派生镜头失效，必须从新 selected 音频重新构建。
 
@@ -33,7 +33,7 @@ OP、ED、BGM 或音乐短视频配乐写入可选 `music_tracks`。生成配乐
 
 同一角色在当前时空、未来来电、录音回放等状态下必须绑定同一个基础 `voice_id` 或同一条已批准声纹；状态差异只通过后期电话窄带、压缩、轻微失真、空间混响和音量自动化表达，禁止为“未来版本”另随机一个音色。原生视频音频若无法锁定声纹，制作计划必须将关键对白改为 post-dub，或在逐镜验收中明确标记声纹不一致；不得把不同声纹仅靠字幕标注为同一人物。
 
-对口型不是每条独立配音的默认步骤。仅 `presentation=visible-dialogue` 且 `delivery_mode=post_dub|external_audio` 的精确台词区间可调用 `submit_media_operation(operation="lip-sync")`；参数必须绑定当前 selected audio-plan 行、同一镜头的 selected 视频、该行 selected 音频和 `face_selector.mode=single-visible-face`。旁白、画外音、审核合格的原生对白和多人脸归属不唯一的镜头禁止执行。可选本地 MuseTalk 通过 `MUSETALK_ROOT` 配置，能力名为 `transform.lip-sync`；插件不安装依赖、不下载权重。输出只是未选候选，完成口型专项审核后才能 selected 和进入时间线。
+对口型不是每条独立配音的默认步骤。仅 `presentation=visible-dialogue` 且 `delivery_mode=post_dub|external_audio` 的精确台词区间可调用 `submit_media_operation(operation="lip-sync")`；参数必须绑定当前 selected audio-plan 行、同一镜头的 selected 视频、该行当前八维审核通过且 selected 的音频和 `face_selector.mode=single-visible-face`。`post_dub` 重生后的新版本以最终 alignment、八维审核和资产 selected 为权威，不要求重写不可变 audio-plan；`external_audio` 仍必须逐版本等于计划批准引用。旁白、画外音、审核合格的原生对白和多人脸归属不唯一的镜头禁止执行。RunningHub PainterAV2V 只提交台词前后约半秒的上下文窗口，避免长镜头整段采样耗尽显存；窗口扩展到 4 帧栅格，再补一个克隆尾帧，使工作流丢尾帧后的帧数可被 4 整除。局部配音按窗口起点补前导静音并补尾到 Provider 输入时长，禁止从第 0 秒提前驱动嘴部。Provider 窗口输出必须按帧拼回 selected 源镜头、保留源音轨和范围外画面；这些派生输入、窗口、帧数、拼回来源与时长都进入请求快照和 provenance。可选本地 MuseTalk 通过 `MUSETALK_ROOT` 配置，能力名为 `transform.lip-sync`；插件不安装依赖、不下载权重。输出只是未选候选，完成口型专项审核后才能 selected 和进入时间线。
 
 ## StarRouter MiniMax 参数枚举
 

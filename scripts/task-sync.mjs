@@ -28,6 +28,21 @@ function isSeedVr25(request) {
   return request.tool === 'submit_media_operation' && request.modelOrWorkflow === 'seedvr2.5-video-upscale' && request.arguments?.operation === 'video-upscale'
 }
 
+function isWindowedRunningHubLipSync(request) {
+  return request.tool === 'submit_media_operation'
+    && request.provider === 'runninghub'
+    && request.arguments?.operation === 'lip-sync'
+    && request.arguments?.parameters?.provider_video_preparation?.mode === 'painterav2v-window-and-tail-frame-pad'
+}
+
+async function videoFrameCount(path) {
+  const { stdout } = await execute('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-count_frames', '-show_entries', 'stream=nb_read_frames,nb_frames', '-of', 'json', path], { maxBuffer: 4 * 1024 * 1024 })
+  const stream = JSON.parse(stdout || '{}').streams?.[0]
+  const count = Number(stream?.nb_read_frames || stream?.nb_frames)
+  if (!Number.isInteger(count) || count <= 0) throw new Error('对口型视频缺少可靠帧数')
+  return count
+}
+
 function validateSeedVr25Output(source, output) {
   if (!source.has_video || !output.has_video) throw new Error('SeedVR2.5 输入和输出必须包含视频流')
   const durationTolerance = Math.max(100, Math.ceil(1500 / Math.max(source.fps, 1)))
@@ -68,6 +83,57 @@ async function normalizeSeedVr25Output(root, task, request, registered, versionI
   finally { await rm(output, { force: true }) }
 }
 
+async function normalizeWindowedRunningHubLipSyncOutput(root, task, request, registered, temporary) {
+  const sourceRef = request.arguments.source
+  const preparation = request.arguments.parameters.provider_video_preparation
+  const ledger = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
+  const sourceVersion = ledger.assets?.[sourceRef.asset_key]?.versions?.find((item) => item.id === sourceRef.version_id)
+  if (!sourceVersion || sourceVersion.sha256 !== request.arguments.source_sha256) throw new Error('RunningHub 对口型源视频版本或 SHA-256 已变化')
+  const sourcePath = resolve(root, sourceVersion.localPath)
+  const providerPath = resolve(root, registered.localPath)
+  const sourceProbe = probeMedia(sourcePath)
+  const providerProbe = probeMedia(providerPath)
+  const expectedFrames = preparation.expected_output_frame_count
+  const providerFrames = await videoFrameCount(providerPath)
+  if (!sourceProbe.has_video || !providerProbe.has_video || !Number.isInteger(expectedFrames) || providerFrames < expectedFrames) throw new Error(`RunningHub 对口型窗口输出帧数不足：${providerFrames}/${expectedFrames}`)
+  if (sourceProbe.width !== providerProbe.width || sourceProbe.height !== providerProbe.height || Math.abs(sourceProbe.fps - providerProbe.fps) > 0.01) throw new Error('RunningHub 对口型窗口输出的分辨率或帧率与来源不一致')
+  const start = preparation.window_start_frame
+  const end = preparation.window_end_frame
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end - start !== expectedFrames || end > preparation.source_frame_count || await videoFrameCount(sourcePath) !== preparation.source_frame_count) throw new Error('RunningHub 对口型窗口回写范围无效或来源帧数已变化')
+  const labels = []
+  const filters = []
+  if (start > 0) { filters.push(`[0:v]trim=start_frame=0:end_frame=${start},setpts=PTS-STARTPTS[pre]`); labels.push('[pre]') }
+  filters.push(`[1:v]trim=start_frame=0:end_frame=${expectedFrames},setpts=PTS-STARTPTS[mid]`); labels.push('[mid]')
+  if (end < preparation.source_frame_count) { filters.push(`[0:v]trim=start_frame=${end}:end_frame=${preparation.source_frame_count},setpts=PTS-STARTPTS[post]`); labels.push('[post]') }
+  filters.push(`${labels.join('')}concat=n=${labels.length}:v=1:a=0[v]`)
+  const output = resolve(root, '.short-drama', 'provider-output', `${task.taskId}-lip-sync-final.mp4`)
+  await mkdir(resolve(root, '.short-drama', 'provider-output'), { recursive: true })
+  try {
+    await execute('ffmpeg', [
+      '-nostdin', '-loglevel', 'error', '-y', '-i', sourcePath, '-i', providerPath,
+      '-filter_complex', filters.join(';'), '-map', '[v]', '-map', '0:a?', '-frames:v', String(preparation.source_frame_count),
+      '-c:v', 'libx264', '-preset', 'medium', '-crf', '12', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-movflags', '+faststart', output,
+    ], { maxBuffer: 4 * 1024 * 1024 })
+  } catch (error) { throw new Error(`RunningHub 对口型窗口拼回失败：${String(error.stderr || error.message).slice(0, 500)}`) }
+  const finalProbe = probeMedia(output)
+  const finalFrames = await videoFrameCount(output)
+  if (finalFrames !== preparation.source_frame_count || Math.abs(finalProbe.duration_ms - sourceProbe.duration_ms) > Math.ceil(1000 / sourceProbe.fps) || sourceProbe.has_audio !== finalProbe.has_audio) throw new Error('RunningHub 对口型拼回后时长、帧数或音轨未保持')
+  const provenanceValue = generationProvenance(task, request)
+  provenanceValue.parameters.output_processing = {
+    provider_output: { asset_key: task.target, version_id: registered.id, sha256: registered.sha256 },
+    source_video: { asset_key: sourceRef.asset_key, version_id: sourceRef.version_id, sha256: sourceVersion.sha256 },
+    method: 'ffmpeg-frame-window-splice-source-audio',
+    window_start_frame: start,
+    window_end_frame: end,
+    expected_output_frame_count: expectedFrames,
+  }
+  const provenance = resolve(temporary, `provenance-${registered.id}-lip-sync-final.json`)
+  await writeFile(provenance, `${JSON.stringify(provenanceValue, null, 2)}\n`)
+  const finalVersionId = nextVersion(ledger.assets[task.target])
+  try { return JSON.parse(await run('import', root, task.target, output, finalVersionId, '-', provenance)) }
+  finally { await rm(output, { force: true }) }
+}
+
 export async function syncTaskResult(rootArg, taskId, result) {
   const root = resolve(rootArg)
   const task = await getTask(root, taskId)
@@ -95,7 +161,8 @@ export async function syncTaskResult(rootArg, taskId, result) {
       const versionId = nextVersion(ledger.assets[task.target], index - existingCount)
       const provenance = resolve(temporary, `provenance-${index}.json`)
       const seedVr25 = isSeedVr25(request)
-      const provenanceTask = seedVr25 ? { ...task, taskId: `${task.taskId}:provider-output` } : task
+      const windowedLipSync = isWindowedRunningHubLipSync(request)
+      const provenanceTask = seedVr25 || windowedLipSync ? { ...task, taskId: `${task.taskId}:provider-output` } : task
       await writeFile(provenance, `${JSON.stringify(generationProvenance(provenanceTask, request), null, 2)}\n`)
       let registered
       if (output.url) registered = JSON.parse(await run('fetch', root, task.target, output.url, versionId, '-', provenance))
@@ -112,6 +179,9 @@ export async function syncTaskResult(rootArg, taskId, result) {
       } else throw new Error(`第 ${index + 1} 个输出无 URL、base64 或受控本地路径`)
       if (seedVr25) {
         registered = await normalizeSeedVr25Output(root, task, request, registered, versionId, temporary)
+        ledger = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
+      } else if (windowedLipSync) {
+        registered = await normalizeWindowedRunningHubLipSyncOutput(root, task, request, registered, temporary)
         ledger = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
       }
       // 成片宫格自动检测：只打标，不自动重生（门框/地平线可能误报，交给人工复核）

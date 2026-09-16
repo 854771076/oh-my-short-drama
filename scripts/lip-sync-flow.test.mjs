@@ -60,15 +60,40 @@ async function fixture({ presentation = 'visible-dialogue', delivery = 'post_dub
   return root
 }
 
-const request = (root, parameters = {}) => {
+const request = (root, parameters = {}, audioVersionId = 'v001') => {
   const ledger = JSON.parse(readFileSync(resolve(root, '.short-drama/assets.json'), 'utf8'))
-  const audioSha = ledger.assets['audio-ep001-dialogue-001'].versions[0].sha256
+  const audioSha = ledger.assets['audio-ep001-dialogue-001'].versions.find((item) => item.id === audioVersionId).sha256
   return ({
   project_root: root, target: 'shot-ep001-001', operation: 'lip-sync', provider: 'musetalk',
-  source: { asset_key: 'shot-ep001-001', version_id: 'v001' }, audio: { asset_key: 'audio-ep001-dialogue-001', version_id: 'v001' },
-  range: { start_ms: 0, end_ms: 1000 }, parameters: { audio_plan: { episode_key: 'ep-001', version_id: 'v001', line_index: 1 }, audio_binding: { asset_key: 'audio-ep001-dialogue-001', version_id: 'v001', sha256: audioSha, line_index: 1, speech_timing_version: 'v001', dubbing_contract_version: 'v001' }, face_selector: { mode: 'single-visible-face', character_key: 'char-linwan' }, ...parameters }, confirmed: false,
+  source: { asset_key: 'shot-ep001-001', version_id: 'v001' }, audio: { asset_key: 'audio-ep001-dialogue-001', version_id: audioVersionId },
+  range: { start_ms: 0, end_ms: 1000 }, parameters: { audio_plan: { episode_key: 'ep-001', version_id: 'v001', line_index: 1 }, audio_binding: { asset_key: 'audio-ep001-dialogue-001', version_id: audioVersionId, sha256: audioSha, line_index: 1, speech_timing_version: 'v001', dubbing_contract_version: 'v001' }, face_selector: { mode: 'single-visible-face', character_key: 'char-linwan' }, ...parameters }, confirmed: false,
   })
 }
+
+test('后期生成配音换版后以八维审核选版为准，不要求重写不可变 audio-plan', async () => {
+  const root = await fixture()
+  try {
+    const source = resolve(root, 'assets/audio/audio-ep001-dialogue-001/v001.wav')
+    const candidate = resolve(root, 'assets/audio/audio-ep001-dialogue-001/v002.wav')
+    await copyFile(source, candidate)
+    const asset = await addAssetVersion(root, 'audio-ep001-dialogue-001', { id: 'v002', localPath: 'assets/audio/audio-ep001-dialogue-001/v002.wav', provenance: { origin: 'imported', created_by: 'user', provider: null, model_or_workflow: null, task_id: null, prompt_document: null, source_assets: [], parameters: {} } })
+    const sha = asset.versions.find((item) => item.id === 'v002').sha256
+    await putFinalSpeechAlignment(root, {
+      episode_key: 'ep-001', line_index: 1,
+      audio_asset: { asset_key: 'audio-ep001-dialogue-001', version_id: 'v002', sha256: sha },
+      audio_plan_version: 'v001',
+      source_timing: { version_id: 'v001', line_index: 1, source_asset: JSON.parse(await readFile(resolve(root, 'episodes/ep-001/speech-timing/v001.json'), 'utf8')).source_asset },
+      text: '别回头。', words: [{ text: '别回头。', start_ms: 0, end_ms: 1000 }],
+      timeline_mapping: { audio_in_ms: 0, timeline_at_ms: 0 }, timeline_fps: 24, reviewed: true,
+    })
+    await writeFile(resolve(root, '.short-drama/dubbing-reviews.json'), `${JSON.stringify({ version: 1, reviews: { 'audio-ep001-dialogue-001@v002': { review_type: 'dubbing-performance', approved: true, asset_sha256: sha, selection_state: 'committed' } } })}\n`)
+    const ledgerPath = resolve(root, '.short-drama/assets.json')
+    const ledger = JSON.parse(await readFile(ledgerPath, 'utf8'))
+    ledger.assets['audio-ep001-dialogue-001'].selectedVersionId = 'v002'
+    await writeFile(ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`)
+    await assert.doesNotReject(call('submit_media_operation', request(root, {}, 'v002')))
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
 
 test('旁白、画外音、合格原生对白和多人脸禁止口型操作', async () => {
   for (const presentation of ['narration', 'offscreen-dialogue']) {

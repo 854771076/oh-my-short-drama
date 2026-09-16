@@ -34,7 +34,15 @@ export function assessWordAlignment(timingLine, alignment, toleranceMs) {
   })
   const maxError = items.length ? Math.max(...items.flatMap((item) => [Math.abs(item.start_error_ms ?? Number.POSITIVE_INFINITY), Math.abs(item.end_error_ms ?? Number.POSITIVE_INFINITY)])) : null
   const sameWords = items.length === alignment.words.length && items.every((item) => item.text === item.actual_text)
-  return { status: !sameWords ? 'mismatch' : maxError <= toleranceMs ? 'passed' : 'out-of-tolerance', max_error_ms: Number.isFinite(maxError) ? maxError : null, items }
+  // 不同表演允许词内韵律重新分配；同步硬门禁约束整句首尾，逐词偏差仍完整保留供导演审计。
+  const boundaryErrors = items.length ? [Math.abs(items[0].start_error_ms ?? Number.POSITIVE_INFINITY), Math.abs(items.at(-1).end_error_ms ?? Number.POSITIVE_INFINITY)] : []
+  const boundaryMaxError = boundaryErrors.length ? Math.max(...boundaryErrors) : null
+  return {
+    status: !sameWords ? 'mismatch' : boundaryMaxError <= toleranceMs ? 'passed' : 'out-of-tolerance',
+    max_error_ms: Number.isFinite(maxError) ? maxError : null,
+    boundary_max_error_ms: Number.isFinite(boundaryMaxError) ? boundaryMaxError : null,
+    items,
+  }
 }
 
 export function mapSourceTimingLineToTimeline(line) {

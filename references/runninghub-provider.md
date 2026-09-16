@@ -27,3 +27,5 @@ node scripts/generation/live-smoke-test.mjs runninghub seedvr2.5-video-upscale "
 选择 RunningHub 前，用户必须确认工作流 ID、覆盖节点、参考文件、预计费用和输出模态。视频还必须传入已选 `prompt_version`、prompt_profile、input_mode 和 reference_manifest；MiniMax H3 工作流必须使用 `h3` 及其真实 T2VA/I2VA/FL2VA/L2VA/Ref2VA 模式。T2VA 不带素材，I2VA/FL2VA/L2VA 分别绑定首帧、首尾帧、尾帧，Ref2VA 使用与类型一致的 `reference_image/reference_video/reference_audio`；适配器会在上传前核对数量、顺序和角色。插件不猜测节点 ID，也不把某个工作流的 schema 当成通用协议。查询任务时显式传 `media_type`，返回统一 `outputs[]`；全部远程输出仍必须下载进本地资产库。
 
 通用图片工作流使用 `reference_paths` 时还必须提交等长 `reference_manifest`，逐项绑定本地 selected 图片版本和用途；清单只用于本地审计，不注入 RunningHub 节点。
+
+通用对口型工作流若没有独立的时间范围节点，`submit_media_operation` 只从 selected 源镜头抽取台词前后约半秒的上下文窗口，避免 1080p 长镜头在 PainterAV2V 采样阶段耗尽显存。窗口扩展到 4 帧栅格，并额外补一个克隆尾帧，使工作流丢弃尾帧后的帧数可被 4 整除；插件只在 `.short-drama/provider-input` 创建 CFR 派生副本，不覆盖账本源资产。已审核 selected 配音以前导静音对齐窗口内台词起点并补尾到 Provider 输入时长。远端返回后，回写器校验分辨率、帧率和最小帧数，按精确帧号把窗口拼回完整 selected 源镜头并保留源音轨；Provider 原始窗口与最终整镜候选分别留证。请求快照和输出 provenance 必须记录 `provider_video_preparation`、`provider_audio_preparation` 与 `output_processing`，专项审核仍要完整观看范围内外、口腔伪影、身份和时长。

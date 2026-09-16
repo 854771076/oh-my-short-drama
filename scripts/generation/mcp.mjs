@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { createInterface } from 'node:readline'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
+import { access, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { dirname, relative, resolve, sep } from 'node:path'
 import { adapter, applyConfiguredModelParameters, providerCatalog, providerNames, providerSupports, selfCheck as checkProviders } from './providers.mjs'
 import { selfCheck as checkStarRouter } from './starrouter.mjs'
@@ -134,7 +135,7 @@ const batchImageProperties = {
   target: projectTracking.target, prompt_document: projectTracking.prompt_document,
 }
 const asrInput = {
-  provider: { const: 'starrouter' }, model: { type: 'string' }, file_path: { type: 'string' }, response_format: { type: 'string', enum: ['json', 'text', 'srt', 'verbose_json', 'vtt'] }, language: { type: 'string' }, prompt: { type: 'string' }, temperature: { type: 'number', minimum: 0, maximum: 1 }, project_root: { type: 'string' }, confirmed: { const: true },
+  provider: { const: 'starrouter' }, model: { type: 'string' }, file_path: { type: 'string' }, response_format: { type: 'string', enum: ['json', 'text', 'srt', 'verbose_json', 'vtt'] }, timestamp_granularities: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', enum: ['word', 'segment'] } }, language: { type: 'string' }, prompt: { type: 'string' }, temperature: { type: 'number', minimum: 0, maximum: 1 }, project_root: { type: 'string' }, confirmed: { const: true },
 }
 const bailianProvider = { type: 'string', enum: ['bailian'] }
 const cosyVoiceTargetModel = { type: 'string', enum: ['cosyvoice-v3.5-plus', 'cosyvoice-v3.5-flash', 'cosyvoice-v3-plus', 'cosyvoice-v3-flash', 'cosyvoice-v2'] }
@@ -736,7 +737,9 @@ async function validateLipSyncEligibility(root, request, source, audio) {
   await selectedSourceSpeechTiming(root, contractSource)
   if (resolvedContract.source === 'audio-plan') {
     if (!['post_dub', 'external_audio'].includes(line.delivery_mode)) throw new Error('合格原生对白不得执行对口型；仅独立音频可用')
-    if (!sameReference(line.source_audio, request.audio)) throw new Error('对口型音频必须与 audio-plan 行的 selected 独立音频完全一致')
+    if (line.delivery_mode === 'external_audio' && !sameReference(line.source_audio, request.audio)) throw new Error('外部对口型音频必须与 audio-plan 行批准的版本完全一致')
+    // 后期生成配音允许在同一资产内迭代版本；最终对齐、八维审核和资产 selected 才是可消费版本的权威证据。
+    if (line.delivery_mode === 'post_dub' && line.source_audio && line.source_audio.asset_key !== request.audio.asset_key) throw new Error('后期对口型音频必须属于 audio-plan 行绑定的音频资产')
   }
   const shot = /^shot-ep(\d{3})-(\d{3})$/.exec(request.target)
   if (!shot || reference.episode_key !== `ep-${shot[1]}` || line.matched_shot?.shot_number !== Number(shot[2])) throw new Error('对口型 audio-plan 行必须与目标镜头完全一致')
@@ -790,6 +793,7 @@ async function validateProjectMediaOperation(args) {
 }
 
 async function submitProviderMediaOperation(normalized) {
+  normalized = await prepareRunningHubLipSyncInput(normalized)
   const selected = adapter(normalized.provider)
   if (typeof selected.transform !== 'function') throw new Error(`${normalized.provider} 未实现媒体变换提交`)
   const providerArgs = { ...normalized.request, model: normalized.model, workflow_id: normalized.workflow_id, node_info_list: normalized.node_info_list, reference_paths: normalized.referencePaths, confirmed: true }
@@ -814,6 +818,84 @@ async function submitProviderMediaOperation(normalized) {
   await settleReservedTask(normalized.root, snapshot.requestId, { taskId, status: result.status === 'submitted' ? 'queued' : 'running' })
   const tracked = { ...result, task_id: taskId, request_id: snapshot.requestId, request_path: snapshot.requestPath, request_sha256: snapshot.requestSha256 }
   return result.status === 'completed' ? syncTaskResult(normalized.root, taskId, tracked) : tracked
+}
+
+export async function prepareRunningHubLipSyncInput(normalized) {
+  if (normalized.provider !== 'runninghub' || normalized.request.operation !== 'lip-sync') return normalized
+  const video = probeMedia(normalized.referencePathsByRole.source)
+  if (!video.has_video || normalized.request.range.start_ms >= video.duration_ms) throw new Error('RunningHub 对口型区间必须位于来源视频时长内')
+  const counted = spawnSync('ffprobe', [
+    '-v', 'error', '-select_streams', 'v:0', '-count_frames',
+    '-show_entries', 'stream=nb_read_frames,nb_frames', '-of', 'json', normalized.referencePathsByRole.source,
+  ], { encoding: 'utf8' })
+  if (counted.error || counted.status !== 0) throw new Error(`RunningHub 对口型视频帧数探测失败：${counted.stderr || counted.error?.message || counted.status}`)
+  const stream = JSON.parse(counted.stdout || '{}').streams?.[0]
+  const sourceFrameCount = Number(stream?.nb_read_frames || stream?.nb_frames)
+  if (!Number.isInteger(sourceFrameCount) || sourceFrameCount <= 0 || !Number.isFinite(video.fps) || video.fps <= 0) throw new Error('RunningHub 对口型视频缺少可靠帧数或帧率')
+  // 只发送台词前后半秒上下文，避免长镜头在 PainterAV2V 采样阶段耗尽显存；窗口按 4 帧扩展，便于回写时精确拼回原片。
+  const contextFrames = Math.max(1, Math.ceil(video.fps / 2))
+  let windowStartFrame = Math.max(0, Math.floor(normalized.request.range.start_ms / 1000 * video.fps) - contextFrames)
+  let windowEndFrame = Math.min(sourceFrameCount, Math.ceil(normalized.request.range.end_ms / 1000 * video.fps) + contextFrames)
+  const missingFrames = (4 - ((windowEndFrame - windowStartFrame) % 4)) % 4
+  const extendTail = Math.min(missingFrames, sourceFrameCount - windowEndFrame)
+  windowEndFrame += extendTail
+  windowStartFrame = Math.max(0, windowStartFrame - (missingFrames - extendTail))
+  const windowFrameCount = windowEndFrame - windowStartFrame
+  if (windowFrameCount <= 0 || windowFrameCount % 4 !== 0) throw new Error('RunningHub 对口型上下文窗口无法对齐到 4 帧栅格')
+  const windowStartMs = Math.round(windowStartFrame / video.fps * 1000)
+  const windowEndMs = Math.round(windowEndFrame / video.fps * 1000)
+  const delayMs = normalized.request.range.start_ms - windowStartMs
+  // PainterAV2V 会丢弃输入尾帧，再按 4 帧分组；额外补一帧后，输出预计正好等于原窗口帧数。
+  const padFrames = 1
+  let preparedVideo = normalized.referencePathsByRole.source
+  const providerFrameCount = windowFrameCount + padFrames
+  const providerDurationMs = Math.round(providerFrameCount / video.fps * 1000)
+  if (padFrames > 0 || windowFrameCount !== sourceFrameCount) {
+    const videoIdentity = createHash('sha256').update(JSON.stringify({ source_sha256: normalized.request.source_sha256, sourceFrameCount, windowStartFrame, windowEndFrame, padFrames, fps: video.fps })).digest('hex').slice(0, 24)
+    preparedVideo = resolve(normalized.root, '.short-drama', 'provider-input', `lip-sync-${videoIdentity}.mp4`)
+    await mkdir(dirname(preparedVideo), { recursive: true })
+    try { await access(preparedVideo) }
+    catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+      const rendered = spawnSync('ffmpeg', [
+        '-nostdin', '-loglevel', 'error', '-n', '-i', normalized.referencePathsByRole.source,
+        '-vf', `trim=start_frame=${windowStartFrame}:end_frame=${windowEndFrame},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop=${padFrames}`, '-frames:v', String(providerFrameCount),
+        '-an', '-c:v', 'libx264', '-preset', 'medium', '-crf', '12', '-pix_fmt', 'yuv420p', '-r', String(video.fps), '-movflags', '+faststart', preparedVideo,
+      ], { encoding: 'utf8' })
+      if (rendered.error || rendered.status !== 0) throw new Error(`RunningHub 对口型视频帧栅格准备失败：${rendered.stderr || rendered.error?.message || rendered.status}`)
+    }
+  }
+  const identity = createHash('sha256').update(JSON.stringify({
+    source_sha256: normalized.request.source_sha256,
+    audio: normalized.request.audio,
+    delay_ms: delayMs,
+    duration_ms: providerDurationMs,
+    provider_frame_count: providerFrameCount,
+  })).digest('hex').slice(0, 24)
+  const output = resolve(normalized.root, '.short-drama', 'provider-input', `lip-sync-${identity}.wav`)
+  await mkdir(dirname(output), { recursive: true })
+  try { await access(output) }
+  catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+    const durationSeconds = (providerDurationMs / 1000).toFixed(6)
+    const rendered = spawnSync('ffmpeg', [
+      '-nostdin', '-loglevel', 'error', '-n', '-i', normalized.referencePathsByRole.audio,
+      '-af', `adelay=${delayMs}:all=1,apad=whole_dur=${durationSeconds}`,
+      '-t', durationSeconds, '-c:a', 'pcm_s16le', output,
+    ], { encoding: 'utf8' })
+    if (rendered.error || rendered.status !== 0) throw new Error(`RunningHub 对口型音频时间域准备失败：${rendered.stderr || rendered.error?.message || rendered.status}`)
+  }
+  const parameters = {
+    ...normalized.request.parameters,
+    provider_video_preparation: { mode: 'painterav2v-window-and-tail-frame-pad', source_frame_count: sourceFrameCount, window_start_frame: windowStartFrame, window_end_frame: windowEndFrame, window_start_ms: windowStartMs, window_end_ms: windowEndMs, expected_output_frame_count: windowFrameCount, provider_frame_count: providerFrameCount, pad_frames: padFrames, fps: video.fps, duration_ms: providerDurationMs },
+    provider_audio_preparation: { mode: 'leading-silence-and-tail-pad', delay_ms: delayMs, duration_ms: providerDurationMs },
+  }
+  return {
+    ...normalized,
+    request: { ...normalized.request, parameters },
+    referencePaths: normalized.referencePaths.map((path) => path === normalized.referencePathsByRole.source ? preparedVideo : path === normalized.referencePathsByRole.audio ? output : path),
+    referencePathsByRole: { ...normalized.referencePathsByRole, source: preparedVideo, audio: output },
+  }
 }
 
 async function submitMediaOperation(args) {

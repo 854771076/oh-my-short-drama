@@ -9,6 +9,7 @@ import { addAssetVersion, putAsset, selectAssetVersion } from './asset-ledger.mj
 import { DUBBING_REVIEW_DIMENSIONS, putDubbingPerformanceReview } from './dubbing-performance-review.mjs'
 import { validateTimeline } from './editing-store.mjs'
 import { assessDubbingLiveAcceptance, runDubbingLiveAcceptance } from './dubbing-live-acceptance.mjs'
+import { assessWordAlignment } from './dubbing-live-acceptance.mjs'
 import { call } from './generation/mcp.mjs'
 import { putFinalSpeechAlignment } from './speech-timing.mjs'
 import { verifySourceTimedDubbingEvidence } from './next-version-acceptance.mjs'
@@ -31,6 +32,22 @@ function review(assetSha, versionId) {
   dimensions.technical_audio.checks = { clipping: false, swallowed_words: false, tail_cutoff: false, unnatural_tempo: false, loudness_blocker: false }
   return { asset_key: 'audio-ep001-line-001', version_id: versionId, asset_sha256: assetSha, episode_key: 'ep-001', line_index: 1, audio_plan_version: 'v001', timing_version_id: 'v001', reviewer: 'codex', watched_full: true, dimensions, issues: [], production_duration_ms: 1200, final_alignment: { words: [{ text: '别回头', start_ms: 100, end_ms: 900 }] } }
 }
+
+test('真实配音保持词序且整句起止在一帧内时，不因自然韵律内部边界不同而误拒绝', () => {
+  const source = { words: [{ text: '巴', start_ms: 100, end_ms: 300 }, { text: '利', start_ms: 300, end_ms: 500 }, { text: '你', start_ms: 900, end_ms: 1100 }] }
+  const naturalDub = { words: [{ text: '巴', start_ms: 100, end_ms: 220 }, { text: '利', start_ms: 220, end_ms: 510 }, { text: '你', start_ms: 890, end_ms: 1100 }] }
+  const accepted = assessWordAlignment(source, naturalDub, 42)
+  assert.equal(accepted.status, 'passed')
+  assert.equal(accepted.max_error_ms, 80)
+  assert.equal(accepted.boundary_max_error_ms, 0)
+
+  const late = structuredClone(naturalDub)
+  late.words.at(-1).end_ms = 1160
+  assert.equal(assessWordAlignment(source, late, 42).status, 'out-of-tolerance')
+  const wrongText = structuredClone(naturalDub)
+  wrongText.words[1].text = '梨'
+  assert.equal(assessWordAlignment(source, wrongText, 42).status, 'mismatch')
+})
 
 test('原声时间到配音选版、字幕和失效传播完整闭环', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'source-timed-dubbing-flow-'))

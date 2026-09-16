@@ -5,7 +5,7 @@
 - 图片：`/v1/images/generations`；有本地参考图时使用 multipart `/v1/images/edits`。支持 `1K/2K/4K + aspect_ratio` 尺寸推导和常用输出参数。
 - 视频：Seedance 使用 `/volcengine/doubao/contents/generations/tasks`；MiniMax H3/H3-Max 使用 OpenAI 兼容 `/v1/videos`，并通过 `/v1/videos/{task_id}` 查询。适配器按模型选择协议。
 - 语音：同步 `POST /v1/audio/speech`，支持 `speech-2.8-hd`、`speech-2.8-turbo`、Qwen3 TTS、PawSense 与 `tts-1`；通用模型的 `instructions` 和 `metadata` 原样转发，当前 MCP 不缓冲 SSE 流式结果。
-- 语音识别：同步 multipart `POST /v1/audio/transcriptions` 或 `/v1/audio/translations`；默认模型为 `qwen3-asr-flash`、`whisper-1`，其他表单字段原样转发。
+- 语音识别：同步 multipart `POST /v1/audio/transcriptions` 或 `/v1/audio/translations`；默认模型为 `qwen3-asr-flash`、`whisper-1`。词级或分段时间戳必须使用 `response_format=verbose_json`，`timestamp_granularities` 只接受 `word|segment` 并按 multipart 同名重复字段发送；未知粒度和其他响应格式在请求前拒绝。
 - 音乐：`POST /suno/submit/MUSIC` 提交 `suno_music`，`GET /suno/fetch/{task_id}` 轮询；生成结果作为 audio 资产保存。
 - 认证：仅从环境变量 `STARROUTER_API_KEY` 读取 Bearer Token。
 - 保底目录：图片 `gpt-image-2`，视频为适配器登记的 Seedance 系列及 `MiniMax-H3`、`MiniMax-H3-Max`，语音和 ASR 为上述模型，音乐为 `suno_music`。可分别用 `STARROUTER_IMAGE_MODELS`、`STARROUTER_VIDEO_MODELS`、`STARROUTER_AUDIO_MODELS`、`STARROUTER_ASR_MODELS`、`STARROUTER_MUSIC_MODELS` 和 `STARROUTER_MULTIMODAL_VIDEO_MODELS` 提供逗号分隔目录；自定义模型仍需补能力合同。

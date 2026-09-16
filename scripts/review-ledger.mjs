@@ -9,6 +9,7 @@ import { fileSha256, probePrevizMedia, validatePrevizContract, validatePrevizMed
 import { validateMediaOperationReview } from './media-operation-review.mjs'
 import { validateNativeAudioReview } from './native-audio-audit.mjs'
 import { validateCharacterAppealReview } from './character-appeal-review.mjs'
+import { inspectMediaQuality } from './media-tools.mjs'
 
 const CHECKS = new Set(['passed', 'failed', 'not-applicable'])
 // 机器质量标记必须人工复核后才能放行；只能用带实际观察的误报判定覆盖。
@@ -136,12 +137,23 @@ export async function putMediaOperationReview(rootArg, input) {
       if (!providerOutput || providerOutput.sha256 !== processing.provider_output.sha256 || providerOutput.provenance?.task_id !== `${version.provenance.task_id}:provider-output`) throw new Error('SeedVR2.5 候选缺少不可变 Provider 原始输出证据')
       if (processing.audio_remux_source && (processing.audio_remux_source.asset_key !== source.key || processing.audio_remux_source.version_id !== source.version_id || processing.audio_remux_source.sha256 !== sourceVersion.sha256)) throw new Error('SeedVR2.5 音轨复用来源证据无效')
     }
+    if (record.operation === 'lip-sync' && version.provenance.parameters.output_processing) {
+      const processing = version.provenance.parameters.output_processing
+      const providerOutput = asset.versions.find((item) => item.id === processing?.provider_output?.version_id)
+      if (!providerOutput || providerOutput.sha256 !== processing.provider_output.sha256 || providerOutput.provenance?.task_id !== `${version.provenance.task_id}:provider-output` || processing.source_video?.asset_key !== source.key || processing.source_video?.version_id !== source.version_id || processing.source_video?.sha256 !== sourceVersion.sha256) throw new Error('RunningHub 对口型候选缺少不可变 Provider 窗口或拼回来源证据')
+    }
     await selectedAssetVersion(root, record.asset_key)
     const local = resolve(root, version.localPath || '')
     const [rootReal, localReal] = await Promise.all([realpath(root), realpath(local)])
     if (localReal !== rootReal && !localReal.startsWith(`${rootReal}${sep}`)) throw new Error('媒体操作审核文件必须位于项目内')
     const actualSha256 = createHash('sha256').update(await readFile(localReal)).digest('hex')
     if (actualSha256 !== version.sha256 || record.qc?.video_sha256 && record.qc.video_sha256 !== version.sha256) throw new Error('媒体操作审核 QC 必须绑定当前候选文件 SHA-256')
+    if (record.qc?.inherited_blockers) {
+      if (record.operation !== 'lip-sync' || record.qc.inherited_blockers.source_video_sha256 !== sourceVersion.sha256) throw new Error('仅口型操作可继承当前源视频的 QC 阻断项')
+      const sourceQc = await inspectMediaQuality(resolve(root, sourceVersion.localPath))
+      const declared = [...record.qc.inherited_blockers.source_blockers].sort()
+      if (sourceQc.video_sha256 !== sourceVersion.sha256 || JSON.stringify([...sourceQc.blockers].sort()) !== JSON.stringify(declared) || !record.qc.blockers.every((item) => sourceQc.blockers.includes(item))) throw new Error('口型操作声明的继承 QC 阻断项与当前源视频实测不一致')
+    }
 
     const ledger = await read(root)
     const key = `${record.asset_key}@${record.version_id}`

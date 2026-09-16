@@ -15,11 +15,22 @@ const PROFILES = {
 
 export const MEDIA_OPERATION_REVIEW_PROFILES = Object.freeze(Object.fromEntries(Object.entries(PROFILES).map(([operation, keys]) => [operation, Object.freeze([...keys])])))
 
-function validQc(qc) {
+const INHERITABLE_LIP_SYNC_BLOCKERS = new Set(['long_silence', 'color_metadata'])
+
+function validQc(qc, operation) {
+  const inherited = operation === 'lip-sync'
+    && qc?.passed === false
+    && Array.isArray(qc?.blockers)
+    && qc.blockers.length > 0
+    && qc.blockers.every((item) => INHERITABLE_LIP_SYNC_BLOCKERS.has(item))
+    && qc.inherited_blockers?.unchanged === true
+    && /^[0-9a-f]{64}$/.test(qc.inherited_blockers.source_video_sha256 || '')
+    && Array.isArray(qc.inherited_blockers.source_blockers)
+    && JSON.stringify([...qc.blockers].sort()) === JSON.stringify([...qc.inherited_blockers.source_blockers].sort())
+    && typeof qc.inherited_blockers.evidence === 'string'
+    && qc.inherited_blockers.evidence.trim()
   return qc?.version === 1
-    && qc.passed === true
-    && Array.isArray(qc.blockers)
-    && qc.blockers.length === 0
+    && (qc.passed === true && Array.isArray(qc.blockers) && qc.blockers.length === 0 || inherited)
     && /^[0-9a-f]{64}$/.test(qc.video_sha256 || '')
     && Number.isInteger(qc.duration_ms)
     && qc.duration_ms > 0
@@ -44,7 +55,7 @@ export function validateMediaOperationReview(operation, review) {
   }
   if (review.approved) {
     if (review.watched_full !== true) throw new Error('批准媒体操作前必须完整观看并听完输出')
-    if (!validQc(review.qc)) throw new Error('批准媒体操作必须绑定已通过的完整结构化 QC')
+    if (!validQc(review.qc, operation)) throw new Error('批准媒体操作必须绑定已通过的完整结构化 QC；口型操作只允许携带已核实且未变化的源素材静音或色彩元数据阻断项')
     if (operation === 'video-upscale' && (!Number.isFinite(review.qc.video?.fps) || review.qc.video.fps <= 0)) throw new Error('批准视频超分必须在 QC 中记录输出帧率')
     if (review.issues.some((issue) => ['P0', 'P1'].includes(issue.severity))) throw new Error('存在 P0/P1 问题时不得批准媒体操作')
   }

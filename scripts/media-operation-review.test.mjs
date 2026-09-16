@@ -38,6 +38,25 @@ test('超分必须记录分辨率、时长、细节和伪影', () => {
   }), /resolution/)
 })
 
+test('口型操作只允许继承未变化的源静音和色彩元数据阻断项', () => {
+  const inherited = {
+    ...qc('output'), passed: false, blockers: ['long_silence', 'color_metadata'],
+    inherited_blockers: { source_video_sha256: 'a'.repeat(64), source_blockers: ['long_silence', 'color_metadata'], unchanged: true, evidence: '源片与候选实测阻断项一致，口型操作未修改音轨或色彩元数据' },
+  }
+  assert.doesNotThrow(() => validateMediaOperationReview('lip-sync', {
+    approved: true, watched_full: true,
+    observations: observed(['sync_timing', 'identity', 'mouth_artifacts', 'non_target_faces', 'duration']), issues: [], qc: inherited,
+  }))
+  assert.throws(() => validateMediaOperationReview('video-upscale', {
+    approved: true, watched_full: true,
+    observations: observed(['resolution', 'duration_fps', 'audio_preservation', 'faces_hands_text', 'motion_artifacts', 'color_crop']), issues: [], qc: inherited,
+  }), /结构化 QC/)
+  assert.throws(() => validateMediaOperationReview('lip-sync', {
+    approved: true, watched_full: true,
+    observations: observed(['sync_timing', 'identity', 'mouth_artifacts', 'non_target_faces', 'duration']), issues: [], qc: { ...inherited, blockers: ['long_silence', 'black_frame'] },
+  }), /结构化 QC/)
+})
+
 test('批准媒体操作后才选择候选版本', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'short-drama-operation-review-'))
   const key = 'shot-ep001-001'

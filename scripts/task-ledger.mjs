@@ -81,11 +81,19 @@ export function validateTaskOutput(task, request, asset, version, requireComplet
   if (JSON.stringify(expectedParameters) !== JSON.stringify(requestParameters)) throw new Error(`资产 provenance 参数与请求不一致：实际 ${JSON.stringify(provenance.parameters || {})}，期望 ${JSON.stringify(expectedParameters)}`)
   if (outputProcessing !== undefined) {
     const seedVr25 = request.tool === 'submit_media_operation' && request.modelOrWorkflow === 'seedvr2.5-video-upscale' && request.arguments?.operation === 'video-upscale'
+    const windowedLipSync = request.tool === 'submit_media_operation' && request.provider === 'runninghub' && request.arguments?.operation === 'lip-sync' && request.arguments?.parameters?.provider_video_preparation?.mode === 'painterav2v-window-and-tail-frame-pad'
     const providerOutput = outputProcessing?.provider_output
     const audioSource = outputProcessing?.audio_remux_source
-    if (!seedVr25 || !providerOutput || providerOutput.asset_key !== task.target || !/^v\d{3}$/.test(providerOutput.version_id || '') || !/^[0-9a-f]{64}$/.test(providerOutput.sha256 || '') || !['ffmpeg-stream-copy', 'ffmpeg-video-copy-source-audio-aac'].includes(outputProcessing.method)) throw new Error('SeedVR2.5 输出处理 provenance 无效')
-    if (audioSource && (audioSource.asset_key !== request.arguments.source.asset_key || audioSource.version_id !== request.arguments.source.version_id || audioSource.sha256 !== request.arguments.source_sha256)) throw new Error('SeedVR2.5 音轨复用来源与请求不一致')
-    if (outputProcessing.method === 'ffmpeg-video-copy-source-audio-aac' && !audioSource) throw new Error('SeedVR2.5 音轨复用缺少来源证据')
+    if (!providerOutput || providerOutput.asset_key !== task.target || !/^v\d{3}$/.test(providerOutput.version_id || '') || !/^[0-9a-f]{64}$/.test(providerOutput.sha256 || '')) throw new Error('Provider 原始输出处理 provenance 无效')
+    if (seedVr25) {
+      if (!['ffmpeg-stream-copy', 'ffmpeg-video-copy-source-audio-aac'].includes(outputProcessing.method)) throw new Error('SeedVR2.5 输出处理 provenance 无效')
+      if (audioSource && (audioSource.asset_key !== request.arguments.source.asset_key || audioSource.version_id !== request.arguments.source.version_id || audioSource.sha256 !== request.arguments.source_sha256)) throw new Error('SeedVR2.5 音轨复用来源与请求不一致')
+      if (outputProcessing.method === 'ffmpeg-video-copy-source-audio-aac' && !audioSource) throw new Error('SeedVR2.5 音轨复用缺少来源证据')
+    } else if (windowedLipSync) {
+      const sourceVideo = outputProcessing.source_video
+      const preparation = request.arguments.parameters.provider_video_preparation
+      if (outputProcessing.method !== 'ffmpeg-frame-window-splice-source-audio' || sourceVideo?.asset_key !== request.arguments.source.asset_key || sourceVideo?.version_id !== request.arguments.source.version_id || sourceVideo?.sha256 !== request.arguments.source_sha256 || outputProcessing.window_start_frame !== preparation.window_start_frame || outputProcessing.window_end_frame !== preparation.window_end_frame || outputProcessing.expected_output_frame_count !== preparation.expected_output_frame_count) throw new Error('RunningHub 对口型窗口拼回 provenance 无效')
+    } else throw new Error('当前媒体操作不允许输出后处理 provenance')
   }
   if (request.tool === 'submit_video' || request.tool === 'generate_image') {
     const expectedSources = (request.arguments.reference_manifest || []).map((item) => ({ key: item.asset_key, version_id: item.version_id }))

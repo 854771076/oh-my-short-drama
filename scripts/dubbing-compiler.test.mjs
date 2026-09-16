@@ -200,7 +200,7 @@ test('第三轮允许已批准的原文到等义适配，但必须绑定前轮�
   assert.deepEqual(wrongContract.capability_gaps, ['previous-compiler-snapshot-invalid'])
 })
 
-test('第三轮拒绝缺失或不匹配的上一轮快照与非自然语速', () => {
+test('第三轮拒绝缺失或不匹配的上一轮快照，并把校准值限制在自然语速', () => {
   const missing = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', { attempt: 3, measured_speech_ms: 800 }))
   assert.deepEqual(missing.capability_gaps, ['previous-compiler-snapshot-required'])
 
@@ -217,5 +217,13 @@ test('第三轮拒绝缺失或不匹配的上一轮快照与非自然语速', ()
     measured_speech_ms: 1000,
     previous_compiler_snapshot: second.snapshot,
   }))
-  assert.deepEqual(tooFast.capability_gaps, ['speed-out-of-policy'])
+  assert.equal(tooFast.supported, true)
+  assert.equal(tooFast.arguments.speed, 1.15)
+  assert.equal(tooFast.snapshot.applied_speed, 1.15)
+})
+
+test('第二轮理论校准超界时使用合同边界，保留后续等义适配机会', () => {
+  const tooFast = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', { attempt: 2, measured_speech_ms: 1000 }))
+  assert.equal(tooFast.supported, true)
+  assert.equal(tooFast.arguments.speed, 1.15)
 })

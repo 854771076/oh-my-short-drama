@@ -359,10 +359,15 @@ function asrOptions(input) {
   if (!ASR_MODELS.includes(input.model)) throw new Error(`未注册的语音识别模型：${input.model}`)
   const responseFormat = input.response_format || 'json'
   enumValue(responseFormat, ASR_FORMATS, 'response_format')
+  const timestampGranularities = input.timestamp_granularities
+  if (timestampGranularities !== undefined) {
+    if (responseFormat !== 'verbose_json') throw new Error('timestamp_granularities 仅支持 verbose_json')
+    if (!Array.isArray(timestampGranularities) || timestampGranularities.length === 0 || timestampGranularities.some((value) => !['word', 'segment'].includes(value))) throw new Error('timestamp_granularities 只能包含 word 或 segment')
+  }
   if (input.language !== undefined && (typeof input.language !== 'string' || !input.language.trim())) throw new Error('language 必须是非空字符串')
   if (input.prompt !== undefined && typeof input.prompt !== 'string') throw new Error('prompt 必须是字符串')
   range(input.temperature, 0, 1, 'temperature')
-  return { model: input.model, response_format: responseFormat, language: input.language, prompt: input.prompt, temperature: input.temperature }
+  return { model: input.model, response_format: responseFormat, language: input.language, prompt: input.prompt, temperature: input.temperature, timestamp_granularities: timestampGranularities }
 }
 
 async function asrForm(input) {
@@ -371,7 +376,14 @@ async function asrForm(input) {
   const file = await stat(input.file_path || '').catch(() => null)
   if (!file?.isFile() || file.size <= 0 || file.size > MAX_ASR_BYTES || !ASR_EXTENSIONS.has(extension)) throw new Error('ASR 文件不存在、格式不支持或超过大小限制')
   const form = new FormData()
-  for (const [name, value] of Object.entries(options)) if (value !== undefined) form.append(name, String(value))
+  for (const [name, value] of Object.entries(options)) {
+    if (value === undefined) continue
+    if (name === 'timestamp_granularities') {
+      for (const granularity of value) form.append('timestamp_granularities[]', granularity)
+      continue
+    }
+    form.append(name, String(value))
+  }
   form.append('file', new Blob([await readFile(input.file_path)], { type: 'application/octet-stream' }), basename(input.file_path))
   return { form, responseFormat: options.response_format }
 }

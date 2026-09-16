@@ -83,6 +83,6 @@
 使用 `node scripts/validate-project.mjs <项目目录>` 校验实际项目配置、目录、命名、来源、选版、资产 provenance、文件存在性和 SHA-256。
 # 源时间线情感配音
 
-独立配音固定经过 `selected 原声资产 → speech-timing 候选 → 人工复核 timing → audio-plan 三层合同 → 最多三轮编译生成 → 最终 alignment → 八维审核选版 → 字幕/口型/剪辑同源绑定`。行级 ASR 自动通过阈值为 `0.90`，词级为 `0.80`；低置信证据不得静默补造。最终后处理只允许合同内停顿和 `±3%` tempo，容器时长不能替代发声边界。换选音频会递归失效旧字幕和口型派生资产。
+独立配音固定经过 `selected 原声资产 → speech-timing 候选 → 人工复核 timing → audio-plan 三层合同 → 最多三轮编译生成 → 最终 alignment → 八维审核选版 → 字幕/口型/剪辑同源绑定`。行级 ASR 自动通过阈值为 `0.90`，词级为 `0.80`；StarRouter 词级时间戳只接受 `verbose_json + timestamp_granularities=word`，低置信证据不得静默补造。第二轮校准语速钳制在 `0.85–1.15` 后必须实际执行；最终后处理只允许合同内停顿和 `±3%` tempo，容器时长不能替代发声边界。硬门禁比较首词起点和末词终点是否都在一帧内，内部词边界保留为节奏审计证据。换选音频会递归失效旧字幕和口型派生资产。
 
 发布前必须对一个真实镜头完整听看原声与第三方配音，并运行 `dubbing-live-acceptance.mjs` 生成项目内 A/B 报告。同一来源、配音和最终对齐重复执行时幂等返回原报告；配音或对齐换版时写入带版本后缀的新报告，旧失败或通过证据均不可覆盖。随后以 `DUBBING_EVIDENCE_PROJECT=<项目目录>`、`DUBBING_EVIDENCE_REPORT=<项目内报告路径>` 运行 `next-version-acceptance.mjs`；门禁会重新核对两版媒体 SHA、可解码音视频流、当前 selected 配音、已完成 Provider 任务、正整数制作耗时、八维完整复听、词级误差、字幕和口型绑定。合成端到端测试不能替代这份真实证据。
