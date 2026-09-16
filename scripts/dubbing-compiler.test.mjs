@@ -150,6 +150,7 @@ test('快照固定保留版本、区间、轮次和能力缺口，不带调用�
     target_range: { start_ms: 1240, end_ms: 2080 },
     target_speech_ms: 770,
     text_version: 'original',
+    text_sha256: '3b6aa56edd0387aecbe717f8c4073c9b29ea1126ed1a838ee73d6c778d8606b3',
     attempt: 2,
     capability_gaps: ['style-instruction'],
   })
@@ -170,6 +171,33 @@ test('第三轮基于可核对的上一轮绝对速度收敛', () => {
   assert.equal(third.supported, true)
   assert.equal(third.arguments.speed, 0.95)
   assert.equal(third.snapshot.applied_speed, 0.95)
+})
+
+test('第三轮允许已批准的原文到等义适配，但必须绑定前轮合同版本', () => {
+  const second = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus'))
+  const adaptedContract = structuredClone(contract)
+  adaptedContract.adapted_text = '别看。'
+  adaptedContract.adaptation = { reason: '收紧时长', preserved_facts: ['阻止对方回头'], preserved_attitude: '急迫警告', approved_by: 'codex' }
+  const third = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', {
+    contract: adaptedContract,
+    dubbing_contract_version: 'v004',
+    attempt: 3,
+    measured_speech_ms: 800,
+    previous_compiler_snapshot: second.snapshot,
+    previous_attempt_outcome: { alignment_version: 'v001', fit_passed: false, adaptation_approved: true, contract_version: 'v003' },
+  }))
+  assert.equal(third.supported, true)
+  assert.equal(third.snapshot.text_version, 'adapted')
+
+  const wrongContract = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', {
+    contract: adaptedContract,
+    dubbing_contract_version: 'v004',
+    attempt: 3,
+    measured_speech_ms: 800,
+    previous_compiler_snapshot: second.snapshot,
+    previous_attempt_outcome: { alignment_version: 'v001', fit_passed: false, adaptation_approved: true, contract_version: 'v002' },
+  }))
+  assert.deepEqual(wrongContract.capability_gaps, ['previous-compiler-snapshot-invalid'])
 })
 
 test('第三轮拒绝缺失或不匹配的上一轮快照与非自然语速', () => {

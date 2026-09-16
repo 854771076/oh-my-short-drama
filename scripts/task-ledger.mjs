@@ -232,7 +232,22 @@ export async function recordDubbingAttemptOutcome(rootArg, input) {
     const reservation = state?.reservations?.find((item) => item.attempt === input.attempt)
     if (!reservation) throw new Error(`配音付费预占不存在：${identity}#${input.attempt}`)
     if (reservation.status === 'submitting') throw new Error('Provider 请求尚未结算，不能登记对齐结果')
-    const outcome = { alignment_version: input.alignment_version, fit_passed: input.fit_passed, adaptation_approved: input.adaptation_approved }
+    const taskId = reservation.task_id || reservation.reservation_task_id
+    const task = ledger.tasks[taskId]
+    const request = task && JSON.parse(await readFile(projectPath(root, task.requestPath), 'utf8'))
+    const compiler = request?.dubbing_compiler
+    if (!compiler || compiler.sha256 !== fingerprint(compiler.snapshot) || compiler.snapshot.attempt !== input.attempt) throw new Error('配音轮次缺少可信编译快照')
+    if (input.audio_asset) {
+      if (task.target !== input.audio_asset.asset_key || task.outputVersionId !== input.audio_asset.version_id || !/^[0-9a-f]{64}$/.test(input.audio_asset.sha256 || '')) throw new Error('配音轮次结果未绑定任务输出候选')
+    }
+    const outcome = {
+      alignment_version: input.alignment_version,
+      fit_passed: input.fit_passed,
+      adaptation_approved: input.adaptation_approved,
+      contract_version: compiler.snapshot.contract_version,
+      compiler_snapshot_sha256: compiler.sha256,
+      ...(input.audio_asset ? { audio_asset: structuredClone(input.audio_asset) } : {}),
+    }
     if (reservation.outcome) {
       const sameFit = reservation.outcome.alignment_version === outcome.alignment_version && reservation.outcome.fit_passed === outcome.fit_passed
       const onlyApprovalUpgrade = sameFit && reservation.outcome.adaptation_approved === false && outcome.adaptation_approved === true
@@ -242,6 +257,23 @@ export async function recordDubbingAttemptOutcome(rootArg, input) {
     await saveLedger(root, ledger)
     return structuredClone(reservation)
   })
+}
+
+export async function getDubbingAttemptContext(rootArg, input) {
+  const root = resolve(rootArg)
+  if (!input || !/^ep-\d{3}$/.test(input.episode_key || '') || !Number.isInteger(input.line_index) || input.line_index <= 0 || !Number.isInteger(input.attempt) || input.attempt < 1 || input.attempt > 3) throw new Error('配音轮次查询无效')
+  const ledger = await readLedger(root)
+  const identity = `${input.episode_key}:line-${input.line_index}`
+  const reservation = ledger.dubbingAttempts?.[identity]?.reservations?.find((item) => item.attempt === input.attempt)
+  if (!reservation) throw new Error(`配音付费预占不存在：${identity}#${input.attempt}`)
+  const taskId = reservation.task_id || reservation.reservation_task_id
+  const task = ledger.tasks[taskId]
+  if (!task) throw new Error(`配音任务不存在：${taskId}`)
+  const request = JSON.parse(await readFile(projectPath(root, task.requestPath), 'utf8'))
+  if (await sha256(projectPath(root, task.requestPath)) !== reservation.request_sha256 || request.dubbing_compiler?.sha256 !== fingerprint(request.dubbing_compiler?.snapshot)) throw new Error('配音请求快照已损坏')
+  const compiler = request.dubbing_compiler.snapshot
+  if (compiler.episode_key !== input.episode_key || compiler.line_index !== input.line_index || compiler.attempt !== input.attempt) throw new Error('配音请求快照与轮次不一致')
+  return { task: structuredClone(task), request: structuredClone(request), compiler: structuredClone(compiler), outcome: structuredClone(reservation.outcome) }
 }
 
 export async function settleReservedTask(rootArg, reservationId, { taskId = reservationId, status }) {

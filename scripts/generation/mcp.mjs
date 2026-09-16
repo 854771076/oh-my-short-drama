@@ -10,7 +10,7 @@ import { selfCheck as checkComfly } from './comfly.mjs'
 import { selfCheck as checkBailian } from './bailian.mjs'
 import { selfCheck as checkMuseTalk } from './musetalk.mjs'
 import { designVoice, cloneVoice, deleteVoice, importExternalAudio, listVoices } from './voice-tools.mjs'
-import { createRequestSnapshot, getTask, listTasks, reserveTask, settleReservedTask } from '../task-ledger.mjs'
+import { createRequestSnapshot, getDubbingAttemptContext, getTask, listTasks, recordDubbingAttemptOutcome, reserveTask, settleReservedTask } from '../task-ledger.mjs'
 import { validateGenerationDocumentReference } from '../document-reference.mjs'
 import { mediaHostCatalog, mediaHostNames, mediaHostExpiries } from '../media-hosting/providers.mjs'
 import { listReferenceUploads, publishReferenceImage } from '../media-hosting/publish.mjs'
@@ -26,7 +26,7 @@ import { stages } from '../workflow-stages.mjs'
 import { validateProject, validateVideoPrompts } from '../project-store.mjs'
 import { syncTaskResult } from '../task-sync.mjs'
 import { detectMedia, hasPanelBoardClaim } from '../grid-detect.mjs'
-import { importAssetFile, selectedAssetVersion } from '../asset-ledger.mjs'
+import { importAssetFile, selectedAssetVersion, verifiedAssetVersion } from '../asset-ledger.mjs'
 import { operationCapability, validateMediaOperation } from '../media-operation-contract.mjs'
 import { executeLocalMediaOperation } from '../media-operations.mjs'
 import { putMediaOperationReview } from '../review-ledger.mjs'
@@ -153,6 +153,9 @@ export const tools = [
   ['review_speech_timing', '人工复核语音时间证据并创建新的不可变 selected 版本。', {
     project_root: { type: 'string' }, episode_key: { type: 'string', pattern: '^ep-\\d{3}$' }, candidate_version: { type: 'string', pattern: '^v\\d{3}$' }, reviewed_by: { type: 'string' }, document: { type: 'object' },
   }, ['project_root', 'episode_key', 'candidate_version', 'reviewed_by', 'document']],
+  ['review_dubbing_alignment', '为未选中的配音候选写入最终词级对齐，根据一帧误差机器判定适配结果并登记付费轮次。', {
+    project_root: { type: 'string' }, audio: assetVersionReference, attempt: { type: 'integer', minimum: 1, maximum: 3 }, alignment: { type: 'object' }, adaptation_approved: { type: 'boolean' },
+  }, ['project_root', 'audio', 'attempt', 'alignment', 'adaptation_approved']],
   ['compile_dubbing_request', '只读编译当前逐句情感配音合同，不提交付费任务。', {
     project_root: { type: 'string' }, episode_key: { type: 'string', pattern: '^ep-\\d{3}$' }, audio_plan_version: { type: 'string', pattern: '^v\\d{3}$' }, line_index: { type: 'integer', minimum: 1 }, provider, model: { type: 'string' }, voice: { type: 'string' }, attempt: { type: 'integer', minimum: 1, maximum: 3 }, measured_speech_ms: { type: 'integer', minimum: 1 }, runninghub_mapping: { type: 'object' },
   }, ['project_root', 'episode_key', 'audio_plan_version', 'line_index', 'provider', 'model', 'voice', 'attempt']],
@@ -374,7 +377,7 @@ async function validateProjectInputs(projectRoot, type, target, promptDocument, 
   await validateVideoReferenceBindings(root, providerName, args, manifest)
 }
 
-export function compileGeneratedAudioArguments({ providerArgs, line, audioPlan, audioPlanVersion }) {
+export function compileGeneratedAudioArguments({ providerArgs, line, audioPlan, audioPlanVersion, previousCompilerSnapshot, previousAttemptOutcome }) {
   if (line?.dubbing_contract?.mode === 'native-preserve') throw new Error('native-preserve 原声保留合同不得调用普通配音生成；只能经已审核的音频兜底流程派生生成合同')
   if (line?.dubbing_contract?.mode !== 'generated') throw new Error('当前 audio-plan 行缺少 generated 配音合同')
   const { dubbing_attempt: attempt = 1, measured_speech_ms: measuredSpeechMs, runninghub_mapping: runninghubMapping, ...adapterArguments } = providerArgs
@@ -391,6 +394,8 @@ export function compileGeneratedAudioArguments({ providerArgs, line, audioPlan, 
     authorized_voice_bindings: audioPlan.voice_bindings,
     delivery_mode: line.delivery_mode,
     presentation: line.presentation,
+    previous_compiler_snapshot: previousCompilerSnapshot,
+    previous_attempt_outcome: previousAttemptOutcome,
   })
   if (!compiled.supported || compiled.capability_gaps.length) throw new Error(`配音能力不匹配：${compiled.capability_gaps.join('、')}`)
   return {
@@ -1002,14 +1007,37 @@ async function buildTrustedSubtitles(args) {
 
 async function compileCurrentDubbingRequest(args) {
   const loaded = await currentAudioPlanLine(args.project_root, args.episode_key, args.audio_plan_version, args.line_index)
+  const previous = args.attempt === 3 ? await getDubbingAttemptContext(loaded.root, { episode_key: args.episode_key, line_index: args.line_index, attempt: 2 }) : null
   const compiled = compileGeneratedAudioArguments({
     providerArgs: { provider: args.provider, model: args.model, voice: args.voice, dubbing_attempt: args.attempt, ...(args.measured_speech_ms === undefined ? {} : { measured_speech_ms: args.measured_speech_ms }), ...(args.runninghub_mapping === undefined ? {} : { runninghub_mapping: args.runninghub_mapping }) },
     line: loaded.line,
     audioPlan: loaded.plan,
     audioPlanVersion: args.audio_plan_version,
+    previousCompilerSnapshot: previous?.compiler,
+    previousAttemptOutcome: previous?.outcome,
   })
   if (!compiled.compiled) throw new Error('当前 audio-plan 行不是 generated 配音合同')
   return { ...compiled.compiled, arguments: compiled.arguments }
+}
+
+async function reviewDubbingAlignment(args) {
+  const verified = await verifiedAssetVersion(args.project_root, args.audio?.asset_key, args.audio?.version_id)
+  if (verified.asset.type !== 'audio') throw new Error('最终对齐必须绑定音频候选')
+  const document = structuredClone(args.alignment)
+  const context = await getDubbingAttemptContext(args.project_root, { episode_key: document.episode_key, line_index: document.line_index, attempt: args.attempt })
+  if (context.task.status !== 'completed' || context.task.target !== verified.asset.key || context.task.outputVersionId !== verified.version.id || verified.version.provenance?.task_id !== context.task.taskId) throw new Error('最终对齐未绑定已完成的配音生成任务')
+  if (document.audio_asset?.asset_key !== verified.asset.key || document.audio_asset?.version_id !== verified.version.id || document.audio_asset?.sha256 !== verified.version.sha256) throw new Error('最终对齐音频 SHA 或版本不匹配')
+  if (document.audio_plan_version !== context.compiler.contract_version || document.source_timing?.version_id !== context.compiler.timing_version) throw new Error('最终对齐未绑定请求快照的合同或 timing 版本')
+  const textSha256 = createHash('sha256').update(String(document.text || '')).digest('hex')
+  if (context.compiler.text_sha256 !== textSha256) throw new Error('最终对齐文本与持久化编译快照不一致')
+  const stored = await putFinalSpeechAlignment(args.project_root, document)
+  const fit = evaluateDubbingFit({ contract: { target_range: context.compiler.target_range }, alignment: { actual_start_ms: stored.timeline_range.start_ms, actual_end_ms: stored.timeline_range.end_ms }, timeline_fps: document.timeline_fps })
+  const outcome = await recordDubbingAttemptOutcome(args.project_root, {
+    episode_key: document.episode_key, line_index: document.line_index, attempt: context.compiler.attempt,
+    alignment_version: stored.version_id, fit_passed: fit.passed, adaptation_approved: args.adaptation_approved,
+    audio_asset: document.audio_asset,
+  })
+  return { alignment: stored, fit, outcome }
 }
 
 export async function call(name, args = {}) {
@@ -1023,6 +1051,7 @@ export async function call(name, args = {}) {
     const { project_root: projectRoot, ...input } = args
     return reviewSpeechTiming(projectRoot, input)
   }
+  if (name === 'review_dubbing_alignment') return reviewDubbingAlignment(args)
   if (name === 'compile_dubbing_request') return compileCurrentDubbingRequest(args)
   if (name === 'review_dubbing_performance') return putDubbingPerformanceReview(args.project_root, args.review)
   if (name === 'build_subtitles_from_audio') return buildTrustedSubtitles(args)
@@ -1091,8 +1120,11 @@ export async function call(name, args = {}) {
   const type = name === 'generate_image' ? 'image' : 'audio'
   const documentReference = await validateProjectInputs(projectRoot, type, target, promptDocument, args.provider, providerArgs, name === 'generate_music' ? 'music' : type)
   if (trustedAudioFallback && (!fallbackCompilerSnapshot?.derived_contract || JSON.stringify(fallbackCompilerSnapshot.derived_contract) !== JSON.stringify(trustedAudioFallback.derived_contract))) throw new Error('兜底配音缺少已持久化的派生合同绑定')
+  const previousDubbing = name === 'generate_audio' && documentReference?.line && !trustedAudioFallback && providerArgs.dubbing_attempt === 3
+    ? await getDubbingAttemptContext(projectRoot, { episode_key: promptDocument.episode_key, line_index: promptDocument.line_index, attempt: 2 })
+    : null
   const compiledAudio = name === 'generate_audio' && documentReference?.line && !trustedAudioFallback
-    ? compileGeneratedAudioArguments({ providerArgs, line: documentReference.line, audioPlan: documentReference.document, audioPlanVersion: promptDocument.version_id })
+    ? compileGeneratedAudioArguments({ providerArgs, line: documentReference.line, audioPlan: documentReference.document, audioPlanVersion: promptDocument.version_id, previousCompilerSnapshot: previousDubbing?.compiler, previousAttemptOutcome: previousDubbing?.outcome })
     : null
   if (compiledAudio) providerArgs = compiledAudio.arguments
   const snapshot = await createRequestSnapshot(projectRoot, { tool: name, target, type, provider: args.provider, modelOrWorkflow: providerArgs.model || providerArgs.workflow_id, promptDocument, arguments: providerArgs, ...((compiledAudio?.compiled || fallbackCompilerSnapshot) ? { dubbing_compiler: compiledAudio?.compiled?.snapshot || fallbackCompilerSnapshot } : {}) })

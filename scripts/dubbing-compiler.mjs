@@ -1,5 +1,6 @@
 import { weightedLength } from './generation/bailian.mjs'
 import { validateDubbingContract } from './audio-plan-contract.mjs'
+import { createHash } from 'node:crypto'
 
 export const CAPABILITIES = Object.freeze({
   bailian: { instruction: new Set(['cosyvoice-v3.5-plus', 'cosyvoice-v3.5-flash', 'cosyvoice-v3-flash']) },
@@ -48,6 +49,7 @@ function snapshotFor(input, capabilityGaps = [], appliedSpeed) {
     target_range: targetRange,
     target_speech_ms: targetSpeechMs(contract),
     text_version: textVersion(contract),
+    text_sha256: createHash('sha256').update(String(contract.adapted_text || '')).digest('hex'),
     attempt: Number.isInteger(input?.attempt) ? input.attempt : 1,
     capability_gaps: [...capabilityGaps],
     ...(Number.isFinite(appliedSpeed) ? { applied_speed: appliedSpeed } : {}),
@@ -85,12 +87,23 @@ function previousSpeedFor(input, attempt) {
   const previous = input.previous_compiler_snapshot
   if (!plainObject(previous)) return { error: 'previous-compiler-snapshot-required' }
   const contract = input.contract
-  const matches = previous.attempt === attempt - 1
+  const outcome = input.previous_attempt_outcome
+  const currentTextVersion = textVersion(contract)
+  const sameTextContract = previous.text_version === currentTextVersion
     && previous.contract_version === input.dubbing_contract_version
+  const approvedAdaptation = previous.text_version === 'original'
+    && currentTextVersion === 'adapted'
+    && plainObject(contract.adaptation)
+    && plainObject(outcome)
+    && outcome.fit_passed === false
+    && outcome.adaptation_approved === true
+    && outcome.contract_version === previous.contract_version
+    && input.dubbing_contract_version !== previous.contract_version
+  const matches = previous.attempt === attempt - 1
     && previous.timing_version === contract.timing_source.version_id
     && sameRange(previous.target_range, contract.target_range)
     && previous.target_speech_ms === contract.target_speech_ms
-    && previous.text_version === textVersion(contract)
+    && (sameTextContract || approvedAdaptation)
     && Array.isArray(previous.capability_gaps)
     && previous.capability_gaps.length === 0
     && Number.isFinite(previous.applied_speed)

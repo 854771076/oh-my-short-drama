@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { addAssetVersion, putAsset, selectAssetVersion } from './asset-ledger.mjs'
-import { listTasks } from './task-ledger.mjs'
+import { createRequestSnapshot, generationProvenance, listTasks, reserveTask, settleReservedTask, updateTaskStatus } from './task-ledger.mjs'
 import { call, compileGeneratedAudioArguments, tools } from './generation/mcp.mjs'
 
 const contract = {
@@ -50,6 +50,8 @@ test('普通生成入口拒绝 native-preserve 合同', () => {
 
 async function fixture() {
   const root = await mkdtemp(resolve(tmpdir(), 'dubbing-mcp-'))
+  await mkdir(resolve(root, '.short-drama'), { recursive: true })
+  await writeFile(resolve(root, '.short-drama/project.json'), '{}')
   const audioPath = resolve(root, 'assets/audio/audio-ep001-source/v001.wav')
   await mkdir(dirname(audioPath), { recursive: true })
   await writeFile(audioPath, 'source-audio')
@@ -73,7 +75,7 @@ test('分析和编译工具不创建付费任务且已注册', async () => {
     const compiled = await call('compile_dubbing_request', { project_root: root, episode_key: 'ep-001', audio_plan_version: 'v003', line_index: 1, provider: 'bailian', model: 'cosyvoice-v3.5-plus', voice: 'linwan', attempt: 1 })
     assert.equal(compiled.supported, true)
     assert.deepEqual(await listTasks(root), [])
-    for (const name of ['analyze_speech_timing', 'review_speech_timing', 'compile_dubbing_request', 'review_dubbing_performance', 'build_subtitles_from_audio']) assert.equal(tools.some((tool) => tool.name === name), true)
+    for (const name of ['analyze_speech_timing', 'review_speech_timing', 'review_dubbing_alignment', 'compile_dubbing_request', 'review_dubbing_performance', 'build_subtitles_from_audio']) assert.equal(tools.some((tool) => tool.name === name), true)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
@@ -81,6 +83,91 @@ test('编译工具拒绝第四轮付费生成', async () => {
   const root = await fixture()
   try {
     await assert.rejects(() => call('compile_dubbing_request', { project_root: root, episode_key: 'ep-001', audio_plan_version: 'v003', line_index: 1, provider: 'bailian', model: 'cosyvoice-v3.5-plus', voice: 'linwan', attempt: 4 }), /最多 3 次|attempt|轮次|能力不匹配/)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('公开 MCP 为未选中候选写入最终对齐并登记轮次结果', async () => {
+  const root = await fixture()
+  try {
+    const compiled = compileGeneratedAudioArguments({
+      providerArgs: { provider: 'bailian', model: 'cosyvoice-v3.5-plus', voice: 'linwan', input: '别回头。', confirmed: true, dubbing_attempt: 1 },
+      line: { line_index: 1, voice_binding: { voice_id: 'linwan' }, dubbing_contract: contract },
+      audioPlan: { voice_bindings: [{ voice_id: 'linwan' }] }, audioPlanVersion: 'v003',
+    })
+    const snapshot = await createRequestSnapshot(root, {
+      tool: 'generate_audio', target: 'audio-ep001-line-001', type: 'audio', provider: 'bailian', modelOrWorkflow: 'cosyvoice-v3.5-plus',
+      promptDocument: { kind: 'audio-plan', episode_key: 'ep-001', version_id: 'v003', line_index: 1 }, arguments: compiled.arguments,
+      dubbing_compiler: compiled.compiled.snapshot,
+    })
+    await reserveTask(root, { taskId: snapshot.requestId, target: 'audio-ep001-line-001', type: 'audio', provider: 'bailian', requestPath: snapshot.requestPath })
+    await settleReservedTask(root, snapshot.requestId, { taskId: 'tts-task-1', status: 'running' })
+    await putAsset(root, { key: 'audio-ep001-line-001', type: 'audio', name: '配音候选' })
+    const task = (await listTasks(root)).find((item) => item.taskId === 'tts-task-1')
+    const request = JSON.parse(await readFile(resolve(root, task.requestPath), 'utf8'))
+    const audioFile = resolve(root, 'assets/audio/audio-ep001-line-001/v001.wav')
+    await mkdir(dirname(audioFile), { recursive: true })
+    await writeFile(audioFile, 'candidate-audio')
+    await addAssetVersion(root, 'audio-ep001-line-001', { id: 'v001', localPath: 'assets/audio/audio-ep001-line-001/v001.wav', provenance: generationProvenance(task, request) })
+    await updateTaskStatus(root, 'tts-task-1', 'completed', 'v001')
+    const assets = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
+    const version = assets.assets['audio-ep001-line-001'].versions[0]
+
+    const reviewed = await call('review_dubbing_alignment', {
+      project_root: root,
+      audio: { asset_key: 'audio-ep001-line-001', version_id: 'v001' },
+      attempt: 1,
+      alignment: {
+        episode_key: 'ep-001', line_index: 1,
+        audio_asset: { asset_key: 'audio-ep001-line-001', version_id: 'v001', sha256: version.sha256 },
+        audio_plan_version: 'v003', source_timing: { version_id: 'v002', line_index: 1, source_asset: contract.timing_source.source_asset },
+        text: '别回头。', words: [{ text: '别回头。', start_ms: 0, end_ms: 980 }],
+        timeline_mapping: { audio_in_ms: 0, timeline_at_ms: 0 }, timeline_fps: 24, reviewed: true,
+      },
+      adaptation_approved: false,
+    })
+    assert.equal(reviewed.fit.passed, false)
+    assert.equal(reviewed.outcome.attempt, 1)
+    assert.equal(assets.assets['audio-ep001-line-001'].selectedVersionId, undefined)
+
+    const second = await call('compile_dubbing_request', { project_root: root, episode_key: 'ep-001', audio_plan_version: 'v003', line_index: 1, provider: 'bailian', model: 'cosyvoice-v3.5-plus', voice: 'linwan', attempt: 2, measured_speech_ms: 840 })
+    assert.equal(second.supported, true)
+
+    const secondRequest = await createRequestSnapshot(root, {
+      tool: 'generate_audio', target: 'audio-ep001-line-001', type: 'audio', provider: 'bailian', modelOrWorkflow: 'cosyvoice-v3.5-plus',
+      promptDocument: { kind: 'audio-plan', episode_key: 'ep-001', version_id: 'v003', line_index: 1 }, arguments: second.arguments,
+      dubbing_compiler: second.snapshot,
+    })
+    await reserveTask(root, { taskId: secondRequest.requestId, target: 'audio-ep001-line-001', type: 'audio', provider: 'bailian', requestPath: secondRequest.requestPath })
+    await settleReservedTask(root, secondRequest.requestId, { taskId: 'tts-task-2', status: 'running' })
+    const secondTask = (await listTasks(root)).find((item) => item.taskId === 'tts-task-2')
+    const secondStoredRequest = JSON.parse(await readFile(resolve(root, secondTask.requestPath), 'utf8'))
+    const secondAudioFile = resolve(root, 'assets/audio/audio-ep001-line-001/v002.wav')
+    await writeFile(secondAudioFile, 'candidate-audio-two')
+    await addAssetVersion(root, 'audio-ep001-line-001', { id: 'v002', localPath: 'assets/audio/audio-ep001-line-001/v002.wav', provenance: generationProvenance(secondTask, secondStoredRequest) })
+    await updateTaskStatus(root, 'tts-task-2', 'completed', 'v002')
+    const updatedAssets = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
+    const secondVersion = updatedAssets.assets['audio-ep001-line-001'].versions.find((item) => item.id === 'v002')
+    await call('review_dubbing_alignment', {
+      project_root: root, audio: { asset_key: 'audio-ep001-line-001', version_id: 'v002' }, attempt: 2, adaptation_approved: true,
+      alignment: {
+        episode_key: 'ep-001', line_index: 1,
+        audio_asset: { asset_key: 'audio-ep001-line-001', version_id: 'v002', sha256: secondVersion.sha256 },
+        audio_plan_version: 'v003', source_timing: { version_id: 'v002', line_index: 1, source_asset: contract.timing_source.source_asset },
+        text: '别回头。', words: [{ text: '别回头。', start_ms: 0, end_ms: 980 }],
+        timeline_mapping: { audio_in_ms: 0, timeline_at_ms: 0 }, timeline_fps: 24, reviewed: true,
+      },
+    })
+
+    const adaptedContract = structuredClone(contract)
+    adaptedContract.adapted_text = '别看。'
+    adaptedContract.adaptation = { reason: '收紧时长', preserved_facts: ['阻止对方回头'], preserved_attitude: '急迫警告', approved_by: 'codex' }
+    const adaptedPlan = { episode_key: 'ep-001', approved: true, unresolved: [], voice_bindings: [{ voice_id: 'linwan' }], lines: [{ line_index: 1, speaker: '林晚', delivery_mode: 'post_dub', presentation: 'visible-dialogue', voice_binding: { voice_id: 'linwan' }, dubbing_contract: adaptedContract }] }
+    await writeFile(resolve(root, 'episodes/ep-001/audio-plan/v004.json'), `${JSON.stringify(adaptedPlan)}\n`)
+    await writeFile(resolve(root, 'episodes/ep-001/audio-plan/selected.json'), `${JSON.stringify({ versionId: 'v004', path: 'episodes/ep-001/audio-plan/v004.json' })}\n`)
+    const third = await call('compile_dubbing_request', { project_root: root, episode_key: 'ep-001', audio_plan_version: 'v004', line_index: 1, provider: 'bailian', model: 'cosyvoice-v3.5-plus', voice: 'linwan', attempt: 3, measured_speech_ms: 800 })
+    assert.equal(third.supported, true)
+    assert.equal(third.snapshot.text_version, 'adapted')
+    assert.equal(third.snapshot.applied_speed, 1.13)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
