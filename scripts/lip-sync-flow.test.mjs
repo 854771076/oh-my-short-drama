@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
@@ -35,18 +36,22 @@ async function fixture({ presentation = 'visible-dialogue', delivery = 'post_dub
   const directory = resolve(root, 'episodes/ep-001/audio-plan')
   await mkdir(directory, { recursive: true })
   const sourceAudio = delivery === 'native' ? null : { asset_key: 'audio-ep001-line-001', version_id: 'v001' }
-  const line = { line_index: 1, speaker: '林晚', line_type: 'dialogue', content: '别回头。', emotion: '紧张', emotion_strength: 0.3, pronunciation_notes: [], matched_shot: { shot_number: 1 }, range: { start_ms: 0, end_ms: 1000 }, delivery_mode: delivery, presentation, fallback_mode: 'post-dub', source_audio: sourceAudio, voice_binding: { voice_id: 'linwan' }, native_audio_exception: null, performance: null }
+  const line = { line_index: 1, speaker: '林晚', line_type: 'dialogue', content: '别回头。', emotion: '紧张', emotion_strength: 0.3, pronunciation_notes: [], matched_shot: { shot_number: 1 }, range: { start_ms: 0, end_ms: 1000 }, delivery_mode: delivery, presentation, fallback_mode: 'post-dub', source_audio: sourceAudio, voice_binding: { voice_id: 'linwan' }, native_audio_exception: null, performance: null, dubbing_contract: { mode: delivery === 'native' ? 'native-preserve' : 'generated', timing_source: { episode_key: 'ep-001', version_id: 'v001', line_index: 1, source_asset: { asset_key: 'shot-ep001-001', version_id: 'v001', sha256: 'a'.repeat(64) } }, target_range: { start_ms: 0, end_ms: 1000 } } }
   const plan = { episode_key: 'ep-001', audio_strategy: { mode: 'native-first', provider_selection: 'prefer-native', fallback_allowed: true, fallback_reasons: reasons }, lines: [line], unresolved: [], approved: true }
   await writeFile(resolve(directory, 'v001.json'), `${JSON.stringify(plan, null, 2)}\n`)
   await writeFile(resolve(directory, 'selected.json'), `${JSON.stringify({ versionId: 'v001', path: 'episodes/ep-001/audio-plan/v001.json' }, null, 2)}\n`)
   return root
 }
 
-const request = (root, parameters = {}) => ({
+const request = (root, parameters = {}) => {
+  const ledger = JSON.parse(readFileSync(resolve(root, '.short-drama/assets.json'), 'utf8'))
+  const audioSha = ledger.assets['audio-ep001-line-001'].versions[0].sha256
+  return ({
   project_root: root, target: 'shot-ep001-001', operation: 'lip-sync', provider: 'musetalk',
   source: { asset_key: 'shot-ep001-001', version_id: 'v001' }, audio: { asset_key: 'audio-ep001-line-001', version_id: 'v001' },
-  range: { start_ms: 0, end_ms: 1000 }, parameters: { audio_plan: { episode_key: 'ep-001', version_id: 'v001', line_index: 1 }, face_selector: { mode: 'single-visible-face', character_key: 'char-linwan' }, ...parameters }, confirmed: false,
-})
+  range: { start_ms: 0, end_ms: 1000 }, parameters: { audio_plan: { episode_key: 'ep-001', version_id: 'v001', line_index: 1 }, audio_binding: { asset_key: 'audio-ep001-line-001', version_id: 'v001', sha256: audioSha, line_index: 1, speech_timing_version: 'v001', dubbing_contract_version: 'v001' }, face_selector: { mode: 'single-visible-face', character_key: 'char-linwan' }, ...parameters }, confirmed: false,
+  })
+}
 
 test('旁白、画外音、合格原生对白和多人脸禁止口型操作', async () => {
   for (const presentation of ['narration', 'offscreen-dialogue']) {
@@ -90,12 +95,17 @@ test('未通过当前版本口型专项审核不能进入时间线', async () =>
     await copyFile(resolve(root, 'assets/videos/shot-ep001-001/v001.mp4'), resolve(root, 'assets/videos/shot-ep001-001/v002.mp4'))
     const ledger = JSON.parse(await readFile(resolve(root, '.short-drama/assets.json'), 'utf8'))
     const source = ledger.assets['shot-ep001-001'].versions[0]
-    await addAssetVersion(root, 'shot-ep001-001', { id: 'v002', localPath: 'assets/videos/shot-ep001-001/v002.mp4', provenance: { origin: 'transformed', created_by: 'provider', provider: 'musetalk', model_or_workflow: 'musetalk-1.5', task_id: 'lip-1', prompt_document: null, source_assets: [{ key: 'shot-ep001-001', version_id: 'v001' }, { key: 'audio-ep001-line-001', version_id: 'v001' }], parameters: { operation: 'lip-sync', range: { start_ms: 0, end_ms: 1000 }, parameters: {}, source_sha256: source.sha256 } } })
+    const audioSha = ledger.assets['audio-ep001-line-001'].versions[0].sha256
+    const audioBinding = { asset_key: 'audio-ep001-line-001', version_id: 'v001', sha256: audioSha, line_index: 1, speech_timing_version: 'v001', dubbing_contract_version: 'v001' }
+    await addAssetVersion(root, 'shot-ep001-001', { id: 'v002', localPath: 'assets/videos/shot-ep001-001/v002.mp4', provenance: { origin: 'transformed', created_by: 'provider', provider: 'musetalk', model_or_workflow: 'musetalk-1.5', task_id: 'lip-1', prompt_document: null, source_assets: [{ key: 'shot-ep001-001', version_id: 'v001' }, { key: 'audio-ep001-line-001', version_id: 'v001' }], parameters: { operation: 'lip-sync', range: { start_ms: 0, end_ms: 1000 }, parameters: { audio_plan: { episode_key: 'ep-001', version_id: 'v001', line_index: 1 }, audio_binding: audioBinding }, source_sha256: source.sha256 } } })
     await selectAssetVersion(root, 'shot-ep001-001', 'v002')
-    const timeline = { episode_key: 'ep-001', fps: 24, width: 320, height: 180, segments: [{ shot_key: 'shot-ep001-001', asset_key: 'shot-ep001-001', version_id: 'v002', source_in_ms: 0, source_out_ms: 1000, timeline_start_ms: 0, timeline_end_ms: 1000, transition: { type: 'hard-cut', duration_frames: 0 }, dialogue_sync: 'lip-synced' }], subtitles: [], audio_tracks: [], labels: [], graphics: [] }
+    const timeline = { episode_key: 'ep-001', fps: 24, width: 320, height: 180, segments: [{ shot_key: 'shot-ep001-001', asset_key: 'shot-ep001-001', version_id: 'v002', source_in_ms: 0, source_out_ms: 1000, timeline_start_ms: 0, timeline_end_ms: 1000, transition: { type: 'hard-cut', duration_frames: 0 }, dialogue_sync: 'lip-synced' }], subtitles: [{ text: '别回头', startMs: 0, endMs: 1000, timestampMs: 0, confidence: 1, speaker: '林晚', audio_binding: audioBinding }], subtitle_source: { method: 'manual-transcription', reviewed: true, source_assets: [{ asset_key: 'audio-ep001-line-001', version_id: 'v001' }], audio_bindings: [audioBinding] }, audio_tracks: [{ asset_key: 'audio-ep001-line-001', version_id: 'v001', role: 'dialogue', source_in_ms: 0, source_out_ms: 1000, timeline_start_ms: 0, timeline_end_ms: 1000, volume_envelope: [], audio_binding: audioBinding }], labels: [], graphics: [], mix: { target_lufs: -16, true_peak_dbtp: -1 }, sound_design_exception: { confirmed: true, reason: '测试夹具只验证对白同源性' } }
     await writeFile(resolve(root, '.short-drama/shot-reviews.json'), `${JSON.stringify({ version: 1, reviews: { 'shot-ep001-001@v002': { approved: true } } }, null, 2)}\n`)
     await assert.rejects(validateTimeline(root, timeline), /口型专项审核/)
     await writeFile(resolve(root, '.short-drama/shot-reviews.json'), `${JSON.stringify({ version: 1, reviews: { 'shot-ep001-001@v002': { approved: true, review_type: 'media-operation', operation: 'lip-sync' } } }, null, 2)}\n`)
     await assert.doesNotReject(validateTimeline(root, timeline))
+    const mismatched = structuredClone(timeline)
+    mismatched.subtitles[0].audio_binding.dubbing_contract_version = 'v002'
+    await assert.rejects(validateTimeline(root, mismatched), /同一 selected 配音|subtitle_source/)
   } finally { await rm(root, { recursive: true, force: true }) }
 })

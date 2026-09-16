@@ -38,6 +38,8 @@ function normalizeCaption(item, index, fps, layout, totalMs) {
   const warnings = []
   const fail = (code, message) => errors.push({ index: n, code, message })
   if (!item || typeof item !== 'object') return { errors: [{ index: n, code: 'invalid_item', message: `字幕 ${n} 不是对象` }], warnings }
+  const binding = item.audio_binding
+  if (!binding || typeof binding.asset_key !== 'string' || !/^v\d{3}$/.test(binding.version_id || '') || !/^[0-9a-f]{64}$/.test(binding.sha256 || '') || !Number.isInteger(binding.line_index) || !/^v\d{3}$/.test(binding.speech_timing_version || '') || !/^v\d{3}$/.test(binding.dubbing_contract_version || '')) fail('invalid_audio_binding', `字幕 ${n} 必须绑定最终配音、speech-timing 与合同版本`)
   if ('show_speaker' in item && typeof item.show_speaker !== 'boolean') fail('invalid_show_speaker', `字幕 ${n} show_speaker 必须是布尔值`)
   let names = []
   try {
@@ -122,10 +124,12 @@ export function renderSubtitles(timeline) {
 async function main() {
   const [command, timelineArg, srtArg, assArg] = process.argv.slice(2)
   if (command === '--self-check') {
+    let selfLine = 0
+    const bound = (value) => ({ ...value, audio_binding: { asset_key: 'audio-ep001-dialogue', version_id: 'v001', sha256: 'a'.repeat(64), line_index: ++selfLine, speech_timing_version: 'v001', dubbing_contract_version: 'v001' } })
     const vertical = renderSubtitles({ fps: 24, width: 1080, height: 1920, segments: [{ timeline_end_ms: 10000 }], subtitles: [
-      { text: '你先走。\n我掩护。', startMs: 240, endMs: 1680, timestampMs: 240, confidence: 1, speaker: '林晚' },
-      { text: '知道了。', startMs: 1680, endMs: 2640, timestampMs: 1680, confidence: 1, speaker: '周潜', show_speaker: true },
-      { text: '走吧。\n嗯。', startMs: 2640, endMs: 3600, timestampMs: 2640, confidence: 1, speakers: ['林晚', '周潜'], show_speaker: true },
+      bound({ text: '你先走。\n我掩护。', startMs: 240, endMs: 1680, timestampMs: 240, confidence: 1, speaker: '林晚' }),
+      bound({ text: '知道了。', startMs: 1680, endMs: 2640, timestampMs: 1680, confidence: 1, speaker: '周潜', show_speaker: true }),
+      bound({ text: '走吧。\n嗯。', startMs: 2640, endMs: 3600, timestampMs: 2640, confidence: 1, speakers: ['林晚', '周潜'], show_speaker: true }),
     ] })
     if (vertical.errors.length) throw new Error(`电影字幕自检误报：${JSON.stringify(vertical.errors)}`)
     if (vertical.ass.includes('林晚')) throw new Error('默认应隐藏说话人')
@@ -137,17 +141,17 @@ async function main() {
     if (vertical.ass.includes('。') || vertical.srt.includes('。')) throw new Error('句末句号必须省略')
     if (!vertical.ass.includes('BorderStyle') || !/Dialogue,PingFang SC,69,.*?,1,2,1,2,/.test(vertical.ass)) throw new Error('必须是细描边软投影的无底盒样式')
     const bad = renderSubtitles({ fps: 24, width: 1080, height: 1920, subtitles: [
-      { text: '一二三四五六七八九十一二三四五六七', startMs: 0, endMs: 500, timestampMs: 0, confidence: 1 },
-      { text: '短', startMs: 100, endMs: 200, timestampMs: 100, confidence: 1 },
-      { text: '重叠', startMs: 150, endMs: 900, timestampMs: 150, confidence: 1 },
+      bound({ text: '一二三四五六七八九十一二三四五六七', startMs: 0, endMs: 500, timestampMs: 0, confidence: 1 }),
+      bound({ text: '短', startMs: 100, endMs: 200, timestampMs: 100, confidence: 1 }),
+      bound({ text: '重叠', startMs: 150, endMs: 900, timestampMs: 150, confidence: 1 }),
     ] })
     const codes = bad.errors.map((error) => error.code).sort()
     for (const code of ['line_too_long', 'dwell_too_short', 'cps_too_high', 'overlap']) if (!codes.includes(code)) throw new Error(`缺少逐字报错：${code}`)
-    const landscape = renderSubtitles({ fps: 25, width: 1920, height: 1080, subtitles: [{ text: '横屏测试', startMs: 0, endMs: 800, timestampMs: 0, confidence: 1 }] })
+    const landscape = renderSubtitles({ fps: 25, width: 1920, height: 1080, subtitles: [bound({ text: '横屏测试', startMs: 0, endMs: 800, timestampMs: 0, confidence: 1 })] })
     if (!landscape.ass.includes('PlayResX: 1920') || !landscape.ass.includes('Style: Dialogue,PingFang SC,39,')) throw new Error('横屏布局错误')
-    const warned = renderSubtitles({ fps: 24, width: 1080, height: 1920, subtitles: [{ text: '帧偏移', startMs: 100, endMs: 900, timestampMs: 100, confidence: 1 }] })
+    const warned = renderSubtitles({ fps: 24, width: 1080, height: 1920, subtitles: [bound({ text: '帧偏移', startMs: 100, endMs: 900, timestampMs: 100, confidence: 1 })] })
     if (warned.errors.length || !warned.warnings.some((warning) => warning.code === 'off_frame_grid')) throw new Error('帧栅格应对齐警告而非报错')
-    const injected = renderSubtitles({ fps: 24, width: 1080, height: 1920, subtitles: [{ text: '别{\\an8}跑', startMs: 0, endMs: 800, timestampMs: 0, confidence: 1 }] })
+    const injected = renderSubtitles({ fps: 24, width: 1080, height: 1920, subtitles: [bound({ text: '别{\\an8}跑', startMs: 0, endMs: 800, timestampMs: 0, confidence: 1 })] })
     if (injected.errors.length || !injected.ass.includes('｛\\an8｝') || injected.ass.includes('{\\an8}')) throw new Error('ASS 覆写注入未被转义')
     return console.log('ok')
   }

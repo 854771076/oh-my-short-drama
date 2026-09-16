@@ -16,6 +16,14 @@ const episodePath = (root, area, episode, file) => {
 }
 const timelinePath = (root, episode) => episodePath(root, 'editing', episode, 'timeline.json')
 
+function validAudioBinding(binding) {
+  return binding && typeof binding.asset_key === 'string' && /^v\d{3}$/.test(binding.version_id || '') && /^[0-9a-f]{64}$/.test(binding.sha256 || '') && Number.isInteger(binding.line_index) && binding.line_index > 0 && /^v\d{3}$/.test(binding.speech_timing_version || '') && /^v\d{3}$/.test(binding.dubbing_contract_version || '')
+}
+
+function sameAudioBinding(left, right) {
+  return validAudioBinding(left) && validAudioBinding(right) && ['asset_key', 'version_id', 'sha256', 'line_index', 'speech_timing_version', 'dubbing_contract_version'].every((field) => left[field] === right[field])
+}
+
 async function existingInside(root, value, area) {
   const rootReal = await realpath(root)
   const path = await realpath(resolve(root, value))
@@ -155,14 +163,19 @@ export async function validateTimeline(root, timeline) {
     if ('speaker' in subtitle && (typeof subtitle.speaker !== 'string' || !subtitle.speaker.trim())) throw new Error('字幕 speaker 必须是非空字符串')
     if ('show_speaker' in subtitle && typeof subtitle.show_speaker !== 'boolean') throw new Error('字幕 show_speaker 必须是布尔值（默认 false，电影式隐藏）')
     if ('speakers' in subtitle && (!Array.isArray(subtitle.speakers) || subtitle.speakers.length < 1 || subtitle.speakers.length > 2 || subtitle.speakers.some((name) => typeof name !== 'string' || !name.trim()))) throw new Error('字幕 speakers 必须是 1–2 个非空字符串（双人对白）')
+    if (!validAudioBinding(subtitle.audio_binding)) throw new Error('字幕必须绑定最终 selected 配音、timing 与合同版本')
+    const boundAsset = assets.assets?.[subtitle.audio_binding.asset_key]
+    const boundVersion = boundAsset?.versions?.find((item) => item.id === subtitle.audio_binding.version_id)
+    if (boundAsset?.type !== 'audio' || boundAsset.selectedVersionId !== subtitle.audio_binding.version_id || boundVersion?.sha256 !== subtitle.audio_binding.sha256 || boundAsset.staleVersionIds?.includes(boundVersion?.id)) throw new Error('字幕必须绑定当前 selected 配音及 SHA')
   }
   if (timeline.subtitles.length) {
     const source = timeline.subtitle_source
-    if (!['asr', 'manual-transcription'].includes(source?.method) || source.reviewed !== true || !Array.isArray(source.source_assets) || !source.source_assets.length) throw new Error('存在字幕时必须记录来自实际音轨的 subtitle_source，并完成人工复核')
+    if (!['asr', 'manual-transcription'].includes(source?.method) || source.reviewed !== true || !Array.isArray(source.source_assets) || !source.source_assets.length || !Array.isArray(source.audio_bindings)) throw new Error('存在字幕时必须记录来自实际音轨的 subtitle_source，并完成人工复核')
     for (const reference of source.source_assets) {
       const asset = assets.assets?.[reference?.asset_key]
       if (!['audio', 'video'].includes(asset?.type) || asset.selectedVersionId !== reference.version_id) throw new Error('subtitle_source 必须绑定 selected 的实际音频或原生声轨')
     }
+    for (const subtitle of timeline.subtitles) if (!source.audio_bindings.some((binding) => sameAudioBinding(binding, subtitle.audio_binding))) throw new Error('subtitle_source 必须与逐条字幕使用同一 selected 配音')
   }
   for (const track of audioTracks) {
     for (const field of ['asset_key', 'version_id', 'role']) if (typeof track[field] !== 'string' || !track[field]) throw new Error(`audio_track.${field} 必填`)
@@ -174,6 +187,10 @@ export async function validateTimeline(root, timeline) {
     if (!['audio', 'video'].includes(asset?.type) || asset.selectedVersionId !== track.version_id || !version?.localPath) throw new Error(`${track.asset_key} 必须引用 selected 音频或原生声轨视频`)
     if (asset.type === 'audio' && !track.asset_key.startsWith(`audio-${timeline.episode_key.replace('-', '')}-`)) throw new Error(`${track.asset_key} 音频不属于 ${timeline.episode_key}`)
     if (asset.type === 'video' && sourcePromptDocument(assets, track.asset_key, version)?.episode_key !== timeline.episode_key) throw new Error(`${track.asset_key} 原生声轨不属于 ${timeline.episode_key}`)
+    if (['dialogue', 'voiceover'].includes(track.role)) {
+      if (!validAudioBinding(track.audio_binding) || track.audio_binding.asset_key !== track.asset_key || track.audio_binding.version_id !== track.version_id || track.audio_binding.sha256 !== version.sha256) throw new Error(`${track.asset_key} 对白音轨必须绑定同一 selected 配音、timing 与合同版本`)
+      if (!timeline.subtitles.some((subtitle) => sameAudioBinding(subtitle.audio_binding, track.audio_binding))) throw new Error(`${track.asset_key} 对白音轨与字幕未使用同一 selected 配音`)
+    }
     const envelope = track.volume_envelope || []
     if (!Array.isArray(envelope) || envelope.some((point) => !Number.isInteger(point?.time_ms) || point.time_ms < track.timeline_start_ms || point.time_ms > track.timeline_end_ms || typeof point.gain_db !== 'number')) throw new Error(`${track.asset_key}.volume_envelope 无效`)
     await existingInside(root, version.localPath)
@@ -182,6 +199,15 @@ export async function validateTimeline(root, timeline) {
   for (const segment of segments) {
     const hasSpeech = audioTracks.some((track) => ['dialogue', 'voiceover'].includes(track.role) && track.timeline_start_ms < segment.timeline_end_ms && track.timeline_end_ms > segment.timeline_start_ms)
     if (hasSpeech && !['native', 'lip-synced', 'offscreen', 'no-visible-speech'].includes(segment.dialogue_sync)) throw new Error(`${segment.shot_key} 有对白覆盖，必须明确 dialogue_sync 证据`)
+    if (segment.dialogue_sync === 'lip-synced') {
+      const version = assets.assets?.[segment.asset_key]?.versions?.find((item) => item.id === segment.version_id)
+      const speechTracks = audioTracks.filter((track) => ['dialogue', 'voiceover'].includes(track.role) && track.timeline_start_ms < segment.timeline_end_ms && track.timeline_end_ms > segment.timeline_start_ms)
+      if (!speechTracks.length) throw new Error(`${segment.shot_key} 对口型镜头缺少同区间对白音轨`)
+      for (const track of speechTracks) {
+        const requestBinding = version?.provenance?.parameters?.parameters?.audio_binding
+        if (!sameAudioBinding(requestBinding, track.audio_binding) || !version.provenance.source_assets?.some((item) => item.key === track.asset_key && item.version_id === track.version_id)) throw new Error(`${segment.shot_key} 口型、字幕和对白音轨必须使用同一 selected 配音`)
+      }
+    }
   }
   const longGaps = uncoveredRanges(audioTracks, previousEnd).filter(([start, end]) => end - start > 5000)
   const silenceExceptions = timeline.silence_exceptions || []

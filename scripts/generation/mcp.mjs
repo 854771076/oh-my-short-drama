@@ -687,6 +687,8 @@ function sameReference(left, right) {
 
 async function validateLipSyncEligibility(root, request, source, audio) {
   const reference = request.parameters.audio_plan
+  const binding = request.parameters.audio_binding
+  if (!binding || binding.asset_key !== request.audio.asset_key || binding.version_id !== request.audio.version_id || binding.sha256 !== audio.version.sha256 || binding.line_index !== reference.line_index || binding.dubbing_contract_version !== reference.version_id || !/^v\d{3}$/.test(binding.speech_timing_version || '')) throw new Error('对口型必须绑定当前配音 SHA、合同版本和 speech-timing 版本')
   const selection = JSON.parse(await readFile(resolve(root, 'episodes', reference.episode_key, 'audio-plan', 'selected.json'), 'utf8'))
   if (selection.versionId !== reference.version_id) throw new Error('对口型必须引用当前 selected audio-plan')
   const plan = JSON.parse(await readFile(resolve(root, selection.path), 'utf8'))
@@ -694,6 +696,7 @@ async function validateLipSyncEligibility(root, request, source, audio) {
   if (!line) throw new Error('对口型所引用的 audio-plan 行不存在、未批准或仍有未决项')
   if (line.presentation !== 'visible-dialogue') throw new Error('旁白或画外音不得执行对口型')
   if (!['post_dub', 'external_audio'].includes(line.delivery_mode)) throw new Error('合格原生对白不得执行对口型；仅独立音频可用')
+  if (line.dubbing_contract?.mode !== 'generated' || line.dubbing_contract.timing_source?.version_id !== binding.speech_timing_version || line.dubbing_contract.timing_source?.line_index !== binding.line_index) throw new Error('对口型必须引用当前配音合同与最终 speech-timing')
   if (!sameReference(line.source_audio, request.audio)) throw new Error('对口型音频必须与 audio-plan 行的 selected 独立音频完全一致')
   const shot = /^shot-ep(\d{3})-(\d{3})$/.exec(request.target)
   if (!shot || reference.episode_key !== `ep-${shot[1]}` || line.matched_shot?.shot_number !== Number(shot[2])) throw new Error('对口型 audio-plan 行必须与目标镜头完全一致')
