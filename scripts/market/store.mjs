@@ -197,6 +197,12 @@ export function createMarketStore(workspaceRoot, { renameFile = rename } = {}) {
     return isReport(report, reportId) ? report : null
   }
 
+  async function readReportMarkdown(reportId) {
+    assertId(reportId, 'report ID')
+    if (!await ensureDataDirectory('reports', false)) return null
+    return readTextFile(reportPath(reportId, 'md'), '报告 Markdown 文件')
+  }
+
   async function collectSnapshots() {
     const directory = resolve(marketRoot, 'snapshots')
     if (!await ensureDataDirectory('snapshots', false)) return []
@@ -283,7 +289,16 @@ export function createMarketStore(workspaceRoot, { renameFile = rename } = {}) {
       // rankings 的键代表实际成功返回的榜单；完全失败时不留下会被误当成可分析样本的快照。
       if (Object.keys(source.rankings).length === 0) return null
       await ensureDataDirectory('snapshots', true)
-      await writeAtomically(snapshotPath(source.snapshot_id), `${JSON.stringify(source, null, 2)}\n`, '快照文件')
+      const path = snapshotPath(source.snapshot_id)
+      const status = await safePath(path, '快照文件')
+      if (status) {
+        if (!status.isFile()) throw reportStorageError('MARKET_SNAPSHOT_CORRUPT', `快照 ${source.snapshot_id} 不是文件`)
+        const stored = await readJsonFile(path, '快照文件')
+        if (!isSnapshot(stored, source.snapshot_id)) throw reportStorageError('MARKET_SNAPSHOT_CORRUPT', `快照 ${source.snapshot_id} 合同无效`)
+        if (!isDeepStrictEqual(stored, source)) throw reportStorageError('MARKET_SNAPSHOT_CONFLICT', `快照 ${source.snapshot_id} 已绑定不同内容，不能覆盖`)
+        return source
+      }
+      await writeAtomically(path, `${JSON.stringify(source, null, 2)}\n`, '快照文件')
       await refreshIndex()
       return source
     })
@@ -321,5 +336,5 @@ export function createMarketStore(workspaceRoot, { renameFile = rename } = {}) {
     }
   }
 
-  return { saveSnapshot, saveReport, readSnapshot, readReport, readLatest, listHistory }
+  return { saveSnapshot, saveReport, readSnapshot, readReport, readReportMarkdown, readLatest, listHistory }
 }

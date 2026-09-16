@@ -35,6 +35,17 @@ test('成功快照更新索引且拒绝路径穿越 ID', async () => {
   const index = JSON.parse(await readFile(resolve(root, '.short-drama-market/index.json'), 'utf8'))
   assert.equal(index.latest_snapshot_id, '20260916T153000+0800')
   await assert.rejects(store.readReport('../secret'), /ID/)
+  await assert.rejects(store.readReportMarkdown('../secret'), /ID/)
+})
+
+test('同一快照 ID 只允许同内容幂等写入，不能改指历史证据', async () => {
+  const root = await createRoot()
+  const store = createMarketStore(root)
+  const first = { schema_version: 1, snapshot_id: 'immutable-snapshot', rankings: { hot: [{ id: 1 }] }, failures: [] }
+  await store.saveSnapshot(first)
+  await store.saveSnapshot(structuredClone(first))
+  await assert.rejects(store.saveSnapshot({ ...first, rankings: { hot: [{ id: 2 }] } }), /MARKET_SNAPSHOT_CONFLICT/)
+  assert.deepEqual((await store.readSnapshot(first.snapshot_id)).rankings, first.rankings)
 })
 
 test('索引缺失返回空最新记录，损坏索引不会阻止下一次成功快照恢复', async () => {

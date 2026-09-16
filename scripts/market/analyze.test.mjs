@@ -64,6 +64,17 @@ test('公司集中度以有归属去重作品为分母，空分母为零', () =>
   assert.equal(companyConcentration([{ key: 'x', companies: {} }]).cr3, 0)
 })
 
+test('公司集中度按平台、承制、版权和制作角色分开计算', () => {
+  const result = companyConcentration([
+    { key: 'a', companies: { platform: ['平台甲'], contractor: ['承制甲'], copyrightHolder: ['版权甲'], producer: ['制作甲'] } },
+    { key: 'b', companies: { platform: ['平台甲'], contractor: ['承制乙'], copyrightHolder: [], producer: [] } },
+  ])
+  assert.deepEqual(Object.keys(result.by_role), ['platform', 'contractor', 'copyrightHolder', 'producer'])
+  assert.equal(result.by_role.platform.total_with_company, 2)
+  assert.equal(result.by_role.platform.cr3, 1)
+  assert.equal(result.by_role.copyrightHolder.total_with_company, 1)
+})
+
 test('筛选后空结果仍返回完整零值报告且输入不变', () => {
   const items = [{ key: 'a', title: '剧', topics: ['悬疑探案'], audience: '女频', era: '现代', format: '短剧', rankingType: 'hot', ranking: 1 }]
   const before = structuredClone(items)

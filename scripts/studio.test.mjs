@@ -6,6 +6,7 @@ import { homedir, tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { createStudioServer, DEFAULT_WORKSPACE_ROOT, initializeWorkspace } from './studio.mjs'
+import { createMarketStore } from './market/store.mjs'
 import { renderDocument } from '../studio/document-view.js'
 import { marketRoute, parseAppRoute, parseRoute, projectRoute } from '../studio/router.js'
 
@@ -71,6 +72,9 @@ test('市场 API 支持空态、刷新锁和报告读取', async (t) => {
   releaseRefresh()
   assert.equal((await refresh).status, 201)
   assert.equal((await fetch(`${base}/api/v1/market/reports/missing`)).status, 404)
+  const traversal = await fetch(`${base}/api/v1/market/reports/..%2F..%2Fsecret/markdown`)
+  assert.equal(traversal.status, 400)
+  assert.doesNotMatch(await traversal.text(), /secret contents/)
   const markdown = await fetch(`${base}/api/v1/market/reports/r1/markdown`)
   assert.equal(markdown.headers.get('content-type'), 'text/markdown; charset=utf-8')
 })
@@ -83,6 +87,33 @@ test('市场 API 默认服务在空工作区保持离线空态', async (t) => {
   const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/market`)
   assert.equal(response.status, 200)
   assert.deepEqual(await response.json(), { status: 'empty', latestReport: null, latestSnapshot: null, history: [] })
+})
+
+test('市场 API 筛选使用最新快照重算全部指标', async (t) => {
+  const workspace = await mkdtemp(resolve(tmpdir(), 'short-drama-market-filter-'))
+  const store = createMarketStore(workspace)
+  await store.saveSnapshot({
+    schema_version: 1,
+    snapshot_id: 'filter-snapshot',
+    retrieved_at: '2026-09-16T10:00:00+08:00',
+    source: { provider: 'dataeye-juchacha', coverage: 'public-top-30' },
+    rankings: { hot: { content: [
+      { playletId: 1, playletName: '男频剧', audience: '男频', playletTags: ['异能'], ranking: 1, consumeNum: 100 },
+      { playletId: 2, playletName: '女频剧', audience: '女频', playletTags: ['甜宠'], ranking: 2, consumeNum: 50 },
+    ] } },
+    failures: [],
+  })
+  await run('market-research.mjs', ['analyze', workspace])
+  const server = createStudioServer({ workspaceRoot: workspace })
+  await new Promise((done) => server.listen(0, '127.0.0.1', done))
+  t.after(async () => { await new Promise((done) => server.close(done)); await rm(workspace, { recursive: true, force: true }) })
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/market?audience=${encodeURIComponent('男频')}`)
+  const body = await response.json()
+  assert.equal(response.status, 200)
+  assert.equal(body.filtered, true)
+  assert.equal(body.latestReport.coverage.sample_count, 1)
+  assert.deepEqual(body.latestReport.filters, { audience: '男频' })
+  assert.deepEqual(body.latestReport.topic_metrics.map((item) => item.topic), ['异能'])
 })
 
 test('市场刷新失败返回可重试错误且不泄露上游细节', async (t) => {

@@ -159,7 +159,8 @@ test('脏数据和缺失 ID 使用稳定标题键，动态漫字段不扩张合�
   assert.equal(first.ranking, 2)
   assert.equal(first.heatValue, 12300)
   assert.equal(first.persistenceDays, 7)
-  assert.deepEqual(first.companies, ['快创'])
+  assert.deepEqual(first.companies, { platform: [], contractor: [], copyrightHolder: [], producer: ['快创'] })
+  assert.deepEqual(first.provenance.rawRef, { snapshotId: null, rankingType: 'motion-ai', playletId: null })
   assert.equal(first.format, '真人AI')
   assert.equal(first.audience, '男频')
   assert.equal('cover' in first, false)
@@ -193,10 +194,23 @@ test('合并结果是与输入及其他结果隔离的深快照', () => {
   merged[0].observations[0].topics.push('被修改')
   merged[0].observations[0].provenance.evidence.rawTags.push('被修改')
   merged[0].rankings[0].provenance.evidence.titleKeywords.push('被修改')
-  merged[0].companies.push('被修改')
+  merged[0].companies.producer.push('被修改')
 
   assert.deepEqual(observations[0].topics, ['悬疑'])
   assert.deepEqual(observations[0].provenance.evidence.rawTags, ['悬疑'])
   assert.deepEqual(other[0].observations[0].provenance.evidence.rawTags, ['悬疑'])
-  assert.deepEqual(other[0].companies, ['公司'])
+  assert.deepEqual(other[0].companies, { platform: [], contractor: [], copyrightHolder: [], producer: ['公司'] })
+})
+
+test('公司归属按角色保留并记录原始证据引用', () => {
+  const item = normalizeRankingItem('hot', {
+    playletId: 7,
+    title: '角色样本',
+    platformList: [{ publisherName: '平台甲' }],
+    contractorCompany: ['承制乙'],
+    copyrightHolderList: [{ name: '版权丙' }],
+    producerList: [{ companyName: '制作丁' }],
+  }, { snapshotId: 'snapshot-1', observedAt: '2026-09-16T10:00:00+08:00' })
+  assert.deepEqual(item.companies, { platform: ['平台甲'], contractor: ['承制乙'], copyrightHolder: ['版权丙'], producer: ['制作丁'] })
+  assert.deepEqual(item.provenance.rawRef, { snapshotId: 'snapshot-1', rankingType: 'hot', playletId: 7 })
 })

@@ -15,6 +15,8 @@ import { saveCredential } from './generation/credentials.mjs'
 import { artStyleCatalog } from './art-styles.mjs'
 import { createMarketStore } from './market/store.mjs'
 import { runMarketResearch } from './market-research.mjs'
+import { analyzeMarket } from './market/analyze.mjs'
+import { normalizeRankings } from './market/normalize.mjs'
 
 const execute = promisify(execFile)
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -23,6 +25,7 @@ export const DEFAULT_WORKSPACE_ROOT = resolve(homedir(), 'darma_project')
 const WORKSPACE_FILE = '.short-drama-workspace.json'
 const PROJECT_KEY = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const SAFE_KEY = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
+const MARKET_ID = /^[A-Za-z0-9+_-]{1,80}$/
 const ASSET_TYPES = { character: ['.gif','.jpeg','.jpg','.png','.webp'], scene: ['.gif','.jpeg','.jpg','.png','.webp'], prop: ['.gif','.jpeg','.jpg','.png','.webp'], storyboard: ['.gif','.jpeg','.jpg','.png','.webp'], video: ['.mp4','.webm'], audio: ['.flac','.mp3','.pcm','.wav'], other: ['.bin'] }
 const MAX_UPLOAD_BYTES = Number(process.env.SHORT_DRAMA_MAX_MEDIA_BYTES || 512 * 1024 * 1024)
 const PROJECT_DOCUMENTS = { 'source-analysis': '原文分析', brief: '创作简报', bible: '项目设定', outline: '分集大纲', 'art-style': '美术风格' }
@@ -379,9 +382,17 @@ async function serveDelivery(response, workspaceRoot, key, episodeKey, kind, ran
 function createDefaultMarketService(workspaceRoot) {
   const store = createMarketStore(workspaceRoot)
   return {
-    async overview() {
+    async overview(filters = {}) {
       const [latest, history] = await Promise.all([store.readLatest(), store.listHistory()])
-      return { status: latest.latestReport ? 'ready' : 'empty', latestReport: latest.latestReport, latestSnapshot: latest.latestSnapshot, history }
+      if (!latest.latestReport || !latest.latestSnapshot || Object.keys(filters).length === 0) return { status: latest.latestReport ? 'ready' : 'empty', latestReport: latest.latestReport, latestSnapshot: latest.latestSnapshot, history }
+      const snapshot = latest.latestSnapshot
+      const latestReport = analyzeMarket({
+        items: normalizeRankings(snapshot.rankings, { snapshotId: snapshot.snapshot_id, observedAt: snapshot.retrieved_at }),
+        successfulRankingTypes: Object.keys(snapshot.rankings),
+        snapshotIds: [snapshot.snapshot_id],
+        filters,
+      })
+      return { status: 'ready', latestReport, latestSnapshot: snapshot, history, filtered: true, sourceReportId: latest.latestReport.report_id }
     },
     async refresh() {
       try {
@@ -393,10 +404,7 @@ function createDefaultMarketService(workspaceRoot) {
       return this.overview()
     },
     report: (id) => store.readReport(id),
-    async markdown(id) {
-      const path = resolve(workspaceRoot, '.short-drama-market', 'reports', `${id}.md`)
-      return readFile(path, 'utf8')
-    },
+    markdown: (id) => store.readReportMarkdown(id),
   }
 }
 
@@ -416,16 +424,28 @@ export function createStudioServer({ workspaceRoot: rootArg, providerTester = te
       }
       if (request.method === 'GET' && url.pathname === '/api/v1/providers') return json(response, 200, { providers: providerSetupCatalog() })
       if (request.method === 'GET' && url.pathname === '/api/v1/art-styles') return json(response, 200, { styles: artStyleCatalog(workspaceRoot) })
-      if (request.method === 'GET' && url.pathname === '/api/v1/market') return json(response, 200, await marketService.overview())
+      if (request.method === 'GET' && url.pathname === '/api/v1/market') {
+        const filters = {}
+        for (const [query, field] of [['rankingTypes', 'rankingTypes'], ['topic', 'topic'], ['audience', 'audience'], ['format', 'format']]) {
+          const value = url.searchParams.get(query)
+          if (value) filters[field] = value
+        }
+        return json(response, 200, await marketService.overview(filters))
+      }
       const marketReportMatch = /^\/api\/v1\/market\/reports\/([^/]+)$/.exec(url.pathname)
       const marketMarkdownMatch = /^\/api\/v1\/market\/reports\/([^/]+)\/markdown$/.exec(url.pathname)
       if (request.method === 'GET' && marketMarkdownMatch) {
-        const markdown = await marketService.markdown(decodeURIComponent(marketMarkdownMatch[1]))
+        const reportId = decodeURIComponent(marketMarkdownMatch[1])
+        if (!MARKET_ID.test(reportId)) throw Object.assign(new Error('市场报告 ID 无效'), { status: 400 })
+        const markdown = await marketService.markdown(reportId)
+        if (markdown === null) throw Object.assign(new Error('市场报告不存在'), { status: 404 })
         response.writeHead(200, { ...SAFE_HEADERS, 'content-type': 'text/markdown; charset=utf-8', 'cache-control': 'no-store' })
         return response.end(markdown)
       }
       if (request.method === 'GET' && marketReportMatch) {
-        const report = await marketService.report(decodeURIComponent(marketReportMatch[1]))
+        const reportId = decodeURIComponent(marketReportMatch[1])
+        if (!MARKET_ID.test(reportId)) throw Object.assign(new Error('市场报告 ID 无效'), { status: 400 })
+        const report = await marketService.report(reportId)
         if (!report) throw Object.assign(new Error('市场报告不存在'), { status: 404 })
         return json(response, 200, report)
       }

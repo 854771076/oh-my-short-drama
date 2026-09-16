@@ -61,6 +61,13 @@ const FIELD_ALIASES = Object.freeze({
   format: ['format', 'contentFormat', 'playletFormat'],
 })
 
+const COMPANY_ROLE_ALIASES = Object.freeze({
+  platform: ['platformList', 'relatedPartyCompany', 'playletUserList', 'playletUser'],
+  contractor: ['contractorList', 'contractorCompany'],
+  copyrightHolder: ['copyrightHolderList', 'copyrightHolderCompany'],
+  producer: ['producerList', 'manufacturer', 'companyNames', 'company'],
+})
+
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
@@ -193,6 +200,25 @@ export function parseList(value) {
   return [...new Set(result)]
 }
 
+function companyNames(value) {
+  if (Array.isArray(value)) return [...new Set(value.flatMap((entry) => companyNames(entry)))]
+  if (isRecord(value)) {
+    for (const key of ['publisherName', 'companyName', 'manufacturerName', 'name']) {
+      const name = normalizedText(value[key])
+      if (name) return [name]
+    }
+    return []
+  }
+  return parseList(value)
+}
+
+function normalizeCompanies(source) {
+  return Object.fromEntries(Object.entries(COMPANY_ROLE_ALIASES).map(([role, aliases]) => [
+    role,
+    [...new Set(aliases.flatMap((alias) => Object.hasOwn(source, alias) ? companyNames(source[alias]) : []))],
+  ]))
+}
+
 function labelValue(values, labels) {
   for (const value of values) {
     const label = labels.get(compactText(value))
@@ -297,8 +323,8 @@ export function normalizeRankingItem(rankingType, item, context = {}) {
   const growthValue = firstSafeNumber(source, FIELD_ALIASES.growthValue)
   const persistenceDays = firstSafeNumber(source, FIELD_ALIASES.persistenceDays, (value) => Number.isInteger(value) && value >= 0)
   const isNew = firstBoolean(source, FIELD_ALIASES.isNew)
-  const companySource = sourceValues(source, FIELD_ALIASES.companies)
-  const companies = [...new Set(companySource.values.flatMap((value) => parseList(value)))]
+  const companySource = sourceValues(source, [...new Set([...FIELD_ALIASES.companies, ...Object.values(COMPANY_ROLE_ALIASES).flat()])])
+  const companies = normalizeCompanies(source)
   const key = playletId === null ? `title-hash:${titleHash(title)}` : `playlet-id:${playletId}`
 
   const sourceFields = {}
@@ -338,6 +364,11 @@ export function normalizeRankingItem(rankingType, item, context = {}) {
     provenance: {
       rankingType: String(rankingType ?? ''),
       topicSource,
+      rawRef: {
+        snapshotId: context?.snapshotId ?? null,
+        rankingType: String(rankingType ?? ''),
+        playletId,
+      },
       sourceFields,
       evidence: {
         rawTags: uniqueTags,
@@ -393,7 +424,7 @@ export function mergePlayletObservations(items) {
       audience: firstNonEmpty(observations.map((item) => item.audience)),
       era: firstNonEmpty(observations.map((item) => item.era)),
       format: firstNonEmpty(observations.map((item) => item.format)),
-      companies: [...new Set(observations.flatMap((item) => item.companies || []))],
+      companies: Object.fromEntries(Object.keys(COMPANY_ROLE_ALIASES).map((role) => [role, [...new Set(observations.flatMap((item) => item.companies?.[role] || []))]])),
       rankingTypes: [...new Set(observations.map((item) => item.rankingType))],
       rankings: observations.map((item) => ({
         rankingType: item.rankingType,

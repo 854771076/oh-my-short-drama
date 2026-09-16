@@ -226,12 +226,17 @@ export function topicMetrics(items, successfulRankingTypes) {
       - 0.20 * crowding,
     )).toFixed(12))
     const sourceRatio = sourceTagRatio(entries)
+    const rankingHeat = [...new Set(entries.map(({ item }) => item.rankingType).filter(Boolean))].sort(compareText).map((rankingType) => {
+      const matching = entries.filter(({ item }) => item.rankingType === rankingType)
+      return { ranking_type: rankingType, demand_strength: average(matching.map((entry) => demandPercentiles.get(entry) ?? 0)), sample_count: matching.length }
+    })
     return {
       topic,
       ranking_types: uniqueStrings(entries.map(({ item }) => item.rankingType)).sort(compareText),
       audiences: uniqueStrings(entries.map(({ item }) => item.audience)).sort(compareText),
       formats: uniqueStrings(entries.map(({ item }) => item.format)).sort(compareText),
       eras: uniqueStrings(entries.map(({ item }) => item.era)).sort(compareText),
+      ranking_heat: rankingHeat,
       supply_count: supplyCount,
       rank_strength: rankStrength,
       demand_strength: demandStrength,
@@ -255,7 +260,13 @@ export function platformMatrix(items, fallbackSnapshotId = null) {
   }
   return [...grouped.entries()].map(([key, entries]) => {
     const first = [...entries].sort(itemSort)[0].item
-    const rankings = entries.map(({ item }) => ({ ranking_type: item.rankingType ?? '', ranking: finiteNumber(item.ranking) }))
+    const rankings = entries.map(({ item }) => ({
+      ranking_type: item.rankingType ?? '',
+      ranking: finiteNumber(item.ranking),
+      heat_value: finiteNumber(item.heatValue),
+      observed_at: typeof item.observedAt === 'string' ? item.observedAt : null,
+      topic_source: item?.provenance?.topicSource ?? null,
+    }))
       .sort((left, right) => compareText(left.ranking_type, right.ranking_type) || (left.ranking ?? Infinity) - (right.ranking ?? Infinity))
     return {
       key,
@@ -270,11 +281,11 @@ export function platformMatrix(items, fallbackSnapshotId = null) {
   }).sort((left, right) => right.platform_coverage - left.platform_coverage || compareText(left.key, right.key))
 }
 
-export function companyConcentration(items) {
+function concentrationFor(items, selectCompanies) {
   const works = new Map()
   for (const entry of dedupeObservations(items)) {
     if (!works.has(entry.key)) works.set(entry.key, new Set())
-    for (const company of normalizedCompanies(entry.item.companies)) works.get(entry.key).add(company)
+    for (const company of selectCompanies(entry.item)) works.get(entry.key).add(company)
   }
   const attributedWorks = [...works.entries()].filter(([, companies]) => companies.size > 0)
   const counts = new Map()
@@ -285,6 +296,15 @@ export function companyConcentration(items) {
   // 多角色归属会让公司份额相加超过 1，因此 CR3 取前三家公司覆盖作品的并集，保持可解释的 0..1 范围。
   const cr3 = attributedWorks.length === 0 ? 0 : attributedWorks.filter(([, list]) => [...list].some((company) => topThree.has(company))).length / attributedWorks.length
   return { total_with_company: attributedWorks.length, company_count: companies.length, cr3, companies }
+}
+
+export function companyConcentration(items) {
+  const aggregate = concentrationFor(items, (item) => normalizedCompanies(item.companies))
+  const roleNames = ['platform', 'contractor', 'copyrightHolder', 'producer']
+  return {
+    ...aggregate,
+    by_role: Object.fromEntries(roleNames.map((role) => [role, concentrationFor(items, (item) => normalizedCompanies(item.companies?.[role]))])),
+  }
 }
 
 function snapshotShape(snapshot) {
