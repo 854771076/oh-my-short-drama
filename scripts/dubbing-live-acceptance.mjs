@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createReadStream } from 'node:fs'
-import { createHash } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { link, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname, resolve, sep } from 'node:path'
 import { validateTimeline } from './editing-store.mjs'
 import { probeMedia } from './media-tools.mjs'
@@ -124,15 +124,53 @@ export async function assessDubbingLiveAcceptance(rootArg, episodeKey, lineIndex
   return { report }
 }
 
+function acceptanceIdentity(report) {
+  return JSON.stringify({
+    episode_key: report.episode_key,
+    line_index: report.line_index,
+    original: report.original,
+    dub: report.dub,
+    source_timing_version: report.source_timing?.version_id,
+    final_alignment_version: report.final_alignment?.version_id,
+  })
+}
+
+async function existingReport(path) {
+  try { return JSON.parse(await readFile(path, 'utf8')) }
+  catch (error) { if (error?.code === 'ENOENT') return null; throw error }
+}
+
+async function writeImmutableReport(output, report) {
+  const previous = await existingReport(output)
+  if (previous) {
+    if (acceptanceIdentity(previous) === acceptanceIdentity(report)) return previous
+    throw new Error(`真实 A/B 验收报告身份冲突且不可覆盖：${output}`)
+  }
+  const temporary = `${output}.${randomUUID()}.tmp`
+  await writeFile(temporary, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' })
+  try { await link(temporary, output) }
+  catch (error) {
+    if (error?.code !== 'EEXIST') throw error
+    const raced = await existingReport(output)
+    if (!raced || acceptanceIdentity(raced) !== acceptanceIdentity(report)) throw new Error(`真实 A/B 验收报告身份冲突且不可覆盖：${output}`)
+    return raced
+  } finally { await unlink(temporary).catch((error) => { if (error?.code !== 'ENOENT') throw error }) }
+  return report
+}
+
 export async function runDubbingLiveAcceptance(rootArg, episodeKey, lineIndex, options) {
   const root = resolve(rootArg)
   const { report } = await assessDubbingLiveAcceptance(root, episodeKey, lineIndex, options)
-  const output = resolve(root, '.short-drama', 'acceptance', `source-timed-dubbing-${episodeKey}-line-${String(lineIndex).padStart(3, '0')}.json`)
-  await mkdir(dirname(output), { recursive: true })
-  const temporary = `${output}.${process.pid}.tmp`
-  await writeFile(temporary, `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' })
-  await rename(temporary, output)
-  return { output, report }
+  const directory = resolve(root, '.short-drama', 'acceptance')
+  await mkdir(directory, { recursive: true })
+  const stem = `source-timed-dubbing-${episodeKey}-line-${String(lineIndex).padStart(3, '0')}`
+  const primary = resolve(directory, `${stem}.json`)
+  const primaryReport = await existingReport(primary)
+  const output = primaryReport && acceptanceIdentity(primaryReport) !== acceptanceIdentity(report)
+    ? resolve(directory, `${stem}-dub-${report.dub.version_id}-alignment-${report.final_alignment.version_id}.json`)
+    : primary
+  const stored = await writeImmutableReport(output, report)
+  return { output, report: stored }
 }
 
 async function main() {
