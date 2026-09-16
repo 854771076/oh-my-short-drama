@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path'
 import { selectAudioVersionAndInvalidateDerived, verifiedAssetVersion } from './asset-ledger.mjs'
 import { finalSpeechAlignment, selectedSourceSpeechTiming } from './speech-timing.mjs'
 import { withFileLock } from './file-lock.mjs'
+import { resolveGeneratedDubbingContract } from './dubbing-contract-resolution.mjs'
 
 export const DUBBING_REVIEW_DIMENSIONS = Object.freeze([
   'semantic_integrity',
@@ -76,19 +77,21 @@ async function verifyBindings(root, review) {
   const plan = await selectedAudioPlan(root, review.episode_key)
   if (plan.version_id !== review.audio_plan_version) throw new Error('审核必须绑定当前 selected audio-plan 版本')
   const line = plan.document.lines?.find((item) => item.line_index === review.line_index)
-  if (!line || line.dubbing_contract?.mode !== 'generated') throw new Error('审核未绑定有效的生成配音合同')
-  const sourceTiming = await selectedSourceSpeechTiming(root, line.dubbing_contract.timing_source)
-  if (line.dubbing_contract.timing_source?.line_index !== review.line_index || sourceTiming.version_id !== line.dubbing_contract.timing_source.version_id) throw new Error('审核行与配音合同源 timing 行不一致')
+  if (!line) throw new Error('审核未绑定有效的 audio-plan 行')
+  const resolved = await resolveGeneratedDubbingContract(root, { plan: plan.document, planVersion: plan.version_id, line, audioVersion: audio.version })
+  const contract = resolved.contract
+  const sourceTiming = await selectedSourceSpeechTiming(root, contract.timing_source)
+  if (contract.timing_source?.line_index !== review.line_index || sourceTiming.version_id !== contract.timing_source.version_id) throw new Error('审核行与配音合同源 timing 行不一致')
   const alignment = await finalSpeechAlignment(root, { asset_key: review.asset_key, version_id: review.version_id, sha256: review.asset_sha256 })
   if (alignment.version_id !== review.timing_version_id) throw new Error('审核必须绑定当前最终词级对齐版本')
   const document = alignment.document
   if (document.episode_key !== review.episode_key || document.line_index !== review.line_index || document.audio_plan_version !== review.audio_plan_version) throw new Error('最终词级对齐与审核行或合同版本不一致')
-  const source = line.dubbing_contract.timing_source
+  const source = contract.timing_source
   if (document.source_timing.version_id !== source.version_id || document.source_timing.line_index !== source.line_index || JSON.stringify(document.source_timing.source_asset) !== JSON.stringify(source.source_asset)) throw new Error('最终对齐未绑定配音合同的源 timing')
   const normalizeText = (value) => String(value || '').normalize('NFKC').replace(/[\p{P}\p{S}\s]/gu, '')
-  if (normalizeText(document.text) !== normalizeText(line.dubbing_contract.adapted_text) || normalizeText(document.words.map((word) => word.text).join('')) !== normalizeText(line.dubbing_contract.adapted_text)) throw new Error('最终词级对齐文本不一致：必须匹配配音合同')
+  if (normalizeText(document.text) !== normalizeText(contract.adapted_text) || normalizeText(document.words.map((word) => word.text).join('')) !== normalizeText(contract.adapted_text)) throw new Error('最终词级对齐文本不一致：必须匹配配音合同')
   const tolerance = Math.ceil(1000 / document.timeline_fps)
-  const target = line.dubbing_contract.target_range
+  const target = contract.target_range
   if (Math.abs(alignment.timeline_range.start_ms - target.start_ms) > tolerance || Math.abs(alignment.timeline_range.end_ms - target.end_ms) > tolerance) throw new Error('最终词级对齐发声边界超过一帧容差')
   return { audio, alignment }
 }

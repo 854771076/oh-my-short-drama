@@ -79,6 +79,7 @@ test('兜底生成合同必须连同原声失败证据持久化', async () => {
       version: 1, episode_key: 'ep-001', line_index: 1, audio_plan_version: 'v001',
       source_video: { asset_key: 'shot-ep001-001', version_id: 'v001' },
       native_audio_exception: { reason: 'speech-intelligibility-failed', evidence: '原声含混', range: { start_ms: 0, end_ms: 900 } },
+      voice_binding: { voice_id: 'character-a' },
       generated_contract: { mode: 'generated', target_range: { start_ms: 0, end_ms: 900 } },
     }
     const saved = await persistDerivedFallbackContract(root, record)

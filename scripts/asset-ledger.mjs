@@ -355,7 +355,8 @@ export async function selectAudioVersionAndInvalidateDerived(rootArg, key, versi
 async function assertDialogueAudioSelection(root, asset, version, allowPending = false, transactionId = null) {
   const prompt = version.provenance?.prompt_document
   const controlledDubbing = /^audio-ep\d{3}-line-\d{3}$/.test(asset.key) || (prompt?.kind === 'audio-plan' && Number.isInteger(prompt.line_index))
-  if (asset.type !== 'audio' || !controlledDubbing || version.provenance?.parameters?.media_role === 'non-dialogue') return
+  // 是否属于对白只能由稳定资产身份或 audio-plan 文档引用决定，不能信任调用者可写的 provenance 参数。
+  if (asset.type !== 'audio' || !controlledDubbing) return
   const reviews = JSON.parse(await readFile(resolve(root, '.short-drama', 'dubbing-reviews.json'), 'utf8').catch((error) => error?.code === 'ENOENT' ? '{"reviews":{}}' : Promise.reject(error)))
   const review = reviews.reviews?.[`${asset.key}@${version.id}`]
   const validState = review?.selection_state === 'committed' || (allowPending && review?.selection_state === 'pending' && typeof transactionId === 'string' && review.transaction_id === transactionId)

@@ -720,12 +720,16 @@ async function validateLipSyncEligibility(root, request, source, audio) {
   const line = plan.approved === true && !plan.unresolved?.length && plan.lines?.find((item) => item.line_index === reference.line_index)
   if (!line) throw new Error('对口型所引用的 audio-plan 行不存在、未批准或仍有未决项')
   if (line.presentation !== 'visible-dialogue') throw new Error('旁白或画外音不得执行对口型')
-  if (!['post_dub', 'external_audio'].includes(line.delivery_mode)) throw new Error('合格原生对白不得执行对口型；仅独立音频可用')
-  if (line.dubbing_contract?.mode !== 'generated' || line.dubbing_contract.timing_source?.version_id !== binding.speech_timing_version || line.dubbing_contract.timing_source?.line_index !== binding.line_index) throw new Error('对口型必须引用当前配音合同与最终 speech-timing')
-  if (!sameReference(line.source_audio, request.audio)) throw new Error('对口型音频必须与 audio-plan 行的 selected 独立音频完全一致')
+  if (line.dubbing_contract?.mode === 'native-preserve' && !audio.version.provenance?.parameters?.dubbing_compiler) throw new Error('合格原生对白不得执行对口型；仅独立音频可用')
+  const resolvedContract = await resolveGeneratedDubbingContract(root, { plan, planVersion: reference.version_id, line, audioVersion: audio.version })
+  if (resolvedContract.contract.timing_source?.version_id !== binding.speech_timing_version || resolvedContract.contract.timing_source?.line_index !== binding.line_index) throw new Error('对口型必须引用当前配音合同与最终 speech-timing')
+  if (resolvedContract.source === 'audio-plan') {
+    if (!['post_dub', 'external_audio'].includes(line.delivery_mode)) throw new Error('合格原生对白不得执行对口型；仅独立音频可用')
+    if (!sameReference(line.source_audio, request.audio)) throw new Error('对口型音频必须与 audio-plan 行的 selected 独立音频完全一致')
+  }
   const shot = /^shot-ep(\d{3})-(\d{3})$/.exec(request.target)
   if (!shot || reference.episode_key !== `ep-${shot[1]}` || line.matched_shot?.shot_number !== Number(shot[2])) throw new Error('对口型 audio-plan 行必须与目标镜头完全一致')
-  const targetRange = line.dubbing_contract.target_range
+  const targetRange = resolvedContract.contract.target_range
   if (!targetRange || targetRange.start_ms !== request.range.start_ms || targetRange.end_ms !== request.range.end_ms) throw new Error('对口型范围必须与当前配音合同 target_range 完全一致')
   const media = probeMedia(source.path)
   if (!media.has_video || request.range.end_ms > media.duration_ms) throw new Error('对口型来源视频未覆盖完整台词范围')
@@ -838,7 +842,7 @@ function validateFallbackBinding(presentation, binding, line) {
 
 export async function persistDerivedFallbackContract(rootArg, record) {
   const root = await realpath(resolve(rootArg))
-  if (!/^ep-\d{3}$/.test(record?.episode_key || '') || !Number.isInteger(record?.line_index) || record.line_index <= 0 || record.generated_contract?.mode !== 'generated' || !record.native_audio_exception) throw new Error('派生兜底合同缺少原声失败证据或生成合同')
+  if (!/^ep-\d{3}$/.test(record?.episode_key || '') || !Number.isInteger(record?.line_index) || record.line_index <= 0 || record.generated_contract?.mode !== 'generated' || !record.native_audio_exception || !record.voice_binding) throw new Error('派生兜底合同缺少原声失败证据、授权音色或生成合同')
   const canonical = JSON.stringify(record)
   const sha256 = createHash('sha256').update(canonical).digest('hex')
   const target = resolve(root, 'episodes', record.episode_key, 'audio-plan', 'fallback-contracts', `line-${String(record.line_index).padStart(3, '0')}-${sha256.slice(0, 16)}.json`)
@@ -894,7 +898,7 @@ async function prepareAudioFallback(args) {
   const compiled = compileDubbingRequest({ provider: args.provider, model: args.model, voice: args.voice, contract: generatedContract, attempt: args.dubbing_attempt || 1, measured_speech_ms: args.measured_speech_ms, dubbing_contract_version: args.audio_plan_version, voice_binding: binding, authorized_voice_bindings: plan.voice_bindings, delivery_mode: 'post_dub', presentation: line.presentation })
   if (!compiled.supported || compiled.capability_gaps.length) throw new Error(`配音能力不匹配：${compiled.capability_gaps.join('、')}`)
   compiled.snapshot = { ...compiled.snapshot, episode_key: args.episode_key, line_index: args.line_index }
-  return { root, line, generatedContract, compiled, provenance, promptDocument: { kind: 'audio-plan', episode_key: args.episode_key, version_id: args.audio_plan_version, line_index: args.line_index } }
+  return { root, line, binding, generatedContract, compiled, provenance, promptDocument: { kind: 'audio-plan', episode_key: args.episode_key, version_id: args.audio_plan_version, line_index: args.line_index } }
 }
 
 async function generateAudioFallback(args) {
@@ -903,7 +907,7 @@ async function generateAudioFallback(args) {
   const derived = await persistDerivedFallbackContract(prepared.root, {
     version: 1, episode_key: args.episode_key, line_index: args.line_index, audio_plan_version: args.audio_plan_version,
     source_video: args.source_video, native_audio_exception: prepared.provenance.native_audio_exception,
-    generated_contract: prepared.generatedContract,
+    voice_binding: prepared.binding, generated_contract: prepared.generatedContract,
   })
   const compilerSnapshot = { ...prepared.compiled.snapshot, derived_contract: derived }
   const result = await call('generate_audio', {
