@@ -112,6 +112,7 @@ for (const model of ['qwen3-tts-vc-realtime-2025-11-27', 'qwen3-tts-vc-realtime'
   { key: 'speed', label: '语速', type: 'number', min: 0.5, max: 2, step: 0.1, default: 1 },
   { key: 'response_format', label: '格式', type: 'select', options: ['mp3', 'flac', 'pcm'], default: 'mp3' },
 ]
+parameterCatalog.starrouter['tts-1'].push({ key: 'instructions', label: '风格指令', type: 'string', default: '' })
 
 for (const model of ['MiniMax-H3', 'MiniMax-H3-Max']) parameterCatalog.starrouter[model] = [
   { key: 'duration', label: '默认时长（秒）', type: 'number', min: model.endsWith('-Max') ? 5 : 4, max: 15, default: 5, overridable: true },
@@ -191,6 +192,17 @@ export function selfCheck() {
   try { normalizeModelParameters('bailian', 'cosyvoice-v2', { language_hints: 'ja' }); throw new Error('百炼 v2 非法语言未被拒绝') } catch (error) { if (!String(error.message).includes('选项无效')) throw error }
   try { normalizeModelParameters('bailian', 'cosyvoice-v3-plus', { instruction: '说' }); throw new Error('百炼无 instruction 字段未被拒绝') } catch (error) { if (!String(error.message).includes('不受支持')) throw error }
   try { normalizeModelParameters('bailian', 'cosyvoice-v3.5-plus', { instruction: 'a'.repeat(101) }); throw new Error('百炼 instruction 超长未被拒绝') } catch (error) { if (!String(error.message).includes('加权字符')) throw error }
+  if (normalizeModelParameters('starrouter', 'tts-1', { instructions: '压低声音，转折处停顿' }).instructions !== '压低声音，转折处停顿') throw new Error('OpenAI 兼容语音指令参数自检失败')
   if (Object.keys(adapters)[0] !== 'bailian') throw new Error('百炼必须是注册顺序第一个 Provider')
   if (!providerSupports('starrouter', 'video') || providerSupports('starrouter', 'transform.video-upscale')) throw new Error('Provider 细粒度能力自检失败')
+}
+
+if (import.meta.url === `file://${process.argv[1]}` && process.argv.includes('--self-check')) {
+  try {
+    selfCheck()
+    console.log('ok')
+  } catch (error) {
+    console.error(error.message)
+    process.exitCode = 1
+  }
 }
