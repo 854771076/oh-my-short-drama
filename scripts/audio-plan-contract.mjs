@@ -171,7 +171,13 @@ export function validateAudioPlan(document, episodeKey) {
 export function migrateLegacyAudioLine(input) {
   const line = structuredClone(input || {})
   const legacy = line.delivery_mode
-  const alreadyCurrent = DELIVERY.has(legacy) && PRESENTATION.has(line.presentation) && FALLBACK.has(line.fallback_mode) && line.dubbing_contract
+  let alreadyCurrent = false
+  if (DELIVERY.has(legacy) && PRESENTATION.has(line.presentation) && FALLBACK.has(line.fallback_mode)) {
+    try {
+      validateAudioLine(line)
+      alreadyCurrent = true
+    } catch {}
+  }
   if (alreadyCurrent) return { line, unresolved: [] }
   const presentation = legacy === 'narration' ? 'narration' : legacy === 'offscreen' || line.visible_speaker === false ? 'offscreen-dialogue' : 'visible-dialogue'
   const lineIndex = Number.isInteger(line.line_index) ? line.line_index : '?'

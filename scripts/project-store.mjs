@@ -19,6 +19,7 @@ import { saveCustomArtStyle } from './art-styles.mjs'
 import { validateContinuityPlan } from './continuity-plan.mjs'
 import { migrateLegacyAudioPlan, NATIVE_AUDIO_FAILURE_REASONS, validateAudioPlan, validateDubbingContract } from './audio-plan-contract.mjs'
 import { validateShotAudioPolicy } from './audio-prompt-policy.mjs'
+import { selectedSpeechTiming } from './speech-timing.mjs'
 
 const root = process.argv[2] === 'init' ? resolve(DEFAULT_WORKSPACE_ROOT, process.argv[3] || 'short-drama') : resolve(process.argv[3] || process.cwd())
 const EPISODE_DOCUMENTS = new Set(['script-review', 'director-book', 'asset-plan', 'production-plan', 'storyboard', 'continuity-plan', 'video-prompts', 'audio-plan'])
@@ -461,6 +462,16 @@ function validateDocument(kind, document, episodeKey) {
 
 async function validateEpisodeDocument(kind, episodeKey, document) {
   validateDocument(kind, document, episodeKey)
+  if (kind === 'audio-plan' && document.lines.length) {
+    const selected = await selectedSpeechTiming(root, episodeKey)
+    for (const [index, line] of document.lines.entries()) {
+      const timing = line.dubbing_contract.timing_source
+      if (timing.episode_key !== episodeKey || timing.version_id !== selected.version_id) throw new Error(`audio-plan lines[${index}] 必须引用当前 selected speech-timing`)
+      const source = selected.document.source_asset
+      if (timing.source_asset.asset_key !== source.asset_key || timing.source_asset.version_id !== source.version_id || timing.source_asset.sha256 !== source.sha256) throw new Error(`audio-plan lines[${index}] speech-timing 来源资产或 SHA 不匹配`)
+      if (!selected.document.lines.some((item) => item.line_index === timing.line_index)) throw new Error(`audio-plan lines[${index}] speech-timing 行不存在`)
+    }
+  }
   if (kind === 'asset-plan') {
     validateAssetPlan(document)
     if (document.episode_key !== episodeKey) throw new Error('asset-plan episode_key 与目标分集不一致')

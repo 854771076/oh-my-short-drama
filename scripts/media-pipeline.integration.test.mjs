@@ -38,7 +38,7 @@ function continuityPlan() {
 }
 
 const fallbackReasons = ['provider-no-native-audio', 'voice-identity-drift', 'speech-intelligibility-failed', 'narration-performance-failed', 'audio-sync-failed', 'native-ambience-failed']
-const audioPlan = { episode_key: 'ep-001', audio_strategy: { mode: 'native-first', provider_selection: 'prefer-native', fallback_allowed: true, fallback_reasons: fallbackReasons }, lines: [{ line_index: 1, speaker: '林晚', line_type: 'dialogue', content: '别回头。', emotion: '克制紧张', emotion_strength: 0.3, pronunciation_notes: [], matched_shot: { shot_number: 1 }, delivery_mode: 'native', presentation: 'visible-dialogue', fallback_mode: 'post-dub', source_audio: null, voice_binding: null, native_audio_exception: null, performance: null }], unresolved: [], approved: true }
+const audioPlan = { episode_key: 'ep-001', audio_strategy: { mode: 'native-first', provider_selection: 'prefer-native', fallback_allowed: true, fallback_reasons: fallbackReasons }, lines: [{ line_index: 1, speaker: '林晚', line_type: 'dialogue', content: '别回头。', emotion: '克制紧张', emotion_strength: 0.3, pronunciation_notes: [], matched_shot: { shot_number: 1 }, delivery_mode: 'native', presentation: 'visible-dialogue', fallback_mode: 'post-dub', source_audio: null, voice_binding: null, native_audio_exception: null, performance: null, dubbing_contract: { mode: 'native-preserve', timing_source: { episode_key: 'ep-001', version_id: 'v001', line_index: 1, source_asset: { asset_key: 'shot-ep001-001', version_id: 'v001', sha256: 'a'.repeat(64) } }, target_range: { start_ms: 0, end_ms: 1000 }, performance_reference: { intent: '阻止对方看见危险', subtext: '不让对方察觉恐惧', emotion_arc: [{ at: 0, emotion: '警觉', intensity: 0.4 }, { at: 1, emotion: '急迫', intensity: 0.7 }], emphasis: ['别'], pause_plan: [{ after: '别', duration_ms: 70 }], breath: '轻吸气后压低声音' } } }], unresolved: [], approved: true }
 
 test('人物、连续性、声音、授权音乐与媒体操作在同一临时项目闭环', async () => {
   const root = await mkdtemp(resolve(tmpdir(), 'media-pipeline-integration-'))
@@ -87,4 +87,3 @@ test('人物、连续性、声音、授权音乐与媒体操作在同一临时�
     await rm(root, { recursive: true, force: true })
   }
 })
-
