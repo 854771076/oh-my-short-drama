@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Short drama market report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "report_id", "generated_at", "snapshot_ids", "coverage", "filters", "summary", "topic_metrics", "platform_matrix", "company_concentration", "new_title_watch", "evidence", "limitations"],
+  "properties": {
+    "schema_version": {"const": "market-report.v1"},
+    "report_id": {"type": "string", "pattern": "^[A-Za-z0-9+_-]{1,80}$"},
+    "generated_at": {"type": "string", "minLength": 1},
+    "snapshot_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9+_-]{1,80}$"}},
+    "coverage": {"$ref": "#/$defs/coverage"},
+    "filters": {"type": "object", "additionalProperties": false, "properties": {"audience": {"$ref": "#/$defs/filterValue"}, "era": {"$ref": "#/$defs/filterValue"}, "format": {"$ref": "#/$defs/filterValue"}, "topic": {"$ref": "#/$defs/filterValue"}, "rankingTypes": {"$ref": "#/$defs/filterValue"}}},
+    "summary": {"$ref": "#/$defs/summary"},
+    "topic_metrics": {"type": "array", "items": {"$ref": "#/$defs/topicMetric"}},
+    "platform_matrix": {"type": "array", "items": {"$ref": "#/$defs/platformEntry"}},
+    "company_concentration": {"$ref": "#/$defs/companyConcentration"},
+    "new_title_watch": {"type": "array", "items": {"$ref": "#/$defs/newTitle"}},
+    "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}},
+    "limitations": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  },
+  "$defs": {
+    "filterValue": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
+    "coverage": {"type": "object", "additionalProperties": false, "required": ["sample_count", "successful_ranking_types", "failed_ranking_types", "low_confidence_topic_count"], "properties": {"sample_count": {"type": "integer", "minimum": 0}, "successful_ranking_types": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}, "failed_ranking_types": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}, "low_confidence_topic_count": {"type": "integer", "minimum": 0}}},
+    "summary": {"type": "object", "additionalProperties": false, "required": ["formula_version", "methodology", "topic_count", "trend"], "properties": {"formula_version": {"const": "topic-opportunity-v1"}, "methodology": {"type": "string", "minLength": 1}, "topic_count": {"type": "integer", "minimum": 0}, "trend": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["sample_count_delta", "unique_title_delta", "new_key_count", "removed_key_count"], "properties": {"sample_count_delta": {"type": "integer"}, "unique_title_delta": {"type": "integer"}, "new_key_count": {"type": "integer", "minimum": 0}, "removed_key_count": {"type": "integer", "minimum": 0}}}]}}},
+    "topicMetric": {"type": "object", "additionalProperties": false, "required": ["topic", "supply_count", "rank_strength", "demand_strength", "growth_strength", "new_title_rate", "platform_coverage", "persistence_strength", "crowding", "opportunity_score", "confidence", "confidence_detail"], "properties": {"topic": {"type": "string", "minLength": 1}, "supply_count": {"type": "integer", "minimum": 0}, "rank_strength": {"$ref": "#/$defs/unit"}, "demand_strength": {"$ref": "#/$defs/unit"}, "growth_strength": {"$ref": "#/$defs/unit"}, "new_title_rate": {"$ref": "#/$defs/unit"}, "platform_coverage": {"$ref": "#/$defs/unit"}, "persistence_strength": {"$ref": "#/$defs/unit"}, "crowding": {"$ref": "#/$defs/unit"}, "opportunity_score": {"type": "number", "minimum": 0, "maximum": 100}, "confidence": {"enum": ["high", "medium", "low"]}, "confidence_detail": {"type": "object", "additionalProperties": false, "required": ["supply_count", "platform_coverage", "source_tag_ratio"], "properties": {"supply_count": {"type": "integer", "minimum": 0}, "platform_coverage": {"$ref": "#/$defs/unit"}, "source_tag_ratio": {"$ref": "#/$defs/unit"}}}}},
+    "evidence": {"type": "object", "additionalProperties": false, "required": ["snapshot_id", "ranking_type", "playlet_id", "key"], "properties": {"snapshot_id": {"type": "string"}, "ranking_type": {"type": "string"}, "playlet_id": {"type": ["string", "number"]}, "key": {"type": "string"}}},
+    "ranking": {"type": "object", "additionalProperties": false, "required": ["ranking_type", "ranking"], "properties": {"ranking_type": {"type": "string"}, "ranking": {"type": ["number", "null"]}}},
+    "platformEntry": {"type": "object", "additionalProperties": false, "required": ["key", "title", "topics", "ranking_types", "platform_coverage", "rankings", "evidence"], "properties": {"key": {"type": "string"}, "title": {"type": "string"}, "topics": {"type": "array", "items": {"type": "string"}}, "ranking_types": {"type": "array", "items": {"type": "string"}}, "platform_coverage": {"type": "integer", "minimum": 0}, "rankings": {"type": "array", "items": {"$ref": "#/$defs/ranking"}}, "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}}}},
+    "companyConcentration": {"type": "object", "additionalProperties": false, "required": ["total_with_company", "company_count", "cr3", "companies"], "properties": {"total_with_company": {"type": "integer", "minimum": 0}, "company_count": {"type": "integer", "minimum": 0}, "cr3": {"$ref": "#/$defs/unit"}, "companies": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["company", "playlet_count", "share"], "properties": {"company": {"type": "string"}, "playlet_count": {"type": "integer", "minimum": 0}, "share": {"$ref": "#/$defs/unit"}}}}}},
+    "newTitle": {"type": "object", "additionalProperties": false, "required": ["key", "title", "topics", "rankings", "evidence"], "properties": {"key": {"type": "string"}, "title": {"type": "string"}, "topics": {"type": "array", "items": {"type": "string"}}, "rankings": {"type": "array", "items": {"$ref": "#/$defs/ranking"}}, "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence"}}}},
+    "unit": {"type": "number", "minimum": 0, "maximum": 1}
+  }
+}
