@@ -453,7 +453,15 @@ async function main() {
     run('project-store.mjs', 'select-episode-document', root, 'video-prompts', 'ep-001', 'v001')
     await recordSkills(root, 'production-plan', 'episodes/ep-001/production-plan/v001.json')
     run('workflow.mjs', 'advance', root, 'media-production')
-    const audioPlan = { episode_key: 'ep-001', source_versions: { script: 'v002', storyboard: 'v001', production_plan: 'v001' }, audio_strategy: { mode: 'native-first', provider_selection: 'prefer-native', fallback_allowed: true, fallback_reasons: ['provider-no-native-audio', 'voice-identity-drift', 'speech-intelligibility-failed', 'narration-performance-failed', 'audio-sync-failed', 'native-ambience-failed'] }, lines: [{ line_index: 1, speaker: 'A', line_type: 'dialogue', content: '别绕弯子。', emotion: '克制', emotion_strength: 0.2, pronunciation_notes: [], matched_shot: { shot_number: 1 }, delivery_mode: 'post_dub', presentation: 'visible-dialogue', fallback_mode: 'post-dub', source_audio: null, voice_binding: { voice_id: 'male-qn-qingse' }, native_audio_exception: { reason: 'provider-no-native-audio', evidence: '当前锁定视频模型不支持原生音频', range: { start_ms: 0, end_ms: 5000 }, mix_sources: ['post-dub-dialogue', 'native-ambience-action'] }, performance: null }], voice_bindings: [{ speaker: 'A', provider: 'starrouter', model: 'speech-2.8-hd', voice_id: 'male-qn-qingse' }], music_tracks: [{ key: 'op', purpose: 'op', title: '片头曲', source_mode: 'generated', prompt: '紧张悬疑电子乐', tags: 'cinematic,electronic', lyrics: '', make_instrumental: true, provider: 'starrouter', model: 'suno_music', matched_shots: [1] }], unresolved: [], approved: true }
+    const timingLedger = JSON.parse(run('asset-ledger.mjs', 'list', root))
+    const timingAssetVersion = timingLedger.assets['char-a'].versions.find((item) => item.id === 'v001')
+    const timingSource = { asset_key: 'char-a', version_id: 'v001', sha256: timingAssetVersion.sha256 }
+    const timingDirectory = resolve(root, 'episodes/ep-001/speech-timing')
+    await mkdir(timingDirectory, { recursive: true })
+    await writeFile(resolve(timingDirectory, 'v001.json'), `${JSON.stringify({ episode_key: 'ep-001', source_asset: timingSource, method: 'manual-direction', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, start_ms: 0, end_ms: 5000, words: [{ text: '别绕弯子', start_ms: 500, end_ms: 2500 }], evidence: '集成夹具人工时间证据' }] }, null, 2)}\n`)
+    await writeFile(resolve(timingDirectory, 'selected.json'), `${JSON.stringify({ versionId: 'v001', path: 'episodes/ep-001/speech-timing/v001.json', source_asset_sha256: timingAssetVersion.sha256, reviewed_by: 'integration-self-check' }, null, 2)}\n`)
+    const dubbingContract = { mode: 'generated', timing_source: { episode_key: 'ep-001', version_id: 'v001', line_index: 1, source_asset: timingSource }, target_range: { start_ms: 0, end_ms: 5000 }, target_speech_ms: 2000, original_text: '别绕弯子。', adapted_text: '别绕弯子。', adaptation: null, performance: { intent: '要求对方直说', subtext: '克制不耐烦', emotion_arc: [{ at: 0, emotion: '克制', intensity: 0.3 }, { at: 1, emotion: '施压', intensity: 0.7 }], pace: '短促', emphasis: ['别'], pause_plan: [{ after: '别', duration_ms: 80 }], breath: '开口前轻吸气', distance_and_space: '室内近距离' }, fit_policy: { max_paid_generations: 3, provider_speed_min: 0.85, provider_speed_max: 1.15, max_post_tempo_percent: 3, text_adaptation_allowed: true } }
+    const audioPlan = { episode_key: 'ep-001', source_versions: { script: 'v002', storyboard: 'v001', production_plan: 'v001' }, audio_strategy: { mode: 'native-first', provider_selection: 'prefer-native', fallback_allowed: true, fallback_reasons: ['provider-no-native-audio', 'voice-identity-drift', 'speech-intelligibility-failed', 'narration-performance-failed', 'audio-sync-failed', 'native-ambience-failed'] }, lines: [{ line_index: 1, speaker: 'A', line_type: 'dialogue', content: '别绕弯子。', emotion: '克制', emotion_strength: 0.2, pronunciation_notes: [], matched_shot: { shot_number: 1 }, delivery_mode: 'post_dub', presentation: 'visible-dialogue', fallback_mode: 'post-dub', source_audio: null, voice_binding: { voice_id: 'male-qn-qingse' }, native_audio_exception: { reason: 'provider-no-native-audio', evidence: '当前锁定视频模型不支持原生音频', range: { start_ms: 0, end_ms: 5000 }, mix_sources: ['post-dub-dialogue', 'native-ambience-action'] }, performance: null, dubbing_contract: dubbingContract }], voice_bindings: [{ speaker: 'A', provider: 'starrouter', model: 'speech-2.8-hd', voice_id: 'male-qn-qingse' }], music_tracks: [{ key: 'op', purpose: 'op', title: '片头曲', source_mode: 'generated', prompt: '紧张悬疑电子乐', tags: 'cinematic,electronic', lyrics: '', make_instrumental: true, provider: 'starrouter', model: 'suno_music', matched_shots: [1] }], unresolved: [], approved: true }
     run('project-store.mjs', 'put-episode-document', root, 'audio-plan', 'ep-001', 'v001', await json(root, 'audio-plan.json', audioPlan))
     run('project-store.mjs', 'select-episode-document', root, 'audio-plan', 'ep-001', 'v001')
     const boundVideo = { provider: 'starrouter', model: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: 'first-last-frame', prompt_version: 'v001', prompt: videoPrompts.shots[0].prompt, duration: 5, frame_url: uploadReceipt.url, reference_manifest: videoPrompts.shots[0].references, confirmed: true, project_root: root, target: 'shot-ep001-001', prompt_document: { episode_key: 'ep-001', version_id: 'v001', shot_number: 1 } }
@@ -573,15 +581,19 @@ async function main() {
     await recordSkills(root, 'media-production', mediaEvidence)
     run('workflow.mjs', 'advance', root, 'editing')
 
+    const selectedAudioLedger = JSON.parse(run('asset-ledger.mjs', 'list', root))
+    const selectedAudioVersion = selectedAudioLedger.assets['audio-ep001-a'].versions.find((item) => item.id === 'v001')
+    const timelineAudioBinding = { asset_key: 'audio-ep001-a', version_id: 'v001', sha256: selectedAudioVersion.sha256, line_index: 1, speech_timing_version: 'v001', dubbing_contract_version: 'v001' }
+
     const timeline = {
       episode_key: 'ep-001', fps: 24, width: 1080, height: 1920,
       segments: [
         { shot_key: 'shot-ep001-001', asset_key: 'shot-ep001-001', version_id: 'v001', source_in_ms: 0, source_out_ms: 1000, timeline_start_ms: 0, timeline_end_ms: 1000, dialogue_sync: 'offscreen', transition: { type: 'none', duration_frames: 0 } },
         { shot_key: 'shot-ep001-002', asset_key: 'shot-ep001-002', version_id: 'v001', source_in_ms: 0, source_out_ms: 1000, timeline_start_ms: 1000, timeline_end_ms: 2000, transition: { type: 'hard-cut', duration_frames: 0 } },
       ],
-      audio_tracks: [{ asset_key: 'audio-ep001-a', version_id: 'v001', role: 'dialogue', source_in_ms: 0, source_out_ms: 1000, timeline_start_ms: 0, timeline_end_ms: 1000, volume_envelope: [{ time_ms: 0, gain_db: 0 }, { time_ms: 1000, gain_db: 0 }] }],
-      subtitles: [{ text: '别绕弯子。', startMs: 0, endMs: 900, timestampMs: 0, confidence: 1, speaker: 'A' }],
-      subtitle_source: { method: 'manual-transcription', reviewed: true, source_assets: [{ asset_key: 'audio-ep001-a', version_id: 'v001' }] },
+      audio_tracks: [{ asset_key: 'audio-ep001-a', version_id: 'v001', role: 'dialogue', source_in_ms: 0, source_out_ms: 1000, timeline_start_ms: 0, timeline_end_ms: 1000, volume_envelope: [{ time_ms: 0, gain_db: 0 }, { time_ms: 1000, gain_db: 0 }], audio_binding: timelineAudioBinding }],
+      subtitles: [{ text: '别绕弯子。', startMs: 0, endMs: 900, timestampMs: 0, confidence: 1, speaker: 'A', audio_binding: timelineAudioBinding }],
+      subtitle_source: { method: 'manual-transcription', reviewed: true, source_assets: [{ asset_key: 'audio-ep001-a', version_id: 'v001' }], audio_bindings: [timelineAudioBinding] },
       sound_design_exception: { confirmed: true, reason: '集成夹具仅验证对白合同' },
       duration_exception: { user_confirmed: true, reason: '集成夹具使用两秒时间线' },
       labels: [], mix: { target_lufs: -15, true_peak_dbtp: -1 },

@@ -9,6 +9,10 @@ description: 设计并在本地管理短剧声音资产。用于角色声音分�
 
 每条声音把三类语义分开保存：`delivery_mode ∈ native|post_dub|external_audio` 表示来源，`presentation ∈ visible-dialogue|offscreen-dialogue|narration` 表示画面关系，`fallback_mode ∈ none|post-dub|cinematic-tts|sound-design` 表示失败预案。兜底 reason 只能是 `provider-no-native-audio`、`voice-identity-drift`、`speech-intelligibility-failed`、`narration-performance-failed`、`audio-sync-failed`、`native-ambience-failed`，并记录证据、精确替换区间与最终混音来源。旧 `narration/offscreen` 只迁移 presentation，来源进入 unresolved，不能冒充已经完成配音。
 
+所有对白与旁白都必须先从当前 selected 原声资产建立不可变 `speech-timing`，ASR 行级置信度至少 `0.90`、词级至少 `0.80`，低于阈值必须留下人工校正证据；禁止根据文字或文件名补造词级时间。随后才写 `dubbing_contract`，普通对白同样必须明确意图、潜台词、情绪弧、强弱、重音、停连和呼吸，不能只给“紧张”“自然”等单标签。生成最多三轮：原文、参数重生、经批准的等义适配；每轮使用当前 timing 和合同编译，第四次付费动作必须阻断。最终只允许不超过 `±3%` 的确定性 tempo 修正和合同声明停顿，并用最终词级 alignment 重新验收。
+
+候选生成后必须完整听看并做八维审核：语义完整、说话人身份、情绪弧、强度与潜台词、重音停连呼吸、时间拟合、画面互动、技术音频。任一维失败或出现 P0/P1 都不得选版。换选配音会使旧字幕、口型及其派生镜头失效，必须从新 selected 音频重新构建。
+
 旁白不论原生还是兜底都必须有电影感表演合同：逐项写 `tone_arc`、`emotion_beats[]`、`pace`、`breath_and_pause`、`distance_and_space`。旁白兜底使用独立 narrator 音色；除非剧本明确角色兼任叙述者，不得复用角色 voice_id。
 
 原生七维审核失败后先调用 `generate_audio_fallback` 且以 `confirmed=false` 预检，只允许审核报告实际失败的 reason 与毫秒区间。角色对白绑定 `voice_role:character`；旁白绑定 `voice_role:narrator`，其 `cinematic_profile` 必须逐字段等于 audio-plan 的表演合同。用户确认费用后才以 `confirmed=true` 生成；输出 provenance 必须保存 `native_audio_exception`、来源视频版本、`replaced_ranges` 和 `mix_sources`。只替换失败区间，合格的原生环境声和动作声继续保留，不得整轨覆盖。

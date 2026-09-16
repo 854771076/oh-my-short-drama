@@ -71,3 +71,6 @@
 
 使用 `node scripts/audit-plugin.mjs` 验证 Skill、提示词、人工索引与脚本引用。该检查不读取外部项目仓库。
 使用 `node scripts/validate-project.mjs <项目目录>` 校验实际项目配置、目录、命名、来源、选版、资产 provenance、文件存在性和 SHA-256。
+# 源时间线情感配音
+
+独立配音固定经过 `selected 原声资产 → speech-timing 候选 → 人工复核 timing → audio-plan 三层合同 → 最多三轮编译生成 → 最终 alignment → 八维审核选版 → 字幕/口型/剪辑同源绑定`。行级 ASR 自动通过阈值为 `0.90`，词级为 `0.80`；低置信证据不得静默补造。最终后处理只允许合同内停顿和 `±3%` tempo，容器时长不能替代发声边界。换选音频会递归失效旧字幕和口型派生资产。

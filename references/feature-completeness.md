@@ -6,6 +6,7 @@
 
 | 制作能力 | 插件实现 | 结论 |
 |---|---|---|
+| 源时间线情感配音 | `speech-timing.mjs`、`dubbing-compiler.mjs`、`dubbing-fit.mjs`、`dubbing-performance-review.mjs`、`subtitles-from-audio.mjs` | 原声证据、完整表演合同、三轮上限、八维审核和字幕/口型同源性均为硬门禁 |
 | 项目、分集与版本 | `manage-drama-projects`、`project-store.mjs`、`project-spec-v1.md` | 固定目录、统一配置、来源归档、不可变版本、显式选版 |
 | 小说/要求分析到剧本 | analysis、brief、bible、outline、`short-drama`、episode Skills | 文本由 Codex 完成；剧本强制经过短剧方法论、Humanizer 与复核 |
 | 导演本 | `write-drama-director-book` | 场次导演合同单独保存 |
