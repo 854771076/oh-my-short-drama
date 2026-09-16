@@ -147,11 +147,11 @@ selected 视频/原配音频
 新增独立的 `dubbing-compiler`，输入统一配音合同和目标 Provider 能力，输出 Provider 请求参数及不可满足项：
 
 - CosyVoice：编译 `speed`、`instruction`、`language_hints`，instruction 同时包含意图、情绪转折、重音和停连，仍受 100 个中文加权字符限制。
-- MiniMax：编译 `voice_setting.speed`、`voice_setting.emotion`、`pronunciation_dict` 和必要的 `voice_modify`；一个枚举情绪无法表达完整弧线时必须保留不可满足项。
-- OpenAI 兼容 TTS：编译 `instructions` 与 `speed`。
+- MiniMax `speech-2.8-*`：底层适配器虽然支持 `voice_setting.speed/emotion`、`pronunciation_dict` 和 `voice_modify`，但当前已验证接口不能完整表达意图、潜台词、情绪强度、重音、停连、呼吸和空间关系。完整逐句表演合同必须返回明确能力缺口，不得把单一情绪枚举伪装成完整情绪弧支持。
+- OpenAI 兼容 TTS：只有模型能力矩阵明确验证支持 `instructions` 时才编译 `instructions` 与 `speed`。当前登记的 `tts-1` 不支持 `instructions`，因此完整逐句表演合同必须以 `style-instruction` 能力缺口失败关闭。
 - RunningHub 用户工作流：只注入用户映射中明确声明的字段，不猜节点。
 
-高情绪或多转折台词遇到不支持风格指令的 Provider 时，预检直接返回能力不匹配；不能依赖随机重试。请求快照保存合同版本、编译结果、不可满足项、目标时长和文本版本。
+当前只有 CosyVoice 指令模型，以及显式映射 `text/speed/instruction` 且由用户验证能消费完整指令的 RunningHub 工作流，可以通过完整逐句表演合同预检。MiniMax 与 `tts-1` 仍可用于不走本期完整表演合同的既有普通语音能力，但不得由配音编译器降级调用。高情绪或多转折台词遇到不支持风格指令的 Provider 时，预检直接返回能力不匹配；不能依赖随机重试。请求快照保存合同版本、编译结果、不可满足项、目标时长和文本版本。
 
 ## 8. 时长适配状态机
 
@@ -286,7 +286,7 @@ abs(actual_end - target_end) <= tolerance_ms
 
 ### 16.2 Provider 编译测试
 
-- CosyVoice、MiniMax 和 OpenAI 兼容请求准确承载合同支持的字段；
+- CosyVoice 与完整 RunningHub 映射准确承载合同支持的字段；MiniMax 和当前 `tts-1` 对完整表演合同明确失败关闭；
 - 不支持的情绪弧产生明确能力缺口；
 - Provider 极端速度即使接口允许也被业务合同拒绝；
 - 请求快照保存合同版本、目标时长和适配文本。

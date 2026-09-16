@@ -6,7 +6,7 @@
 
 **Architecture:** 新增独立的 `speech-timing`、配音合同编译、时长适配和八维审核模块，MCP 只负责编排这些原子能力与现有资产/任务账本。最终音频以不可变候选登记，审核通过后才能 selected；字幕和口型保存音频 SHA、配音合同版本及词级时间版本，任何上游变化都会通过 provenance 或绑定校验自动失效。
 
-**Tech Stack:** Node.js ESM、`node:test`、JSON 文档合同、现有资产/任务/审核账本、FFmpeg/FFprobe、StarRouter ASR、百炼 CosyVoice、StarRouter MiniMax/OpenAI-compatible TTS、RunningHub 用户映射。
+**Tech Stack:** Node.js ESM、`node:test`、JSON 文档合同、现有资产/任务/审核账本、FFmpeg/FFprobe、StarRouter ASR、百炼 CosyVoice、RunningHub 用户映射，以及对 StarRouter MiniMax/OpenAI-compatible TTS 的显式能力缺口门禁。
 
 **Spec:** `docs/superpowers/specs/2026-09-16-source-timed-emotional-dubbing-design.md`
 
@@ -223,7 +223,7 @@ test('不支持情绪弧的模型返回能力缺口而非静默降级', () => {
 })
 ```
 
-同时断言 MiniMax 写入 `metadata.voice_setting.emotion/speed` 与 `pronunciation_dict`，OpenAI-compatible 写入 `instructions/speed`，RunningHub 只接受映射白名单声明的 JSON path。
+同时断言 MiniMax 因无法完整表达意图、潜台词、强度、重音、停连、呼吸和空间关系而失败关闭，当前 `tts-1` 因不支持 `instructions` 返回 `style-instruction` 能力缺口；不得仅因底层适配器能透传 `metadata` 就宣称支持完整表演合同。RunningHub 只接受映射白名单声明的 `text/speed/instruction` JSON path，三项映射完整时才允许通过。
 
 - [ ] **Step 2: 运行编译器测试并确认失败**
 
@@ -236,14 +236,17 @@ Expected: FAIL，提示模块不存在。
 ```js
 const CAPABILITIES = Object.freeze({
   bailian: { instruction: new Set(['cosyvoice-v3.5-plus', 'cosyvoice-v3.5-flash', 'cosyvoice-v3-flash']) },
-  starrouter: { minimax: new Set(['speech-2.8-hd', 'speech-2.8-turbo']), openai: new Set(['tts-1']) },
+  starrouter: {
+    minimax: { models: new Set(['speech-2.8-hd', 'speech-2.8-turbo']), fullPerformanceContract: false },
+    openai: { models: new Map([['tts-1', { instructions: false, speed: true }]]) },
+  },
 })
 
 export function compileDubbingRequest(input) {
   const speed = calibratedSpeed(input.contract, input.attempt, input.measured_speech_ms)
   if (speed < 0.85 || speed > 1.15) return unsupported('speed-out-of-policy')
   if (input.provider === 'bailian') return compileCosyVoice(input, speed)
-  if (input.provider === 'starrouter' && CAPABILITIES.starrouter.minimax.has(input.model)) return compileMiniMax(input, speed)
+  if (input.provider === 'starrouter' && CAPABILITIES.starrouter.minimax.models.has(input.model)) return compileMiniMax(input, speed)
   if (input.provider === 'starrouter' && CAPABILITIES.starrouter.openai.has(input.model)) return compileOpenAiCompatible(input, speed)
   if (input.provider === 'runninghub') return compileRunningHub(input, speed)
   return unsupported('provider-model-not-supported')

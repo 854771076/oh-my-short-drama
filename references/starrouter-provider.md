@@ -28,6 +28,8 @@
 
 `speech-2.8-*` 继续严格校验 MiniMax 的 `voice_setting`、`audio_setting`、`pronunciation_dict`、`timbre_weights`、`language_boost`、`voice_modify`、`subtitle_enable`、`aigc_watermark`、`output_format`、`stream`、`stream_options`。其余 OpenAI 兼容模型原样转发 `instructions` 与 metadata。当前 MCP 返回完整文件，明确拒绝 `stream_format`，避免把 SSE 事件流误登记成音频。
 
+上述字段透传能力不等于完整情感配音合同能力。当前已验证的 MiniMax `speech-2.8-*` 只能表达单一情绪枚举和部分声学参数，不能可靠承载意图、潜台词、情绪强度、重音、停连、呼吸及空间关系；`tts-1` 不支持 `instructions`。因此二者在 `compile_dubbing_request` 中都对完整逐句表演合同失败关闭，不会静默降级。当前可通过该合同的路径仅为支持指令的 CosyVoice，或明确映射并验证 `text/speed/instruction` 的 RunningHub 用户工作流。
+
 `emotion` 与 `language_boost` 按非空字符串透传：Skill 只列已验证常用值，不把上游可能扩展的值固化为封闭枚举；范围错误由 StarRouter/MiniMax 返回。
 
 StarRouter 返回的二进制音频会统一转为 `outputs[0].b64_json` 数据 URI，并保留 `media_type=audio`、Content-Type 和格式。立即用 `asset-ledger.mjs decode` 保存到 `assets/audio/<asset-key>/v001.<ext>`；项目账本只保存生成来源和参数，不保存 Key。
