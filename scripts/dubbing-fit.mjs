@@ -185,18 +185,20 @@ function seconds(milliseconds) {
 function finalizationFilter(plan, probe) {
   if (plan.silence.length === 0) return { option: '-af', value: `atempo=${plan.atempo}`, output: null }
   const tempoDuration = probe.audio_stream_duration_ms / plan.atempo
-  for (const item of plan.silence) {
-    if (item.at_ms >= tempoDuration) throw new Error('静音插入位置必须位于实际音频发声段内')
+  // alignment 锚点属于输入音频时间域；atempo 先执行时，切分点必须同步换算到输出时间域。
+  const outputSilence = plan.silence.map((item) => ({ ...item, output_at_ms: item.at_ms / plan.atempo }))
+  for (const item of outputSilence) {
+    if (item.output_at_ms >= tempoDuration) throw new Error('静音插入位置必须位于实际音频发声段内')
   }
-  const count = plan.silence.length + 1
+  const count = outputSilence.length + 1
   const segments = []
   let start = 0
-  for (const [index, item] of plan.silence.entries()) {
-    segments.push(`[part${index}]atrim=start=${seconds(start)}:end=${seconds(item.at_ms)},asetpts=PTS-STARTPTS[segment${index}]`)
-    start = item.at_ms
+  for (const [index, item] of outputSilence.entries()) {
+    segments.push(`[part${index}]atrim=start=${seconds(start)}:end=${seconds(item.output_at_ms)},asetpts=PTS-STARTPTS[segment${index}]`)
+    start = item.output_at_ms
   }
   segments.push(`[part${count - 1}]atrim=start=${seconds(start)},asetpts=PTS-STARTPTS[segment${count - 1}]`)
-  const silences = plan.silence.map((item, index) => `anullsrc=channel_layout=${probe.channel_layout}:sample_rate=${probe.sample_rate},atrim=duration=${seconds(item.duration_ms)},asetpts=N/SR/TB[silence${index}]`)
+  const silences = outputSilence.map((item, index) => `anullsrc=channel_layout=${probe.channel_layout}:sample_rate=${probe.sample_rate},atrim=duration=${seconds(item.duration_ms)},asetpts=N/SR/TB[silence${index}]`)
   const concatInputs = []
   for (let index = 0; index < count; index += 1) {
     concatInputs.push(`[segment${index}]`)

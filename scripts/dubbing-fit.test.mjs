@@ -36,6 +36,13 @@ function ffmpeg(args) {
   if (result.status !== 0) throw new Error(result.stderr || 'FFmpeg 测试素材生成失败')
 }
 
+function silenceStarts(path) {
+  const result = spawnSync('ffmpeg', ['-nostdin', '-hide_banner', '-i', path, '-af', 'silencedetect=noise=-50dB:d=0.03', '-f', 'null', '-'], { encoding: 'utf8' })
+  if (result.error) throw result.error
+  if (result.status !== 0) throw new Error(result.stderr || 'FFmpeg 静音边界检测失败')
+  return [...result.stderr.matchAll(/silence_start:\s*([0-9.]+)/g)].map((match) => Number(match[1]))
+}
+
 test('24fps 可见对白允许 42ms 但拒绝 43ms', () => {
   const withinFrame = evaluateDubbingFit(fitInput(42, 24))
   const beyondFrame = evaluateDubbingFit(fitInput(43, 24))
@@ -119,6 +126,30 @@ test('收口生成 WAV、保留音频流并只将容器时长作为技术探测'
     assert.ok(result.probe.duration_ms > 900)
     assert.equal(result.requires_alignment, true)
     assert.equal('passed' in result, false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('正负 tempo 后静音仍落在变速后的词尾锚点', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'dubbing-fit-tempo-anchor-'))
+  try {
+    const input = resolve(root, 'input.wav')
+    ffmpeg(['-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=1', '-c:a', 'pcm_s16le', '-y', input])
+    for (const tempoPercent of [3, -3]) {
+      const output = resolve(root, `output-${tempoPercent}.wav`)
+      const plan = buildFinalizationPlan({
+        contract: contract(),
+        alignment: finalizationAlignment(),
+        tempo_percent: tempoPercent,
+        silence: [{ pause_index: 0, duration_ms: 80, at_ms: 500 }],
+      })
+      finalizeDubbingAudio({ input, output, plan })
+      const [actualStart] = silenceStarts(output)
+      const expectedStart = 0.5 / plan.atempo
+      assert.ok(Number.isFinite(actualStart), `tempo ${tempoPercent}% 未检测到插入静音`)
+      assert.ok(Math.abs(actualStart - expectedStart) <= 0.01, `tempo ${tempoPercent}% 静音锚点偏差过大：${actualStart} vs ${expectedStart}`)
+    }
   } finally {
     await rm(root, { recursive: true, force: true })
   }
