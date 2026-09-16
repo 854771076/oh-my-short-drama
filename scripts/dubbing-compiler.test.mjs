@@ -43,21 +43,20 @@ test('不支持情绪弧的模型返回能力缺口而非静默降级', () => {
   assert.equal(out.arguments, null)
 })
 
-test('MiniMax 写入情绪、速度和发音字典', () => {
+test('MiniMax 不能表达强度、重音和停顿时失败关闭', () => {
   const singleEmotion = structuredClone(contract)
-  singleEmotion.performance.emotion_arc = [{ at: 0, emotion: '克制警觉', intensity: 0.45 }]
+  singleEmotion.performance.emotion_arc = [{ at: 0, emotion: 'calm', intensity: 0.45 }]
   const out = compileDubbingRequest(input('starrouter', 'speech-2.8-hd', { contract: singleEmotion }))
-  assert.equal(out.supported, true)
-  assert.equal(out.arguments.metadata.voice_setting.emotion, '克制警觉')
-  assert.equal(out.arguments.metadata.voice_setting.speed, 0.91)
-  assert.deepEqual(out.arguments.metadata.pronunciation_dict, {})
+  assert.equal(out.supported, false)
+  assert.equal(out.arguments, null)
+  for (const gap of ['emotion-intensity', 'emphasis', 'pause-plan']) assert.ok(out.capability_gaps.includes(gap))
 })
 
-test('OpenAI-compatible 写入 instructions 和 speed', () => {
+test('OpenAI tts-1 不得承诺不支持的 instructions', () => {
   const out = compileDubbingRequest(input('starrouter', 'tts-1'))
-  assert.equal(out.supported, true)
-  assert.equal(out.arguments.speed, 0.91)
-  assert.match(out.arguments.instructions, /意图.*重音.*停连/)
+  assert.equal(out.supported, false)
+  assert.equal(out.arguments, null)
+  assert.deepEqual(out.capability_gaps, ['style-instruction'])
 })
 
 test('RunningHub 只注入映射白名单声明的 JSON path', () => {
@@ -84,7 +83,7 @@ test('RunningHub 只注入映射白名单声明的 JSON path', () => {
 
 test('MiniMax 多段情绪弧和缺少情绪映射的 RunningHub 工作流均会阻断', () => {
   const minimax = compileDubbingRequest(input('starrouter', 'speech-2.8-hd'))
-  assert.deepEqual(minimax.capability_gaps, ['emotion-arc'])
+  assert.ok(minimax.capability_gaps.includes('emotion-arc'))
   assert.equal(minimax.arguments, null)
   const runninghub = compileDubbingRequest(input('runninghub', 'custom-audio', {
     runninghub_mapping: { workflow_id: 'workflow-audio-1', node_info_list: [{ nodeId: '12', fieldName: 'text', json_path: 'text' }] },
@@ -97,7 +96,7 @@ test('MiniMax 即使情绪名相同但有多节也拒绝用单一枚举静默合
   const multiBeat = structuredClone(contract)
   multiBeat.performance.emotion_arc = [{ at: 0, emotion: '克制警觉', intensity: 0.3 }, { at: 0.7, emotion: '克制警觉', intensity: 0.8 }]
   const out = compileDubbingRequest(input('starrouter', 'speech-2.8-hd', { contract: multiBeat }))
-  assert.deepEqual(out.capability_gaps, ['emotion-arc'])
+  assert.ok(out.capability_gaps.includes('emotion-arc'))
   assert.equal(out.arguments, null)
 })
 
@@ -106,8 +105,7 @@ test('指令按顺序保留三节情绪弧的 at、情绪和强度', () => {
   threeBeat.performance.intent = '阻止'
   threeBeat.performance.emotion_arc = [{ at: 0, emotion: '警觉', intensity: 0.2 }, { at: 0.5, emotion: '迟疑', intensity: 0.6 }, { at: 1, emotion: '急迫', intensity: 0.9 }]
   const cosy = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', { contract: threeBeat }))
-  const openai = compileDubbingRequest(input('starrouter', 'tts-1', { contract: threeBeat }))
-  for (const instruction of [cosy.arguments.instruction, openai.arguments.instructions]) {
+  for (const instruction of [cosy.arguments.instruction]) {
     assert.match(instruction, /0\|警觉\|0\.2/)
     assert.match(instruction, /0\.5\|迟疑\|0\.6/)
     assert.match(instruction, /1\|急迫\|0\.9/)
@@ -121,12 +119,11 @@ test('情绪弧指令保留合同的完整小数语义，不量化 at 或强度'
   precise.performance.intent = '阻止'
   precise.performance.emotion_arc = [{ at: 0.1234, emotion: '警觉', intensity: 0.4567 }]
   const cosy = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', { contract: precise }))
-  const openai = compileDubbingRequest(input('starrouter', 'tts-1', { contract: precise }))
   const runninghub = compileDubbingRequest(input('runninghub', 'custom-audio', {
     contract: precise,
     runninghub_mapping: { workflow_id: 'workflow-audio-1', node_info_list: [{ nodeId: '12', fieldName: 'text', json_path: 'text' }, { nodeId: '13', fieldName: 'rate', json_path: 'speed' }, { nodeId: '14', fieldName: 'instruction', json_path: 'instruction' }] },
   }))
-  for (const instruction of [cosy.arguments.instruction, openai.arguments.instructions, runninghub.arguments.node_info_list[2].fieldValue]) {
+  for (const instruction of [cosy.arguments.instruction, runninghub.arguments.node_info_list[2].fieldValue]) {
     assert.match(instruction, /0\.1234\|警觉\|0\.4567/)
   }
 })
@@ -157,4 +154,40 @@ test('快照固定保留版本、区间、轮次和能力缺口，不带调用�
     capability_gaps: ['style-instruction'],
   })
   assert.equal(JSON.stringify(out.snapshot).includes('must-not-leak'), false)
+})
+
+test('第三轮基于可核对的上一轮绝对速度收敛', () => {
+  const second = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus'))
+  assert.equal(second.supported, true)
+  assert.equal(second.arguments.speed, 0.91)
+  assert.equal(second.snapshot.applied_speed, 0.91)
+
+  const third = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', {
+    attempt: 3,
+    measured_speech_ms: 800,
+    previous_compiler_snapshot: second.snapshot,
+  }))
+  assert.equal(third.supported, true)
+  assert.equal(third.arguments.speed, 0.95)
+  assert.equal(third.snapshot.applied_speed, 0.95)
+})
+
+test('第三轮拒绝缺失或不匹配的上一轮快照与非自然语速', () => {
+  const missing = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', { attempt: 3, measured_speech_ms: 800 }))
+  assert.deepEqual(missing.capability_gaps, ['previous-compiler-snapshot-required'])
+
+  const second = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus'))
+  const mismatched = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', {
+    attempt: 3,
+    measured_speech_ms: 800,
+    previous_compiler_snapshot: { ...second.snapshot, timing_version: 'v999' },
+  }))
+  assert.deepEqual(mismatched.capability_gaps, ['previous-compiler-snapshot-invalid'])
+
+  const tooFast = compileDubbingRequest(input('bailian', 'cosyvoice-v3.5-plus', {
+    attempt: 3,
+    measured_speech_ms: 1000,
+    previous_compiler_snapshot: second.snapshot,
+  }))
+  assert.deepEqual(tooFast.capability_gaps, ['speed-out-of-policy'])
 })

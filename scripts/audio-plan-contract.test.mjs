@@ -44,6 +44,27 @@ test('旧 post_dub 缺合同时迁移为 unresolved', () => {
   assert.equal(migrated.document.approved, false)
 })
 
+test('旧三层合同只缺新证据时保留呈现、兜底和失败事实', () => {
+  const narrationPerformance = { tone_arc: '克制转坚定', emotion_beats: ['压低', '停顿', '坚定收束'], pace: '中慢速', breath_and_pause: '关键词前短停，尾句留一拍呼吸', distance_and_space: '近距离干声，轻微室内反射' }
+  const exception = { reason: 'narration-performance-failed', evidence: '原声旁白表演审核未通过', range: { start_ms: 120, end_ms: 940 }, mix_sources: ['post-dub-narration', 'native-ambience'] }
+  const legacyThreeLayer = {
+    ...base,
+    presentation: 'narration',
+    fallback_mode: 'cinematic-tts',
+    native_audio_exception: exception,
+    performance: narrationPerformance,
+    dubbing_contract: { mode: 'native-preserve' },
+  }
+  const migrated = migrateLegacyAudioLine(legacyThreeLayer)
+  assert.equal(migrated.line.delivery_mode, 'native')
+  assert.equal(migrated.line.presentation, 'narration')
+  assert.equal(migrated.line.fallback_mode, 'cinematic-tts')
+  assert.deepEqual(migrated.line.native_audio_exception, exception)
+  assert.deepEqual(migrated.line.performance, narrationPerformance)
+  assert.equal(migrated.line.dubbing_contract, null)
+  assert.match(migrated.unresolved[0], /配音合同与时间证据/)
+})
+
 test('不完整但真值的旧 post_dub 合同仍须迁移为 unresolved', () => {
   const legacy = { episode_key: 'ep-001', audio_strategy: strategy, lines: [{ ...postDub, dubbing_contract: { mode: 'generated' } }], unresolved: [], approved: true }
   const migrated = migrateLegacyAudioPlan(legacy)

@@ -171,14 +171,29 @@ export function validateAudioPlan(document, episodeKey) {
 export function migrateLegacyAudioLine(input, context = {}) {
   const line = structuredClone(input || {})
   const legacy = line.delivery_mode
+  const hasCurrentLayers = DELIVERY.has(legacy) && PRESENTATION.has(line.presentation) && FALLBACK.has(line.fallback_mode)
   let alreadyCurrent = false
-  if (DELIVERY.has(legacy) && PRESENTATION.has(line.presentation) && FALLBACK.has(line.fallback_mode)) {
+  if (hasCurrentLayers) {
     try {
       validateAudioLine(line, 0, { authorizedVoiceBindings: context.authorizedVoiceBindings })
       alreadyCurrent = true
     } catch {}
   }
   if (alreadyCurrent) return { line, unresolved: [] }
+  if (hasCurrentLayers) {
+    const lineIndex = Number.isInteger(line.line_index) ? line.line_index : '?'
+    return {
+      line: {
+        ...line,
+        source_audio: line.source_audio ?? null,
+        voice_binding: line.voice_binding ?? null,
+        native_audio_exception: line.native_audio_exception ?? null,
+        performance: line.performance ?? null,
+        dubbing_contract: null,
+      },
+      unresolved: [`第 ${lineIndex} 行声音来源缺少配音合同与时间证据`],
+    }
+  }
   const presentation = legacy === 'narration' ? 'narration' : legacy === 'offscreen' || line.visible_speaker === false ? 'offscreen-dialogue' : 'visible-dialogue'
   const lineIndex = Number.isInteger(line.line_index) ? line.line_index : '?'
   const deliveryMode = DELIVERY.has(legacy) ? legacy : null
