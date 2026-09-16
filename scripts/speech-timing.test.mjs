@@ -1,11 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
+import { addAssetVersion, putAsset, selectAssetVersion } from './asset-ledger.mjs'
 import { finalSpeechAlignment, putFinalSpeechAlignment, putSpeechTimingCandidate, reviewSpeechTiming, selectedSourceSpeechTiming, selectedSpeechTiming, validateSpeechTiming } from './speech-timing.mjs'
 
-const sourceAsset = { asset_key: 'audio-ep001-dialogue', version_id: 'v001', sha256: 'a'.repeat(64) }
+const sourceBytes = 'source-audio-v1'
+const sourceAsset = { asset_key: 'audio-ep001-dialogue', version_id: 'v001', sha256: createHash('sha256').update(sourceBytes).digest('hex') }
+const provenance = { origin: 'imported', created_by: 'user', provider: null, model_or_workflow: null, task_id: null, prompt_document: null, source_assets: [], parameters: {} }
 
 function word(overrides = {}) {
   return { text: '别', start_ms: 0, end_ms: 160, confidence: 0.95, confidence_source: 'asr', ...overrides }
@@ -19,8 +23,19 @@ function timing(overrides = {}) {
   return { episode_key: 'ep-001', source_asset: sourceAsset, method: 'asr-forced-alignment', reviewed: false, language: 'zh-CN', lines: [line()], ...overrides }
 }
 
+async function registerSource(root, source, bytes) {
+  const path = resolve(root, `assets/audio/${source.asset_key}/${source.version_id}.wav`)
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, bytes)
+  await putAsset(root, { key: source.asset_key, type: 'audio', name: source.asset_key })
+  await addAssetVersion(root, source.asset_key, { id: source.version_id, localPath: `assets/audio/${source.asset_key}/${source.version_id}.wav`, provenance })
+  await selectAssetVersion(root, source.asset_key, source.version_id)
+}
+
 async function temporaryRoot() {
-  return mkdtemp(resolve(tmpdir(), 'speech-timing-'))
+  const root = await mkdtemp(resolve(tmpdir(), 'speech-timing-'))
+  await registerSource(root, sourceAsset, sourceBytes)
+  return root
 }
 
 test('低置信 ASR 只能保存为未复核候选', async () => {
@@ -138,13 +153,51 @@ test('逐来源引用读取已复核源 timing，不依赖剧集唯一 selected 
   try {
     const first = await putSpeechTimingCandidate(root, timing())
     await reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: first.version_id, document: timing({ reviewed: true }), reviewed_by: 'codex' })
-    const otherSource = { asset_key: 'audio-ep001-other', version_id: 'v001', sha256: 'b'.repeat(64) }
+    const otherBytes = 'source-audio-other'
+    const otherSource = { asset_key: 'audio-ep001-other', version_id: 'v001', sha256: createHash('sha256').update(otherBytes).digest('hex') }
+    await registerSource(root, otherSource, otherBytes)
     const second = await putSpeechTimingCandidate(root, timing({ source_asset: otherSource }))
     const reviewed = await reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: second.version_id, document: timing({ reviewed: true, source_asset: otherSource }), reviewed_by: 'codex' })
     const firstSource = await selectedSourceSpeechTiming(root, { episode_key: 'ep-001', version_id: 'v002', line_index: 1, source_asset: sourceAsset })
     const secondSource = await selectedSourceSpeechTiming(root, { episode_key: 'ep-001', version_id: reviewed.version_id, line_index: 1, source_asset: otherSource })
     assert.equal(firstSource.document.source_asset.asset_key, sourceAsset.asset_key)
     assert.equal(secondSource.document.source_asset.asset_key, otherSource.asset_key)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('源资产换选版本后拒绝继续读取旧 speech-timing', async () => {
+  const root = await temporaryRoot()
+  try {
+    const candidate = await putSpeechTimingCandidate(root, timing())
+    const reviewed = await reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: candidate.version_id, document: timing({ reviewed: true }), reviewed_by: 'codex' })
+    const nextBytes = 'source-audio-v2'
+    const nextPath = resolve(root, 'assets/audio/audio-ep001-dialogue/v002.wav')
+    await writeFile(nextPath, nextBytes)
+    await addAssetVersion(root, sourceAsset.asset_key, { id: 'v002', localPath: 'assets/audio/audio-ep001-dialogue/v002.wav', provenance })
+    const ledgerPath = resolve(root, '.short-drama/assets.json')
+    const ledger = JSON.parse(await readFile(ledgerPath, 'utf8'))
+    ledger.assets[sourceAsset.asset_key].selectedHistory.push(sourceAsset.version_id)
+    ledger.assets[sourceAsset.asset_key].selectedVersionId = 'v002'
+    await writeFile(ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`)
+    await assert.rejects(
+      () => selectedSourceSpeechTiming(root, { episode_key: 'ep-001', version_id: reviewed.version_id, line_index: 1, source_asset: sourceAsset }),
+      /当前 selected|来源资产/
+    )
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('源资产已 stale 时拒绝复核 speech-timing', async () => {
+  const root = await temporaryRoot()
+  try {
+    const candidate = await putSpeechTimingCandidate(root, timing())
+    const ledgerPath = resolve(root, '.short-drama/assets.json')
+    const ledger = JSON.parse(await readFile(ledgerPath, 'utf8'))
+    ledger.assets[sourceAsset.asset_key].staleVersionIds.push(sourceAsset.version_id)
+    await writeFile(ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`)
+    await assert.rejects(
+      () => reviewSpeechTiming(root, { episode_key: 'ep-001', candidate_version: candidate.version_id, document: timing({ reviewed: true }), reviewed_by: 'codex' }),
+      /失效|stale/
+    )
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 

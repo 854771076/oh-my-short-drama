@@ -117,6 +117,13 @@ function sameSourceAsset(left, right) {
   return left.asset_key === right.asset_key && left.version_id === right.version_id && left.sha256 === right.sha256
 }
 
+async function assertCurrentSelectedSourceAsset(root, sourceAsset) {
+  // 动态导入用于避开资产账本对最终对齐模块的反向依赖；校验仍复用账本的选版、失效和文件哈希门禁。
+  const { selectedAssetVersion } = await import('./asset-ledger.mjs')
+  const selected = await selectedAssetVersion(root, sourceAsset.asset_key)
+  if (selected.version.id !== sourceAsset.version_id || selected.version.sha256 !== sourceAsset.sha256) throw new Error('源 speech-timing 来源资产不是账本当前 selected 版本或 SHA 不一致')
+}
+
 export async function selectedSourceSpeechTiming(rootArg, reference) {
   if (!reference || typeof reference !== 'object') throw new Error('源 speech-timing 引用无效')
   const root = resolve(rootArg)
@@ -131,6 +138,7 @@ export async function selectedSourceSpeechTiming(rootArg, reference) {
   const selected = await readVersion(root, episode, reference.version_id)
   if (selected.document.reviewed !== true || !sameSourceAsset(selected.document.source_asset, reference.source_asset)) throw new Error('源 speech-timing 必须绑定已复核版本及精确来源资产')
   if (!selected.document.lines.some((line) => line.line_index === reference.line_index)) throw new Error('源 speech-timing 行不存在')
+  await assertCurrentSelectedSourceAsset(root, selected.document.source_asset)
   return selected
 }
 
@@ -268,6 +276,7 @@ export async function reviewSpeechTiming(rootArg, input) {
   const reviewed = validateSpeechTiming({ ...structuredClone(input.document), reviewed: true })
   if (reviewed.episode_key !== episode) throw new Error('speech-timing 复核 episode_key 不一致')
   assertCorrectionEvidence(candidate.document, reviewed)
+  await assertCurrentSelectedSourceAsset(resolve(rootArg), reviewed.source_asset)
   return writeNextVersion(rootArg, reviewed, { select: true, reviewed_by: input.reviewed_by })
 }
 

@@ -11,8 +11,6 @@ import { resolveGeneratedDubbingContract } from './dubbing-contract-resolution.m
 import { fingerprint } from './task-ledger.mjs'
 import { call } from './generation/mcp.mjs'
 
-const sourceSha = 'a'.repeat(64)
-
 async function writeJson(path, value) {
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`)
@@ -47,6 +45,14 @@ async function fixture(root, alignmentOverrides = {}) {
   await addAssetVersion(root, 'audio-ep001-line-001', { id: 'v001', localPath: 'assets/audio/audio-ep001-line-001/v001.wav', provenance: provenance('imported', [], { media_role: 'non-dialogue' }) })
   const audio = await addAssetVersion(root, 'audio-ep001-line-001', { id: 'v002', localPath: 'assets/audio/audio-ep001-line-001/v002.wav', provenance: provenance() })
 
+  const sourceDirectory = resolve(root, 'assets/audio/audio-ep001-source')
+  await mkdir(sourceDirectory, { recursive: true })
+  await writeFile(resolve(sourceDirectory, 'v001.wav'), 'source-audio')
+  await putAsset(root, { key: 'audio-ep001-source', type: 'audio', name: '原声音轨' })
+  const source = await addAssetVersion(root, 'audio-ep001-source', { id: 'v001', localPath: 'assets/audio/audio-ep001-source/v001.wav', provenance: provenance() })
+  await selectAssetVersion(root, 'audio-ep001-source', 'v001')
+  const sourceSha = source.versions.find((item) => item.id === 'v001').sha256
+
   const shotDirectory = resolve(root, 'assets/videos/shot-ep001-001')
   await mkdir(shotDirectory, { recursive: true })
   await writeFile(resolve(shotDirectory, 'v001.mp4'), 'lip-sync-video')
@@ -54,9 +60,10 @@ async function fixture(root, alignmentOverrides = {}) {
   await addAssetVersion(root, 'shot-ep001-001', { id: 'v001', localPath: 'assets/videos/shot-ep001-001/v001.mp4', provenance: provenance('transformed', [{ key: 'audio-ep001-line-001', version_id: 'v001' }]) })
   await selectAssetVersion(root, 'shot-ep001-001', 'v001')
 
-  const timing = { episode_key: 'ep-001', source_asset: { asset_key: 'shot-ep001-001', version_id: 'v001', sha256: sourceSha }, method: 'manual-direction', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, start_ms: 0, end_ms: 1000, words: [{ text: '别', start_ms: 0, end_ms: 300 }], evidence: '人工逐帧核对' }] }
+  const timing = { episode_key: 'ep-001', source_asset: { asset_key: 'audio-ep001-source', version_id: 'v001', sha256: sourceSha }, method: 'manual-direction', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, start_ms: 0, end_ms: 1000, words: [{ text: '别', start_ms: 0, end_ms: 300 }], evidence: '人工逐帧核对' }] }
   await writeJson(resolve(root, 'episodes/ep-001/speech-timing/v001.json'), timing)
   await writeJson(resolve(root, 'episodes/ep-001/speech-timing/selected.json'), { versionId: 'v001', path: 'episodes/ep-001/speech-timing/v001.json', source_asset_sha256: sourceSha, reviewed_by: 'codex' })
+  await writeJson(resolve(root, 'episodes/ep-001/speech-timing/selected-sources/audio-ep001-source/v001/selected.json'), { versionId: 'v001', source_asset_sha256: sourceSha, reviewed_by: 'codex' })
   const contract = { mode: 'generated', timing_source: { episode_key: 'ep-001', version_id: 'v001', line_index: 1, source_asset: timing.source_asset }, target_range: { start_ms: 0, end_ms: 1000 }, original_text: '别', adapted_text: '别', performance: { intent: '阻止对方', subtext: '压住恐惧', emotion_arc: [{ at: 0, emotion: '警觉', intensity: 0.4 }, { at: 1, emotion: '急迫', intensity: 0.8 }], emphasis: ['别'], pause_plan: [{ after: '别', duration_ms: 80 }], breath: '轻吸气' }, fit_policy: { tolerance: 'one-frame', max_paid_generations: 3, allow_parameter_regeneration: true, allow_semantic_adaptation: true, max_post_tempo_percent: 3 }, adaptation: null }
   await writeJson(resolve(root, 'episodes/ep-001/audio-plan/v001.json'), { episode_key: 'ep-001', lines: [{ line_index: 1, dubbing_contract: contract }] })
   await writeJson(resolve(root, 'episodes/ep-001/audio-plan/selected.json'), { versionId: 'v001' })
@@ -201,14 +208,14 @@ test('native-preserve 兜底的派生合同可完成对齐、八维审核、选�
     }
     await writeJson(planPath, plan)
 
-    const record = { version: 1, episode_key: 'ep-001', line_index: 1, audio_plan_version: 'v001', source_video: { asset_key: 'shot-ep001-001', version_id: 'v001' }, native_audio_exception: { reason: 'speech-intelligibility-failed', evidence: '原声含混', range: { start_ms: 0, end_ms: 1000 } }, voice_binding: binding, generated_contract: generated }
+    const record = { version: 1, episode_key: 'ep-001', line_index: 1, audio_plan_version: 'v001', source_video: { asset_key: 'audio-ep001-source', version_id: 'v001' }, native_audio_exception: { reason: 'speech-intelligibility-failed', evidence: '原声含混', range: { start_ms: 0, end_ms: 1000 } }, voice_binding: binding, generated_contract: generated }
     const derivedSha = createHash('sha256').update(JSON.stringify(record)).digest('hex')
     const derivedPath = `episodes/ep-001/audio-plan/fallback-contracts/line-001-${derivedSha.slice(0, 16)}.json`
     await writeJson(resolve(root, derivedPath), record)
     const snapshot = { episode_key: 'ep-001', line_index: 1, contract_version: 'v001', timing_version: 'v001', attempt: 1, target_range: generated.target_range, text_version: 'original', capability_gaps: [], derived_contract: { path: derivedPath, sha256: derivedSha } }
     const fallbackPath = resolve(root, 'assets/audio/audio-ep001-line-001/v003.wav')
     await writeFile(fallbackPath, 'fallback-audio')
-    const fallbackAsset = await addAssetVersion(root, 'audio-ep001-line-001', { id: 'v003', localPath: 'assets/audio/audio-ep001-line-001/v003.wav', provenance: provenance('generated', [{ key: 'shot-ep001-001', version_id: 'v001' }], { dubbing_compiler: { snapshot, sha256: fingerprint(snapshot) } }) })
+    const fallbackAsset = await addAssetVersion(root, 'audio-ep001-line-001', { id: 'v003', localPath: 'assets/audio/audio-ep001-line-001/v003.wav', provenance: provenance('generated', [{ key: 'audio-ep001-source', version_id: 'v001' }], { dubbing_compiler: { snapshot, sha256: fingerprint(snapshot) } }) })
     const fallback = fallbackAsset.versions.find((item) => item.id === 'v003')
     await putFinalSpeechAlignment(root, { episode_key: 'ep-001', line_index: 1, audio_asset: { asset_key: 'audio-ep001-line-001', version_id: 'v003', sha256: fallback.sha256 }, audio_plan_version: 'v001', source_timing: { version_id: 'v001', line_index: 1, source_asset: generated.timing_source.source_asset }, text: '别', words: [{ text: '别', start_ms: 0, end_ms: 1000 }], timeline_mapping: { audio_in_ms: 0, timeline_at_ms: 0 }, timeline_fps: 24, reviewed: true })
 

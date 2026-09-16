@@ -1,13 +1,17 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { addAssetVersion, putAsset, selectAssetVersion } from './asset-ledger.mjs'
 
 const projectStore = fileURLToPath(new URL('./project-store.mjs', import.meta.url))
-const sourceAsset = { asset_key: 'shot-ep001-001', version_id: 'v001', sha256: 'a'.repeat(64) }
+const sourceBytes = 'source-video'
+const sourceAsset = { asset_key: 'shot-ep001-001', version_id: 'v001', sha256: createHash('sha256').update(sourceBytes).digest('hex') }
+const provenance = { origin: 'imported', created_by: 'user', provider: null, model_or_workflow: null, task_id: null, prompt_document: null, source_assets: [], parameters: {} }
 const strategy = { mode: 'native-first', provider_selection: 'prefer-native', fallback_allowed: true, fallback_reasons: ['provider-no-native-audio', 'voice-identity-drift', 'speech-intelligibility-failed', 'narration-performance-failed', 'audio-sync-failed', 'native-ambience-failed'] }
 const performance = { intent: '阻止对方看见危险', subtext: '不让对方察觉恐惧', emotion_arc: [{ at: 0, emotion: '警觉', intensity: 0.4 }, { at: 1, emotion: '急迫', intensity: 0.7 }], pace: '短促', emphasis: ['别'], pause_plan: [{ after: '别', duration_ms: 70 }], breath: '轻吸气', distance_and_space: '近距离低声' }
 
@@ -35,9 +39,18 @@ function audioPlanWithRange(targetRange) {
 
 async function fixture(timing = {}, selected = true) {
   const root = await mkdtemp(resolve(tmpdir(), 'project-store-audio-plan-'))
+  const sourcePath = resolve(root, 'assets/videos/shot-ep001-001/v001.mp4')
+  await mkdir(dirname(sourcePath), { recursive: true })
+  await writeFile(sourcePath, sourceBytes)
+  await putAsset(root, { key: sourceAsset.asset_key, type: 'video', name: '源镜头' })
+  await addAssetVersion(root, sourceAsset.asset_key, { id: 'v001', localPath: 'assets/videos/shot-ep001-001/v001.mp4', provenance })
+  await selectAssetVersion(root, sourceAsset.asset_key, 'v001')
   const document = { episode_key: 'ep-001', source_asset: sourceAsset, method: 'asr-forced-alignment', reviewed: true, language: 'zh-CN', lines: [{ line_index: 1, start_ms: 0, end_ms: 500, confidence: 0.95, confidence_source: 'asr', words: [{ text: '别', start_ms: 0, end_ms: 160, confidence: 0.95, confidence_source: 'asr' }] }], ...timing }
   await writeJson(resolve(root, 'episodes/ep-001/speech-timing/v001.json'), document)
-  if (selected) await writeJson(resolve(root, 'episodes/ep-001/speech-timing/selected.json'), { versionId: 'v001', path: 'episodes/ep-001/speech-timing/v001.json', source_asset_sha256: sourceAsset.sha256, reviewed_by: 'codex' })
+  if (selected) {
+    await writeJson(resolve(root, 'episodes/ep-001/speech-timing/selected.json'), { versionId: 'v001', path: 'episodes/ep-001/speech-timing/v001.json', source_asset_sha256: sourceAsset.sha256, reviewed_by: 'codex' })
+    await writeJson(resolve(root, 'episodes/ep-001/speech-timing/selected-sources/shot-ep001-001/v001/selected.json'), { versionId: 'v001', source_asset_sha256: sourceAsset.sha256, reviewed_by: 'codex' })
+  }
   return root
 }
 
