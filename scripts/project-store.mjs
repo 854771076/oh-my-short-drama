@@ -328,13 +328,16 @@ function validateMarketInspirationRef(value, field) {
 
 async function readSavedMarketReport(projectRoot, reportId, field) {
   marketId(reportId, `${field}.report_id`)
-  const reportPath = resolve(projectRoot, '.short-drama-market', 'reports', `${reportId}.json`)
   let report
-  try {
-    report = await readJson(reportPath)
-  } catch {
-    throw new Error(`${field} 引用的已保存市场报告不存在或无法读取`)
+  for (const reportRoot of [projectRoot, dirname(projectRoot)]) {
+    try {
+      report = await readJson(resolve(reportRoot, '.short-drama-market', 'reports', `${reportId}.json`))
+      break
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
   }
+  if (!report) throw new Error(`${field} 引用的已保存市场报告不存在或无法读取`)
   if (!report || typeof report !== 'object' || Array.isArray(report) || report.schema_version !== MARKET_REPORT_SCHEMA_VERSION) throw new Error(`${field} 引用的市场报告必须是 ${MARKET_REPORT_SCHEMA_VERSION}`)
   if (report.report_id !== reportId) throw new Error(`${field}.report_id 必须与已保存市场报告一致`)
   return report
