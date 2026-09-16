@@ -14,6 +14,14 @@
       <header><div><small>NEW PROJECT</small><h2>新建短剧项目</h2></div><button class="icon-button" type="button" data-close aria-label="关闭">×</button></header>
       <label>项目名称<input name="title" required maxlength="80" placeholder="例如：雾港来信"></label>
       <label>项目 Key<input name="key" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="例如：fog-harbor"></label>
+      <div class="workflow-picker" role="radiogroup" aria-label="创作方式">
+        <small>创作方式</small>
+        <div class="workflow-options">
+          <label class="workflow-option"><input type="radio" name="workflowType" value="standard" checked><span class="workflow-card"><b>原创标准流程</b><small>从大纲到成片的标准制作管线</small></span></label>
+          <label class="workflow-option"><input type="radio" name="workflowType" value="viral-recreation"><span class="workflow-card"><b>爆款复刻</b><small>分析参考视频结构，替换人物与台词后原创制作</small></span></label>
+        </div>
+      </div>
+      <p class="workflow-hint" data-workflow-hint hidden>复刻项目创建后先运行 analyze-reference-video 技能生成参考分析，再用 design-video-recreation 设计每集复刻工作流。</p>
       <div class="form-grid"><label>类型<input name="genre" placeholder="悬疑 / 都市 / 古装"></label><label>集数<input name="episodeCount" type="number" min="1" placeholder="12"></label></div>
       <label>单集时长（秒）<input name="episodeDurationSeconds" type="number" min="1" placeholder="90"></label>
       <label class="checkbox"><input name="automationMode" type="hidden" value="false"><input name="automationMode" type="checkbox" value="true" checked> 全自动化模式（默认开启，后续由 agent 自主决策）</label>

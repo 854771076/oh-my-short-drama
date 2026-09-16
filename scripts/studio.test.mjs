@@ -33,8 +33,99 @@ assert.equal(DEFAULT_WORKSPACE_ROOT, resolve(homedir(), 'darma_project'))
 
 test('Dashboard 项目路由可在刷新后恢复', () => {
   assert.deepEqual(parseRoute(projectRoute('demo drama', 'assets')), { projectKey: 'demo drama', view: 'assets' })
+  assert.deepEqual(parseRoute(projectRoute('demo', 'recreation')), { projectKey: 'demo', view: 'recreation' })
   assert.deepEqual(parseRoute('#/projects/demo/unknown'), { projectKey: 'demo', view: 'overview' })
   assert.equal(parseRoute('#/'), null)
+})
+
+test('复刻项目的创建类型、复刻巡检与文档白名单', async (t) => {
+  const workspace = await mkdtemp(resolve(tmpdir(), 'short-drama-studio-recreation-'))
+  const server = createStudioServer({ workspaceRoot: workspace })
+  await new Promise((done) => server.listen(0, '127.0.0.1', done))
+  t.after(async () => { await new Promise((done) => server.close(done)); await rm(workspace, { recursive: true, force: true }) })
+  const base = `http://127.0.0.1:${server.address().port}`
+  const csrfToken = (await fetch(`${base}/api/v1/workspace`).then((response) => response.json())).csrfToken
+  const headers = { 'content-type': 'application/json', 'x-short-drama-csrf': csrfToken }
+
+  const invalid = await fetch(`${base}/api/v1/projects`, { method: 'POST', headers, body: JSON.stringify({ key: 'bad-type', title: '非法类型', workflowType: 'clone' }) })
+  assert.equal(invalid.status, 400)
+
+  const created = await fetch(`${base}/api/v1/projects`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ key: 'rec-demo', title: '复刻示例', workflowType: 'viral-recreation', episodeCount: 2 }),
+  })
+  assert.equal(created.status, 201, await created.text())
+  const projectRoot = resolve(workspace, 'rec-demo')
+  assert.equal(JSON.parse(await readFile(resolve(projectRoot, '.short-drama/project.json'), 'utf8')).workflow.type, 'viral-recreation')
+
+  const standard = await fetch(`${base}/api/v1/projects`, { method: 'POST', headers, body: JSON.stringify({ key: 'std-demo', title: '原创示例' }) })
+  assert.equal(standard.status, 201)
+  const standardDetail = await fetch(`${base}/api/v1/projects/std-demo`).then((response) => response.json())
+  assert.equal(standardDetail.project.workflow.type, 'standard')
+  assert.equal(standardDetail.recreation, null)
+
+  for (const [key, title, order] of [['ep-001', '第一集', 1], ['ep-002', '第二集', 2]]) {
+    const record = resolve(workspace, `episode-${key}.json`)
+    await writeFile(record, JSON.stringify({ key, title, order }))
+    await run('project-store.mjs', ['put-episode', projectRoot, record])
+  }
+
+  const sha = 'a'.repeat(64)
+  await writeFile(resolve(projectRoot, '.short-drama/reference-video-analysis.json'), `${JSON.stringify({
+    schema_version: 1,
+    source_ref: { key: 'src-hot-drama', version_id: 'v001', sha256: sha },
+    rights: { status: 'reference-only', allowed_uses: [], restrictions: [] },
+    confidence: 'medium',
+    limitations: ['仅分析公开视频可见内容', '转写可能不完整'],
+    coverage: { complete: false, analyzed_ms: 30000 },
+  })}\n`)
+
+  const workflowDir = resolve(projectRoot, 'episodes/ep-001/recreation-workflow')
+  await mkdir(workflowDir, { recursive: true })
+  await writeFile(resolve(workflowDir, 'selected.json'), `${JSON.stringify({ versionId: 'v001', path: 'episodes/ep-001/recreation-workflow/v001.json' })}\n`)
+  await writeFile(resolve(workflowDir, 'v001.json'), `${JSON.stringify({
+    rights_mode: 'structure-only',
+    slots: [{ id: 'lead' }, { id: 'hook-line' }, { id: 'bgm' }],
+    script: { segments: [{ id: 'seg-1' }, { id: 'seg-2' }] },
+    media_tracks: [{ id: 'track-1' }],
+    captions: { mode: 'word-aligned' },
+    speech: { mode: 'post-dub' },
+    film: { resolution: '1080x1920' },
+    unresolved: [{ id: 'q1' }],
+  })}\n`)
+  await mkdir(resolve(projectRoot, '.short-drama/recreation-compiled/ep-001'), { recursive: true })
+  await writeFile(resolve(projectRoot, '.short-drama/recreation-compiled/ep-001/v001.json'), '{}\n')
+
+  const detail = await fetch(`${base}/api/v1/projects/rec-demo`).then((response) => response.json())
+  assert.equal(detail.recreation.analysis.rightsStatus, 'reference-only')
+  assert.equal(detail.recreation.analysis.sourceRef.key, 'src-hot-drama')
+  assert.deepEqual(detail.recreation.episodes.map((item) => item.status), ['selected', 'none'])
+  const ep1 = detail.recreation.episodes[0]
+  assert.equal(ep1.versionId, 'v001')
+  assert.equal(ep1.rightsMode, 'structure-only')
+  assert.equal(ep1.slotCount, 3)
+  assert.equal(ep1.compiled, true)
+  assert.equal(ep1.unresolvedCount, 1)
+  assert.equal(ep1.layers.script, 2)
+  assert.equal(ep1.layers.captions, 'word-aligned')
+  assert.equal(ep1.candidateCount, 1)
+  assert.match(ep1.contentUrl, /documents\/content\?id=episodes%2Fep-001%2Frecreation-workflow%2Fv001\.json/)
+
+  const labels = detail.documents.map((item) => item.label)
+  assert.ok(labels.includes('参考视频分析'))
+  assert.ok(labels.includes('复刻工作流'))
+  assert.equal(detail.documents.find((item) => item.label === '复刻工作流').episodeKey, 'ep-001')
+})
+
+test('复刻 Dashboard 前端合同完整', async () => {
+  const [appSource, html, styles] = await Promise.all([
+    readFile(resolve(pluginRoot, 'studio/app.js'), 'utf8'),
+    readFile(resolve(pluginRoot, 'studio/index.html'), 'utf8'),
+    readFile(resolve(pluginRoot, 'studio/styles.css'), 'utf8'),
+  ])
+  for (const token of ['name="workflowType"', 'value="viral-recreation"', 'value="standard"', 'data-workflow-hint', 'analyze-reference-video']) assert.match(html, new RegExp(token))
+  for (const token of ['爆款复刻', 'recreationView', 'recreation-table', '参考视频分析', 'rights-tag', 'rec-status']) assert.match(appSource, new RegExp(token))
+  for (const token of ['.workflow-options', '.recreation-badge', '.recreation-table', '.rights-tag', '.cover-tag.recreation']) assert.match(styles, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 })
 
 test('市场路由可在刷新后恢复', () => {
