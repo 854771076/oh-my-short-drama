@@ -1,6 +1,7 @@
 import { readFile, readdir, realpath } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
 import { migrateLegacyAudioPlan } from './audio-plan-contract.mjs'
+import { selectedSpeechTiming } from './speech-timing.mjs'
 
 async function json(path) { return JSON.parse(await readFile(path, 'utf8')) }
 
@@ -74,6 +75,9 @@ export async function validateGenerationDocumentReference(root, type, target, re
     }
     const line = document.approved === true && !document.unresolved?.length && document.lines?.find((item) => item.line_index === reference.line_index)
     if (!line) throw new Error('audio-plan 台词不存在、未批准或仍有未决项')
+    const timing = await selectedSpeechTiming(root, reference.episode_key)
+    const timingSource = line.dubbing_contract?.timing_source
+    if (!timingSource || timingSource.version_id !== timing.version_id || timingSource.line_index !== line.line_index || timingSource.source_asset.sha256 !== timing.document.source_asset.sha256) throw new Error('音频生成必须绑定当前 selected speech-timing 与来源 SHA')
     const allowedTexts = line.dubbing_contract?.mode === 'generated'
       ? new Set([line.content, line.dubbing_contract.original_text, line.dubbing_contract.adapted_text])
       : new Set([line.content])
