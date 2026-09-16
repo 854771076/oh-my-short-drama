@@ -17,7 +17,7 @@ import { normalizeModelParameters, providerSetupCatalog, providerSupports } from
 import { supportsPrevizMotionReference, validateMotionReferenceBinding } from './previz-contract.mjs'
 import { saveCustomArtStyle } from './art-styles.mjs'
 import { validateContinuityPlan } from './continuity-plan.mjs'
-import { migrateLegacyAudioPlan, NATIVE_AUDIO_FAILURE_REASONS, validateAudioPlan } from './audio-plan-contract.mjs'
+import { migrateLegacyAudioPlan, NATIVE_AUDIO_FAILURE_REASONS, validateAudioPlan, validateDubbingContract } from './audio-plan-contract.mjs'
 import { validateShotAudioPolicy } from './audio-prompt-policy.mjs'
 
 const root = process.argv[2] === 'init' ? resolve(DEFAULT_WORKSPACE_ROOT, process.argv[3] || 'short-drama') : resolve(process.argv[3] || process.cwd())
@@ -360,10 +360,11 @@ function validateDocument(kind, document, episodeKey) {
   if (kind === 'audio-plan') {
     if (document.episode_key !== episodeKey || !document.source_versions || typeof document.source_versions !== 'object' || Array.isArray(document.source_versions) || !Array.isArray(document.lines) || !Array.isArray(document.voice_bindings) || !Array.isArray(document.unresolved) || typeof document.approved !== 'boolean') throw new Error('audio-plan 合同无效')
     document.lines.forEach((line, index) => {
-      const fields = ['line_index', 'speaker', 'line_type', 'content', 'emotion', 'emotion_strength', 'pronunciation_notes', 'matched_shot', ...(line.range === undefined ? [] : ['range']), 'delivery_mode', 'presentation', 'fallback_mode', 'source_audio', 'voice_binding', 'native_audio_exception', 'performance']
+      const fields = ['line_index', 'speaker', 'line_type', 'content', 'emotion', 'emotion_strength', 'pronunciation_notes', 'matched_shot', ...(line.range === undefined ? [] : ['range']), 'delivery_mode', 'presentation', 'fallback_mode', 'source_audio', 'voice_binding', 'native_audio_exception', 'performance', 'dubbing_contract']
       exactKeys(line, fields, `audio-plan lines[${index}]`)
       if (line.line_index !== index + 1 || typeof line.speaker !== 'string' || !line.speaker || typeof line.content !== 'string' || !line.content || !Array.isArray(line.pronunciation_notes) || typeof line.emotion_strength !== 'number' || line.emotion_strength < 0.1 || line.emotion_strength > 0.5) throw new Error(`audio-plan lines[${index}] 无效`)
       if (line.range !== undefined && (!Number.isInteger(line.range?.start_ms) || !Number.isInteger(line.range?.end_ms) || line.range.start_ms < 0 || line.range.end_ms <= line.range.start_ms || Object.keys(line.range).sort().join() !== 'end_ms,start_ms')) throw new Error(`audio-plan lines[${index}].range 无效`)
+      validateDubbingContract(line.dubbing_contract, { deliveryMode: line.delivery_mode, presentation: line.presentation, voiceBinding: line.voice_binding, authorizedVoiceBindings: document.voice_bindings })
     })
     validateAudioPlan(document, episodeKey)
     if (document.approved && document.unresolved.length) throw new Error('audio-plan 存在未决项时不得 approved')
