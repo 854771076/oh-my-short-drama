@@ -7,7 +7,7 @@ import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { createStudioServer, DEFAULT_WORKSPACE_ROOT, initializeWorkspace } from './studio.mjs'
 import { renderDocument } from '../studio/document-view.js'
-import { parseRoute, projectRoute } from '../studio/router.js'
+import { marketRoute, parseAppRoute, parseRoute, projectRoute } from '../studio/router.js'
 
 const execute = promisify(execFile)
 const pluginRoot = resolve(import.meta.dirname, '..')
@@ -19,6 +19,25 @@ test('Dashboard 项目路由可在刷新后恢复', () => {
   assert.deepEqual(parseRoute(projectRoute('demo drama', 'assets')), { projectKey: 'demo drama', view: 'assets' })
   assert.deepEqual(parseRoute('#/projects/demo/unknown'), { projectKey: 'demo', view: 'overview' })
   assert.equal(parseRoute('#/'), null)
+})
+
+test('市场路由可在刷新后恢复', () => {
+  assert.equal(marketRoute(), '#/market')
+  assert.deepEqual(parseAppRoute('#/market'), { kind: 'market' })
+  assert.deepEqual(parseAppRoute('#/projects/demo/assets'), { kind: 'project', projectKey: 'demo', view: 'assets' })
+})
+
+test('市场页面和样式合同完整', async () => {
+  const [appSource, styles] = await Promise.all([
+    readFile(resolve(pluginRoot, 'studio/app.js'), 'utf8'),
+    readFile(resolve(pluginRoot, 'studio/styles.css'), 'utf8'),
+  ])
+  for (const token of ['市场调研', 'data-market-refresh', 'data-market-filter', 'data-market-topic', 'aria-live="polite"']) assert.match(appSource, new RegExp(token))
+  for (const token of ['market-shell', 'market-filterbar', 'market-metrics', 'market-opportunity-layout', 'market-topic-table', 'market-platform-matrix', 'market-evidence-drawer']) assert.match(styles, new RegExp(token))
+  assert.match(styles, /@media \(max-width:900px\)/)
+  assert.match(styles, /@media \(max-width:560px\)/)
+  assert.match(styles, /:focus-visible/)
+  assert.match(styles, /prefers-reduced-motion/)
 })
 
 test('结构化文档递归展示字段并转义内容', () => {
