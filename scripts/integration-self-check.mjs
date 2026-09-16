@@ -30,7 +30,7 @@ if (!skillMap.support.includes('ideate-drama-from-market')) throw new Error('市
 if (!/市场.*analyze-drama-market/.test(skillIndexText)) throw new Error('Skill 索引缺少市场分析路由')
 if (!/市场.*ideate-drama-from-market/.test(skillIndexText)) throw new Error('Skill 索引缺少市场灵感路由')
 if (!/market-research\.mjs refresh/.test(usageGuideText)) throw new Error('使用手册缺少市场刷新命令')
-if (codexManifest.version !== '0.8.0' || claudeManifest.version !== codexManifest.version || marketplaceManifest.plugins[0].version !== codexManifest.version) throw new Error('插件版本未统一为 0.8.0')
+if (codexManifest.version !== '0.9.0' || claudeManifest.version !== codexManifest.version || marketplaceManifest.plugins[0].version !== codexManifest.version) throw new Error('插件版本未统一为 0.9.0')
 const providerPrompts = new Set(skillMap.provider_prompts || [])
 function run(script, ...args) {
   const result = spawnSync(process.execPath, [resolve(plugin, 'scripts', script), ...args], { encoding: 'utf8' })

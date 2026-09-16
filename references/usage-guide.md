@@ -69,6 +69,23 @@
 
 显式执行 `node scripts/market-research.mjs refresh /absolute/workspace` 才会联网刷新公开榜单。`list` 查看快照与报告历史，`report` 读取最新报告，`analyze /absolute/workspace <snapshot-id>` 重算指定历史快照；Studio 使用全局 `#/market`。报告持续标注公开 Top 30 样本边界，不作为收益承诺。
 
+市场数据按四层使用，不能混写：
+
+1. **事实**：`market-report.v2` 中可回链快照、榜单和作品证据的观测值；缺失值保持 `null`。
+2. **推断**：机会分、供需象限、共现和平台偏好等分析结论，必须保留置信度、覆盖率和限制。
+3. **创作假设**：`ideate-drama-from-market` 或 Studio 灵感板从信号提出的原创切口，仍需验证，不能复制榜单作品标题、人物关系或具体情节。
+4. **用户决定**：用户明确选择候选并登记后，才写入 `market-inspiration.v1` 和 Brief 的 `market_inspiration_ref`。
+
+推荐使用路径：
+
+1. 可选执行 `refresh`；不刷新时只读已有 `.short-drama-market/reports/*.json`。
+2. 在 Studio `#/market` 选择报告周期和筛选范围，查看题材 × 榜单热度、证据和限制。
+3. 在灵感板选择 1–3 个题材并生成本地候选，逐项核对事实、推断、假设和低置信风险。
+4. 选择一个候选和目标项目，点击“用于项目”。该动作只登记 `.short-drama/market-inspiration.json` 并更新 `.short-drama/brief.json` 的引用，不改变项目题材或 Brief 平台。
+5. 继续执行 `define-drama-brief`；后续 Bible 和 Outline 只消费已确认的 Brief，不直接读取榜单作品清单。
+
+Agent 只有在用户明确要求“参考市场/排行榜找灵感”时才执行 `ideate-drama-from-market`。命令行工作流先用 `node scripts/project-store.mjs market-report-ref <项目目录> <report-id> <hypothesis-id...>` 生成可校验报告引用，再按 Skill 合同生成并登记灵感；普通创作不强制经过市场步骤。运行 `node scripts/market-inspiration-offline-smoke.mjs` 可在临时工作区验证全程不刷新网络的闭环。
+
 ## 通用门禁
 
 项目配置 `automation_mode` 默认为 `true`。开启时由 agent 自主完成下表中的常规确认；关闭时才等待用户逐项确认。阶段门禁、权限/素材权利事实和安全校验始终有效。
