@@ -28,9 +28,8 @@ const SAFE_KEY = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/
 const MARKET_ID = /^[A-Za-z0-9+_-]{1,80}$/
 const ASSET_TYPES = { character: ['.gif','.jpeg','.jpg','.png','.webp'], scene: ['.gif','.jpeg','.jpg','.png','.webp'], prop: ['.gif','.jpeg','.jpg','.png','.webp'], storyboard: ['.gif','.jpeg','.jpg','.png','.webp'], video: ['.mp4','.webm'], audio: ['.flac','.mp3','.pcm','.wav'], other: ['.bin'] }
 const MAX_UPLOAD_BYTES = Number(process.env.SHORT_DRAMA_MAX_MEDIA_BYTES || 512 * 1024 * 1024)
-const PROJECT_DOCUMENTS = { 'source-analysis': '原文分析', brief: '创作简报', bible: '项目设定', outline: '分集大纲', 'art-style': '美术风格', 'market-inspiration': '市场灵感', 'reference-video-analysis': '参考视频分析' }
-const EPISODE_DOCUMENTS = { scripts: '剧本', 'script-review': '剧本复核', 'director-book': '导演本', 'asset-plan': '资产计划', storyboard: '分镜', 'production-plan': '制作计划', 'video-prompts': '视频提示词', 'audio-plan': '音频计划', 'recreation-workflow': '复刻工作流' }
-const WORKFLOW_TYPES = new Set(['standard', 'viral-recreation'])
+const PROJECT_DOCUMENTS = { 'source-analysis': '原文分析', brief: '创作简报', bible: '项目设定', outline: '分集大纲', 'art-style': '美术风格', 'market-inspiration': '市场灵感' }
+const EPISODE_DOCUMENTS = { scripts: '剧本', 'script-review': '剧本复核', 'director-book': '导演本', 'asset-plan': '资产计划', storyboard: '分镜', 'production-plan': '制作计划', 'video-prompts': '视频提示词', 'audio-plan': '音频计划' }
 const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.gif': 'image/gif', '.jpeg': 'image/jpeg', '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp',
@@ -165,63 +164,6 @@ async function listDeliveries(root, key, episodes) {
   return deliveries
 }
 
-async function listRecreation(root, key, episodes) {
-  // Dashboard 只做账本只读巡检，内容有效性由 project-store/recreation-workflow 校验负责。
-  const analysisId = '.short-drama/reference-video-analysis.json'
-  let analysis = null
-  try {
-    const info = await stat(resolve(root, analysisId))
-    const value = await readJson(resolve(root, analysisId))
-    analysis = {
-      sourceRef: value.source_ref ? { key: value.source_ref.key, versionId: value.source_ref.version_id } : null,
-      rightsStatus: value.rights?.status ?? null,
-      confidence: value.confidence ?? null,
-      coverageComplete: value.coverage?.complete ?? null,
-      limitations: Array.isArray(value.limitations) ? value.limitations.slice(0, 3) : [],
-      updatedAt: info.mtime.toISOString(),
-      contentUrl: `/api/v1/projects/${encodeURIComponent(key)}/documents/content?id=${encodeURIComponent(analysisId)}`,
-    }
-  } catch (error) {
-    if (error?.code !== 'ENOENT') analysis = { error: error.message }
-  }
-  const episodeWorkflows = []
-  for (const episode of episodes) {
-    const dir = resolve(root, 'episodes', episode.key, 'recreation-workflow')
-    let candidateCount = 0
-    try {
-      candidateCount = (await readdir(dir)).filter((file) => /^v\d{3}\.json$/.test(file)).length
-    } catch (error) { if (error?.code !== 'ENOENT') throw error }
-    const entry = { episodeKey: episode.key, title: episode.title, status: 'none', candidateCount }
-    try {
-      const marker = await readJson(resolve(dir, 'selected.json'))
-      if (!/^v\d{3}$/.test(marker.versionId) || typeof marker.path !== 'string') throw new Error('selected 标记无效')
-      const workflow = await readJson(resolve(root, marker.path))
-      const info = await stat(resolve(root, marker.path))
-      Object.assign(entry, {
-        status: 'selected',
-        versionId: marker.versionId,
-        rightsMode: workflow.rights_mode ?? null,
-        slotCount: Array.isArray(workflow.slots) ? workflow.slots.length : 0,
-        layers: {
-          script: workflow.script?.segments?.length ?? 0,
-          media: workflow.media_tracks?.length ?? 0,
-          captions: workflow.captions?.mode ?? null,
-          speech: workflow.speech?.mode ?? null,
-          film: workflow.film?.resolution ?? null,
-        },
-        unresolvedCount: Array.isArray(workflow.unresolved) ? workflow.unresolved.length : 0,
-        compiled: await access(resolve(root, '.short-drama/recreation-compiled', episode.key, `${marker.versionId}.json`)).then(() => true).catch(() => false),
-        updatedAt: info.mtime.toISOString(),
-        contentUrl: `/api/v1/projects/${encodeURIComponent(key)}/documents/content?id=${encodeURIComponent(marker.path)}`,
-      })
-    } catch (error) {
-      if (error?.code !== 'ENOENT') { entry.status = 'error'; entry.error = error.message }
-    }
-    episodeWorkflows.push(entry)
-  }
-  return { analysis, episodes: episodeWorkflows }
-}
-
 async function listProjects(workspaceRoot) {
   const entries = await readdir(workspaceRoot, { withFileTypes: true })
   const projects = []
@@ -263,8 +205,7 @@ async function projectDetail(workspaceRoot, key) {
   }
   assetLedger.projectKey = key
   episodes.sort((a, b) => a.order - b.order)
-  const recreation = project.workflow?.type === 'viral-recreation' ? await listRecreation(root, key, episodes) : null
-  return { project, state, episodes, documents: await listDocuments(root, key, episodes), deliveries: await listDeliveries(root, key, episodes), recreation, assets: summarizeAssets(assetLedger), tasks: Object.values(taskLedger.tasks || {}), path: root }
+  return { project, state, episodes, documents: await listDocuments(root, key, episodes), deliveries: await listDeliveries(root, key, episodes), assets: summarizeAssets(assetLedger), tasks: Object.values(taskLedger.tasks || {}), path: root }
 }
 
 export async function initializeWorkspace(rootArg, title = basename(resolve(rootArg))) {
@@ -283,8 +224,6 @@ async function createProject(workspaceRoot, input) {
   const title = String(input.title || '').trim()
   if (!PROJECT_KEY.test(key)) throw Object.assign(new Error('项目 key 必须是小写 kebab-case'), { status: 400 })
   if (!title || title.length > 80) throw Object.assign(new Error('项目名称必填且不超过 80 字'), { status: 400 })
-  const workflowType = input.workflowType === undefined || input.workflowType === null || input.workflowType === '' ? 'standard' : String(input.workflowType)
-  if (!WORKFLOW_TYPES.has(workflowType)) throw Object.assign(new Error('创作方式无效'), { status: 400 })
   const positive = (value, field) => {
     if (value === undefined || value === null || value === '') return null
     if (!Number.isInteger(value) || value <= 0) throw Object.assign(new Error(`${field} 必须是正整数`), { status: 400 })
@@ -298,7 +237,6 @@ async function createProject(workspaceRoot, input) {
     key, title,
     automation_mode: input.automationMode !== false && input.automationMode !== 'false',
     description: input.description ? String(input.description).trim() : null,
-    workflow: { type: workflowType, version: 1 },
     creative: { genre: input.genre ? String(input.genre).trim() : null },
     format: { episode_count: positive(input.episodeCount, '集数'), episode_duration_seconds: positive(input.episodeDurationSeconds, '单集时长') },
   }

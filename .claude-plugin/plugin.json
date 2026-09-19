@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "oh-my-short-drama",
   "displayName": "短剧工厂",
-  "version": "0.10.0",
+  "version": "0.9.0",
   "description": "本地优先的标准短剧制作插件，支持文本创作、媒体生成、剪辑和交付。",
   "author": {
     "name": "fuyang",
@@ -11,7 +11,12 @@
   "homepage": "https://github.com/854771076/oh-my-short-drama#readme",
   "repository": "https://github.com/854771076/oh-my-short-drama",
   "license": "MIT",
-  "keywords": ["short-drama", "video", "workflow", "mcp"],
+  "keywords": [
+    "short-drama",
+    "video",
+    "workflow",
+    "mcp"
+  ],
   "skills": "./skills/",
   "mcpServers": "./.claude-plugin/mcp.json"
 }
