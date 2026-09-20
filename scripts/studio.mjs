@@ -633,6 +633,12 @@ export function createStudioServer({ workspaceRoot: rootArg, providerTester = te
   })
 }
 
+export function openBrowser(url) {
+  if (process.env.SHORT_DRAMA_STUDIO_NO_OPEN === '1') return
+  const opener = process.platform === 'darwin' ? ['open', url] : process.platform === 'win32' ? ['cmd.exe', '/c', 'start', '', url] : ['xdg-open', url]
+  spawn(opener[0], opener.slice(1), { detached: true, stdio: 'ignore' }).unref()
+}
+
 export async function openStudio(rootArg = DEFAULT_WORKSPACE_ROOT) {
   const root = resolve(rootArg)
   const url = 'http://127.0.0.1:4173'
@@ -642,13 +648,12 @@ export async function openStudio(rootArg = DEFAULT_WORKSPACE_ROOT) {
     catch { return false }
   }
   if (!await active()) {
-    spawn(process.execPath, [fileURLToPath(import.meta.url), 'serve', root], { detached: true, stdio: 'ignore' }).unref()
+    // 子进程自行开浏览器会与 openStudio 的开窗重复，让它只起服务。
+    spawn(process.execPath, [fileURLToPath(import.meta.url), 'serve', root], { detached: true, stdio: 'ignore', env: { ...process.env, SHORT_DRAMA_STUDIO_NO_OPEN: '1' } }).unref()
     for (let attempt = 0; attempt < 20 && !await active(); attempt += 1) await new Promise((done) => setTimeout(done, 100))
   }
   if (!await active()) throw new Error(`Dashboard 未能启动，请手动打开：node scripts/studio.mjs serve ${root}`)
-  if (process.env.SHORT_DRAMA_STUDIO_NO_OPEN === '1') return url
-  const opener = process.platform === 'darwin' ? ['open', url] : process.platform === 'win32' ? ['cmd.exe', '/c', 'start', '', url] : ['xdg-open', url]
-  spawn(opener[0], opener.slice(1), { detached: true, stdio: 'ignore' }).unref()
+  openBrowser(url)
   return url
 }
 
@@ -662,7 +667,11 @@ async function main() {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('端口无效')
   const server = createStudioServer({ workspaceRoot: rootArg })
   server.on('error', (error) => { console.error(`工作台启动失败：${error.message}`); process.exitCode = 1 })
-  server.listen(port, '127.0.0.1', () => console.log(`短剧工作台：http://127.0.0.1:${server.address().port}`))
+  server.listen(port, '127.0.0.1', () => {
+    const url = `http://127.0.0.1:${server.address().port}`
+    console.log(`短剧工作台：${url}`)
+    openBrowser(url)
+  })
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) main().catch((error) => { console.error(error.message); process.exitCode = 1 })

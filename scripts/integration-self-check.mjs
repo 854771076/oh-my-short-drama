@@ -32,7 +32,7 @@ if (!skillMap.support.includes('ideate-drama-from-market')) throw new Error('市
 if (!/市场.*analyze-drama-market/.test(skillIndexText)) throw new Error('Skill 索引缺少市场分析路由')
 if (!/市场.*ideate-drama-from-market/.test(skillIndexText)) throw new Error('Skill 索引缺少市场灵感路由')
 if (!/market-research\.mjs refresh/.test(usageGuideText)) throw new Error('使用手册缺少市场刷新命令')
-if (codexManifest.version !== '0.9.0' || claudeManifest.version !== codexManifest.version || marketplaceManifest.plugins[0].version !== codexManifest.version) throw new Error('插件版本未统一为 0.9.0')
+if (codexManifest.version !== claudeManifest.version || claudeManifest.version !== marketplaceManifest.plugins[0].version) throw new Error('插件版本未在 Codex、Claude 与 marketplace 三处清单统一')
 const providerPrompts = new Set(skillMap.provider_prompts || [])
 function run(script, ...args) {
   const result = spawnSync(process.execPath, [resolve(plugin, 'scripts', script), ...args], { encoding: 'utf8' })
@@ -259,7 +259,7 @@ async function main() {
   for (const field of ['confirmed', 'rights_confirmed', 'public_exposure_confirmed', 'usage_terms_confirmed', 'usage_scope']) if (!cloneSchema?.required?.includes(field)) throw new Error(`clone_voice 缺少必填确认字段：${field}`)
   const audioSchema = generationTools.find((tool) => tool.name === 'generate_audio')?.inputSchema?.properties
   if (!audioSchema.language_hints || !audioSchema.instruction || audioSchema.response_format.enum.join() !== 'mp3,pcm,flac,wav,opus') throw new Error('generate_audio 百炼字段缺失')
-  for (const script of ['asset-ledger.mjs', 'character-profiles.mjs', 'editing-store.mjs', 'export-edit-subtitles.mjs', 'file-lock.mjs', 'freeze-edit-candidate.mjs', 'media-tools.mjs', 'native-audio-audit.mjs', 'preflight.mjs', 'previz-self-check.mjs', 'project-store.mjs', 'reference-video-import.mjs', 'render-prompt.mjs', 'review-ledger.mjs', 'shot-fingerprint.mjs', 'task-ledger.mjs', 'task-sync.mjs', 'workflow-gates.mjs', 'generation/bailian.mjs', 'generation/voice-tools.mjs', 'voice-ledger.mjs']) run(script, '--self-check')
+  for (const script of ['asset-ledger.mjs', 'character-profiles.mjs', 'editing-store.mjs', 'ensure-hypit.mjs', 'export-edit-subtitles.mjs', 'file-lock.mjs', 'freeze-edit-candidate.mjs', 'media-tools.mjs', 'native-audio-audit.mjs', 'preflight.mjs', 'previz-self-check.mjs', 'project-store.mjs', 'record-hypit-handoff.mjs', 'reference-video-import.mjs', 'render-edit.mjs', 'render-prompt.mjs', 'review-ledger.mjs', 'shot-fingerprint.mjs', 'task-ledger.mjs', 'task-sync.mjs', 'validate-fight-plan.mjs', 'workflow-gates.mjs', 'generation/bailian.mjs', 'generation/voice-tools.mjs', 'voice-ledger.mjs']) run(script, '--self-check')
   for (const check of [checkComfly, checkRunningHub, checkStarRouter, checkProviders, checkLitterbox, checkBailian, checkPublish]) await check()
   await checkMultiEpisodeEvidence()
   await checkBailianVoiceLifecycle()

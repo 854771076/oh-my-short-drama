@@ -227,11 +227,11 @@ async function skillProjectFixture(type) {
   return root
 }
 
-test('viral-recreation 只在 analysis 动态增加两个复刻 Skill', async () => {
+test('viral-recreation 只在 analysis 动态增加 Hypit 复刻 Skill', async () => {
   const standard = await skillProjectFixture('standard')
   const viral = await skillProjectFixture('viral-recreation')
   assert.equal((await requiredSkills(standard, 'analysis')).includes('analyze-reference-video'), false)
-  assert.deepEqual((await requiredSkills(viral, 'analysis')).filter((name) => ['analyze-reference-video', 'design-video-recreation'].includes(name)), ['analyze-reference-video', 'design-video-recreation'])
+  assert.deepEqual((await requiredSkills(viral, 'analysis')).filter((name) => ['analyze-reference-video', 'design-video-recreation', 'use-hypit-video'].includes(name)), ['analyze-reference-video', 'design-video-recreation', 'use-hypit-video'])
 })
 
 test('viral-recreation analysis 门禁报告准备清单、分析和工作流缺口', async () => {
@@ -241,6 +241,15 @@ test('viral-recreation analysis 门禁报告准备清单、分析和工作流缺
   assert.ok(result.missing.includes('参考视频准备清单'))
   assert.ok(result.missing.includes('参考视频分析'))
   assert.ok(result.missing.includes('至少一个 selected 复刻工作流'))
+})
+
+test('viral-recreation analysis 门禁按分集目录识别 selected 复刻工作流（不依赖剧本选版）', async () => {
+  const root = await skillProjectFixture('viral-recreation')
+  await mkdir(resolve(root, 'episodes/ep-001/recreation-workflow'), { recursive: true })
+  await writeFile(resolve(root, 'episodes/ep-001/recreation-workflow/selected.json'), '{"versionId":"v001","path":"episodes/ep-001/recreation-workflow/v001.json"}\n')
+  const result = await inspectStage(root, 'analysis')
+  assert.equal(result.ready, false)
+  assert.ok(!result.missing.includes('至少一个 selected 复刻工作流'))
 })
 
 test('复刻证据链绑定 selected 来源、prepared、分析和工作流哈希', async () => {

@@ -29,6 +29,7 @@ Codex / Claude Code / Hermes → oh-my-short-drama → drama-generation MCP → 
   → 资产分析
   → 人物 / 场景 / 道具生成并落盘
   → 人物银幕吸引力审核与跨镜身份绑定
+  → 打斗动作链与空间路线（按需）
   → 分镜与制作规划（逐镜选择图片 / Blender 白模）
   → 图片分镜八维审计 / 白模分镜导演评分
   → 连续镜头空间计划 / 按需绑定上一镜尾帧
@@ -41,6 +42,8 @@ Codex / Claude Code / Hermes → oh-my-short-drama → drama-generation MCP → 
 ```
 
 完整使用顺序、Skill 关系和确认项见 [使用手册](references/usage-guide.md)。
+
+打斗题材可按需使用 `design-fight-video`：它只产出平台无关的动作因果、空间路线和镜头接力合同。`viral-recreation` 的中间理解阶段会按需安装并调用 Hypit，登记带 SHA-256 的中间文件 handoff，再翻译成我们自己的 `reference-video-analysis` 与 `recreation-workflow`；最终图片、视频、音频、剪辑和交付仍使用本插件自己的 Provider 与审片链路。需要 Hypit 完整运行时、SVML/SVS/SVRun、Studio 或批量变体时仍可直接使用 `use-hypit-video`。
 
 ### 参考视频复刻
 

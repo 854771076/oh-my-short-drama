@@ -5,6 +5,8 @@ description: 通过用户选择的生成 Provider 提交并查询短剧视频镜
 
 # 生成短剧视频
 
+`viral-recreation` 项目即使中间阶段使用 Hypit，也必须在此处切回本插件：只读取当前 selected 的 `video-prompts`、制作计划、资产版本和复刻编译约束，使用项目已确认的自有 Provider 提交视频。禁止调用 Hypit Build、直接复用 Hypit 生成结果或把 Hypit Runtime 当作本插件的媒体 Provider。
+
 开始视频制作前，对本次待提交镜头逐镜按制作计划校验分镜媒介：`storyboard_strategy.mode=image` 必须有当前图片分镜选版和八维审计；`mode=blender` 必须有当前白模选版、导演合同和七项验收，且白模登记时长、导演合同时长、制作计划时长完全一致。缺少或失败任意一项时停止；单镜重生成不被其他未提交镜头阻塞。每镜的 Provider、模型或工作流 ID、prompt_profile、input_mode、提示词、时长与参考绑定以当前 selected `video-prompts` 为准，分辨率/画幅/声音等参数以 project.json 已确认配置为准；MCP 逐镜硬校验一致后才提交，任何手工改词、改参数都会被拒绝。同一目标与输入指纹存在在途任务时禁止重复提交。
 
 整集视频只允许按下面三次 MCP 调用成批完成，禁止逐镜让用户重复确认或手工拼接参考 URL：

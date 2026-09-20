@@ -21,7 +21,7 @@ description: 汇总本地导演本、已选资产和结构化分镜形成短剧�
 
 文本策划全部由 Codex 完成，不调用外部文本模型。Provider、模型/工作流、尺寸、时长、候选数、参考文件、声音方式、预算上限和批量付费范围必须逐项展示；只有用户确认后才把 `approved: true` 写入计划。
 
-MiniMax H3 仅在 Provider 能力明确声明原生音频且用户选择原生声音时，才使用 `audio_strategy.mode=native`，并锁定逐秒对白表、全片音乐锚点和相邻镜头成对声音转场；此时不安排独立 TTS。其他情况进入 `design-drama-audio`。
+Provider 支持 MiniMax H3 原生音频（`video.native-audio`）时，默认使用 `audio_strategy.mode=native`，并锁定逐秒对白表、全片音乐锚点和相邻镜头成对声音转场；此时不安排独立 TTS。仅当用户明确要求后配、或 Provider/模型明确声明不支持原生音频时，才写 `post-dub`/`independent` 并进入 `design-drama-audio`；能力信息缺失不得作为转后配的理由。
 
 使用 `project-store.mjs put-episode-document <项目目录> production-plan <episode-key> <version> <文件>` 保存不可变版本。选定后，图片镜头执行 `generate-storyboard-images` 并完成八维审计；白模镜头依次执行 `direct-blender-previz`、`generate-blender-previz` 并完成导演评分。逐镜门禁全部通过后才能调用 `generate-drama-videos`。计划不得包含 API Key、Token 或远程业务对象 ID。
 

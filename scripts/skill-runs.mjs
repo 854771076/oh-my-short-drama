@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { access, mkdir, readFile, readdir, realpath, rename, writeFile } from 'node:fs/promises'
+import { access, lstat, mkdir, readFile, readdir, realpath, rename, writeFile } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { dirname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +11,7 @@ const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const skillMap = JSON.parse(await readFile(resolve(pluginRoot, 'references/skill-map.json'), 'utf8'))
 const providerPrompts = new Set(skillMap.provider_prompts || [])
 const evidencePatterns = {
+  'use-hypit-video': /^\.short-drama\/hypit\/handoff\.json$/,
   'analyze-reference-video': /^\.short-drama\/reference-video-analysis\.json$/,
   'design-video-recreation': /episodes\/ep-\d{3}\/recreation-workflow\/v\d{3}\.json$/,
   'short-drama': /episodes\/ep-\d{3}\/scripts\/v\d{3}\.(?:json|md|txt)$/,
@@ -22,6 +23,7 @@ const evidencePatterns = {
   'write-drama-director-book': /episodes\/ep-\d{3}\/director-book\/v\d{3}\.json$/,
   'plan-drama-assets': /episodes\/ep-\d{3}\/asset-plan\/v\d{3}\.json$/,
   'build-drama-storyboard': /episodes\/ep-\d{3}\/storyboard\/v\d{3}\.json$/,
+  'revise-drama-storyboards': /episodes\/ep-\d{3}\/storyboard\/v\d{3}\.json$/,
   'plan-drama-production': /episodes\/ep-\d{3}\/production-plan\/v\d{3}\.json$/,
   'write-drama-video-prompts': /episodes\/ep-\d{3}\/video-prompts\/v\d{3}\.json$/,
   'remotion-best-practices': /editing\/ep-\d{3}\/timeline\.json$/,
@@ -40,6 +42,7 @@ const episodeEvidence = {
   'write-drama-director-book': (episode) => new RegExp(`^episodes/${episode}/director-book/v\\d{3}\\.json$`),
   'plan-drama-assets': (episode) => new RegExp(`^episodes/${episode}/asset-plan/v\\d{3}\\.json$`),
   'build-drama-storyboard': (episode) => new RegExp(`^episodes/${episode}/storyboard/v\\d{3}\\.json$`),
+  'revise-drama-storyboards': (episode) => new RegExp(`^episodes/${episode}/storyboard/v\\d{3}\\.json$`),
   'plan-drama-production': (episode) => new RegExp(`^episodes/${episode}/production-plan/v\\d{3}\\.json$`),
   'write-drama-video-prompts': (episode) => new RegExp(`^episodes/${episode}/video-prompts/v\\d{3}\\.json$`),
   'remotion-best-practices': (episode) => new RegExp(`^editing/${episode}/timeline\\.json$`),
@@ -51,6 +54,29 @@ const snapshotEvidenceSkills = new Set(['manage-drama-assets', 'drama-generation
 
 async function exists(path) { try { await access(path); return true } catch { return false } }
 async function sha256(path) { return createHash('sha256').update(await readFile(path)).digest('hex') }
+function confined(base, candidate) {
+  const local = relative(base, candidate)
+  return local && local !== '..' && !local.startsWith(`..${sep}`)
+}
+async function validateHypitHandoff(root, evidence) {
+  const handoff = evidence.find((path) => path === '.short-drama/hypit/handoff.json')
+  if (!handoff) return
+  const value = JSON.parse(await readFile(resolve(root, handoff), 'utf8'))
+  if (value.schema_version !== 1 || value.mode !== 'intermediate-only' || typeof value.project_key !== 'string' || !value.source_ref || !Array.isArray(value.files) || !value.files.length) throw new Error('Hypit handoff 必须包含项目和 reference-video 绑定')
+  const project = JSON.parse(await readFile(resolve(root, '.short-drama/project.json'), 'utf8'))
+  const manifest = JSON.parse(await readFile(resolve(root, 'source/manifest.json'), 'utf8'))
+  const source = manifest.sources?.[value.source_ref.key]
+  const version = source?.versions?.find((item) => item.id === value.source_ref.version_id)
+  if (value.project_key !== project.key || source?.kind !== 'reference-video' || source.selectedVersionId !== value.source_ref.version_id || version?.sha256 !== value.source_ref.sha256) throw new Error('Hypit handoff 未绑定当前项目的 selected reference-video')
+  const projectRoot = await realpath(root)
+  const paths = new Set()
+  for (const [index, item] of value.files.entries()) {
+    if (!item || typeof item.path !== 'string' || !/^\.short-drama\/hypit\/inputs\/(?!\.)(?:[^/]+\/)*[^/]+$/.test(item.path) || paths.has(item.path) || !/^[0-9a-f]{64}$/.test(item.sha256 || '')) throw new Error(`Hypit handoff files[${index}] 无效或重复`)
+    paths.add(item.path)
+    const path = resolve(root, item.path)
+    if (!await exists(path) || (await lstat(path)).isSymbolicLink() || !confined(projectRoot, await realpath(path)) || await sha256(path) !== item.sha256) throw new Error(`Hypit handoff 文件缺失、越界或哈希不一致：${item.path}`)
+  }
+}
 function promptMode(skill, stage) {
   const prompts = Object.entries(skillMap.prompts).filter(([, owner]) => owner === skill).map(([name]) => name)
   if (!prompts.length) return null
@@ -101,8 +127,11 @@ export async function requiredSkills(root, stage) {
     let project = { workflow: { type: 'standard' } }
     try { project = JSON.parse(await readFile(resolve(root, '.short-drama/project.json'), 'utf8')) } catch (error) { if (error?.code !== 'ENOENT') throw error }
     if (project.workflow?.type === 'viral-recreation') {
+      // 复刻项目的来源是参考视频而非文本，由 analyze-reference-video 产出参考视频分析，不再要求文本来源分析。
+      required.delete('analyze-drama-source')
       required.add('analyze-reference-video')
       required.add('design-video-recreation')
+      required.add('use-hypit-video')
     }
   }
   if (stage === 'asset-analysis') {
@@ -146,6 +175,18 @@ export async function requiredSkills(root, stage) {
       }
     }
     if (needsIndependentAudio) required.add('design-drama-audio')
+  }
+  if (stage === 'production-plan') {
+    // 分镜修订循环：制作计划或视频提示词存在 unresolved（任一镜 errors 非空）时，必须退回 revise-drama-storyboards 生成新不可变版本。
+    for (const episode of await selectedEpisodes(root)) {
+      for (const kind of ['production-plan', 'video-prompts']) {
+        const markerPath = resolve(root, 'episodes', episode, kind, 'selected.json')
+        if (!await exists(markerPath)) continue
+        const marker = JSON.parse(await readFile(markerPath, 'utf8'))
+        const document = JSON.parse(await readFile(resolve(root, marker.path), 'utf8'))
+        if (Array.isArray(document.unresolved) && document.unresolved.length > 0) required.add('revise-drama-storyboards')
+      }
+    }
   }
   return [...required]
 }
@@ -191,6 +232,7 @@ async function main() {
       const evidence = run.evidence
       const expected = evidencePatterns[name]
       if (expected && !evidence.some((path) => expected.test(path))) throw new Error(`${name} 的证据类型无效`)
+      if (name === 'use-hypit-video') await validateHypitHandoff(root, evidence)
       const episodePattern = episodeEvidence[name]
       if (episodePattern) for (const episode of await selectedEpisodes(root)) if (!evidence.some((path) => episodePattern(episode).test(path))) throw new Error(`${name} 缺少 ${episode} 的执行证据`)
       const linkedPromptRuns = await promptRuns(root, name, stage, evidence)
@@ -215,6 +257,7 @@ async function main() {
   }
   const expected = evidencePatterns[skill]
   if (expected && !evidence.some((path) => expected.test(path))) throw new Error(`${skill} 的证据类型无效`)
+  if (skill === 'use-hypit-video') await validateHypitHandoff(root, evidence)
   if (snapshotEvidenceSkills.has(skill) && !evidence.some((path) => new RegExp(`^\\.short-drama/evidence/${stage}-[0-9a-f-]+\\.json$`).test(path))) throw new Error(`${skill} 必须使用不可变阶段资产快照作为证据`)
   const episodePattern = episodeEvidence[skill]
   if (episodePattern) for (const episode of await selectedEpisodes(root)) if (!evidence.some((path) => episodePattern(episode).test(path))) throw new Error(`${skill} 缺少 ${episode} 的执行证据`)

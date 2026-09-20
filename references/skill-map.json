@@ -3,12 +3,12 @@
     "analyze-drama-source", "analyze-reference-video", "design-video-recreation", "define-drama-brief", "design-drama-bible", "outline-drama-series", "short-drama", "write-drama-episode", "humanizer", "review-drama-script", "write-drama-director-book",
     "plan-drama-assets", "generate-drama-art-style", "generate-character-profiles", "generate-character-images",
     "generate-scene-assets", "generate-prop-assets",
-    "build-drama-storyboard", "revise-drama-storyboards", "plan-drama-production", "generate-storyboard-images",
+    "design-fight-video", "build-drama-storyboard", "revise-drama-storyboards", "plan-drama-production", "generate-storyboard-images",
     "review-drama-shots", "direct-blender-previz", "generate-blender-previz", "plan-shot-continuity", "write-drama-video-prompts", "generate-drama-videos", "design-drama-audio",
     "remotion-best-practices", "edit-drama-timeline", "edit-deliver-drama"
   ],
   "support": [
-    "manage-drama-projects", "manage-drama-assets", "manage-drama-art-styles",
+    "manage-drama-projects", "manage-drama-assets", "manage-drama-art-styles", "use-hypit-video",
     "transform-drama-media", "monitor-drama-tasks", "recover-drama-pipeline",
     "configure-generation-providers", "drama-generation-service", "publish-drama-references", "orchestrate-short-drama",
     "short-drama-skill-index", "use-short-drama-studio", "analyze-drama-market", "ideate-drama-from-market"
@@ -19,7 +19,7 @@
     "director-book": ["write-drama-director-book"],
     "asset-analysis": ["plan-drama-assets", "generate-drama-art-style"],
     "asset-generation": ["manage-drama-assets"],
-    "production-plan": ["build-drama-storyboard", "plan-drama-production", "plan-shot-continuity", "write-drama-video-prompts"],
+    "production-plan": ["design-fight-video", "build-drama-storyboard", "plan-drama-production", "plan-shot-continuity", "write-drama-video-prompts"],
     "media-production": ["drama-generation-service", "review-drama-shots", "generate-drama-videos", "monitor-drama-tasks"],
     "editing": ["remotion-best-practices", "edit-drama-timeline"],
     "delivery": ["edit-deliver-drama"]

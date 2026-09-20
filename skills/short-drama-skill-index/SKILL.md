@@ -9,6 +9,7 @@ description: 本地标准短剧插件的总索引。用于查询画风、人物/
 
 - 小说/要求分析、简报、故事圣经、分集、剧本、自然化与复核 → `analyze-drama-source`、`define-drama-brief`、`design-drama-bible`、`outline-drama-series`、`short-drama`、`write-drama-episode`、`humanizer`、`review-drama-script`
 - 本地参考短视频拆解与声明式复刻模板 → `analyze-reference-video`、`design-video-recreation`；只在 `workflow.type=viral-recreation` 时由 analysis 阶段条件加载
+- Hypit 完整视频编排、SVML/SVS/SVRun、Studio 与变体 → `use-hypit-video`；首次使用按需安装官方 Skill 和可执行程序
 - 市场题材、公开榜单、平台差异、竞争格局与新剧势能 → `analyze-drama-market`
 - 用户明确要求把已保存市场信号转为原创立项假设或登记项目引用 → `ideate-drama-from-market`
 - 导演本 → `write-drama-director-book`
@@ -16,6 +17,7 @@ description: 本地标准短剧插件的总索引。用于查询画风、人物/
 - 资产清单和本地媒体版本 → `plan-drama-assets`、`manage-drama-assets`
 - 人物档案、成年魅力/儿童保护、完整角色原画设定板与人物专项审核 → `generate-character-profiles`、`generate-character-images`、`review-drama-shots`
 - 场景、道具 → `generate-scene-assets`、`generate-prop-assets`
+- 打斗动作链、空间路线与动作分镜 → `design-fight-video`
 - 首次拆镜、分镜修订 → `build-drama-storyboard`、`revise-drama-storyboards`
 - 分镜媒介 → 图片分镜使用 `generate-storyboard-images` 与 `review-drama-shots` 八维审计；白模分镜使用 `direct-blender-previz`、`generate-blender-previz` 与导演评分；图片确定性变换使用 `transform-drama-media`
 - 制作规划、跨镜连续性、尾帧首帧承接、Seedance 2.0/H3/通用视频提示词 → `plan-drama-production`、`plan-shot-continuity`、`write-drama-video-prompts`

@@ -23,6 +23,12 @@ import { selectedSourceSpeechTiming } from './speech-timing.mjs'
 import { compileRecreationWorkflow, validateRecreationConsumerBinding, validateRecreationWorkflow, validateReferenceVideoAnalysis } from './recreation-workflow.mjs'
 import { EPISODE_DOCUMENT_CONFIG, EPISODE_DOCUMENT_KINDS } from './episode-document-types.mjs'
 
+const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const COMPOSITION_PATTERNS = JSON.parse(await readFile(resolve(pluginRoot, 'references/controlled-vocabulary.json'), 'utf8')).cinematography.compositionPatterns
+const COMPOSITION_CODES = new Set(COMPOSITION_PATTERNS.map((item) => item.code))
+const COMPOSITION_RISKS = new Set(COMPOSITION_PATTERNS.flatMap((item) => item.risks))
+const AUDIO_STRATEGY_MODES = new Set(['native', 'post-dub', 'independent'])
+
 const root = process.argv[2] === 'init' ? resolve(DEFAULT_WORKSPACE_ROOT, process.argv[3] || 'short-drama') : resolve(process.argv[3] || process.cwd())
 const EPISODE_DOCUMENTS = new Set(EPISODE_DOCUMENT_KINDS)
 const ASSET_TYPES = { characters: 'character', scenes: 'scene', props: 'prop' }
@@ -625,6 +631,7 @@ function validateDocument(kind, document, episodeKey) {
       numbers.add(shot.shot_number)
       for (const field of ['dependencies', 'reference_assets', 'review_checks']) if (!Array.isArray(shot[field])) throw new Error(`production-plan shots[${index}].${field} 必须是数组`)
       for (const field of ['storyboard_strategy', 'image_strategy', 'video_strategy', 'audio_strategy']) if (!shot[field] || typeof shot[field] !== 'object' || Array.isArray(shot[field])) throw new Error(`production-plan shots[${index}].${field} 必须是对象`)
+      if (!AUDIO_STRATEGY_MODES.has(shot.audio_strategy.mode)) throw new Error(`production-plan shots[${index}].audio_strategy.mode 必须为 native、post-dub 或 independent`)
       if (!STORYBOARD_MEDIA.has(shot.storyboard_strategy.mode)) throw new Error(`production-plan shots[${index}].storyboard_strategy.mode 必须为 image 或 blender`)
       for (const field of ['mode', 'board_type', 'panel_grid_size', 'overflow_strategy']) if (!(field in shot.image_strategy)) throw new Error(`production-plan shots[${index}].image_strategy 缺少 ${field}`)
       if (!['generate', 'skip'].includes(shot.image_strategy.mode)) throw new Error(`production-plan shots[${index}].image_strategy.mode 必须为 generate 或 skip`)
@@ -654,11 +661,26 @@ function validateDocument(kind, document, episodeKey) {
     for (const [source, version] of Object.entries(document.source_versions)) versionKey(version, `storyboard source_versions.${source}`)
     if (!Array.isArray(document.panels) || document.panels.length === 0) throw new Error('storyboard panels[] 必填')
     const fields = ['panel_number', 'shot_number', 'description', 'characters', 'location', 'source_text', 'duration']
+    const compositionOf = (panel) => panel.photographyPlan?.composition ?? panel.visual_plan?.composition ?? panel.composition_contract
+    const validateComposition = (composition, label) => {
+      if (!composition || typeof composition !== 'object' || Array.isArray(composition)) throw new Error(`${label} 构图合同必须是对象`)
+      if (typeof composition.primary !== 'string' || !COMPOSITION_CODES.has(composition.primary)) throw new Error(`${label} 构图 primary code 不在受控词表中`)
+      if (composition.secondary !== null && composition.secondary !== undefined && (typeof composition.secondary !== 'string' || !COMPOSITION_CODES.has(composition.secondary))) throw new Error(`${label} 构图 secondary code 无效`)
+      if (!Array.isArray(composition.ai_risks) || composition.ai_risks.length === 0 || composition.ai_risks.some((risk) => typeof risk !== 'string' || !COMPOSITION_RISKS.has(risk))) throw new Error(`${label} 构图 ai_risks 必须是非空的风险码数组`)
+      if (typeof composition.evidence !== 'string' || !composition.evidence.trim()) throw new Error(`${label} 构图缺少 evidence 证据说明`)
+    }
     for (const [index, panel] of document.panels.entries()) {
       for (const field of fields) if (!(field in panel)) throw new Error(`storyboard panels[${index}] 缺少 ${field}`)
       if (panel.shot_number !== panel.panel_number) throw new Error(`storyboard panels[${index}] shot_number 必须等于 panel_number`)
       if (!Array.isArray(panel.characters) || panel.characters.some((character) => !character || typeof character !== 'object' || Array.isArray(character) || typeof character.name !== 'string' || !character.name.trim())) throw new Error(`storyboard panels[${index}].characters 无效`)
       if (!Number.isInteger(panel.duration) || panel.duration <= 0 || typeof panel.description !== 'string' || !panel.description.trim() || typeof panel.location !== 'string' || !panel.location.trim() || typeof panel.source_text !== 'string' || !panel.source_text.trim()) throw new Error(`storyboard panels[${index}] 描述、场景、来源或时长无效`)
+      const composition = compositionOf(panel)
+      if (composition !== undefined) validateComposition(composition, `storyboard panels[${index}]`)
+    }
+    if (Object.hasOwn(document.source_versions, 'recreation_workflow')) {
+      for (const [index, panel] of document.panels.entries()) {
+        if (compositionOf(panel) === undefined) throw new Error(`storyboard panels[${index}] viral-recreation 分镜必须包含构图合同（primary/secondary/evidence/ai_risks）`)
+      }
     }
     const numbers = document.panels.map((panel) => panel.panel_number)
     if (numbers.some((number, index) => number !== index + 1)) throw new Error('storyboard panel_number 必须从 1 连续递增')

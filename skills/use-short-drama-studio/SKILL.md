@@ -11,6 +11,8 @@ description: 使用本地标准短剧插件的总入口。用于了解每个 Ski
 
 用户提供本地短视频并要求复刻时，将 `project.json.workflow.type` 设为 `viral-recreation`，用 `project-store.mjs put-source|select-source` 将 mp4、mov、webm 或 mkv 原片归档为 `reference-video`。analysis 阶段会条件要求 `analyze-reference-video` 与 `design-video-recreation`：前者生成带时间码和关键帧证据的分析，后者生成 Script、Media、Caption、Speech、Film 五层声明式工作流。默认只做 `structure-only`；近似复刻必须由用户明确提供权利依据和范围。原片始终属于 source，不能登记成正式视频资产。
 
+用户明确要求 Hypit 的完整运行时、SVML/SVS/SVRun、Studio 或批量视频变体时，路由到 `use-hypit-video`。该 Skill 首次使用会检查并按需安装官方 Hypit Skill 与 `@hypit/hypit`，安装后再交给已安装的官方 Skill 执行；不要把 Hypit 源码复制进本插件。
+
 项目 `automation_mode` 默认开启；开启后 agent 自主处理常规确认，不重复打断用户，但不能伪造权限、素材权利或绕过安全门禁。
 
 标准顺序是：初始化与环境预检 → Codex 分析小说与要求 → `short-drama` 方法论 + 剧本初稿 → `humanizer` 自然化新版本 → 剧本复核批准 → 导演本落盘 → 资产分析 → 人物吸引力/儿童保护审核与资产生成落盘 → 制作规划（逐镜选择图片或 Blender 白模分镜、拍摄计划、模型和提示词协议）→ 图片镜头生成/选版/八维审计，白模镜头编导/生成/评分 → 空间连续性与可选尾帧承接 → Seedance 2.0/H3/通用逐镜提示词落盘 → 原生声音生成和复听 → 仅对失败区间兜底、按需口型 → 授权配乐与媒体修复 → 对已选视频按需超分并复审 → `remotion-best-practices` + Remotion 剪辑 → 成片交付。新项目默认推荐白模，但静态特写、细腻表演和画风确认仍优先图片。每阶段必须先用 `skill-runs.mjs required` 获取原子 Skill，完整读取并执行，再用 `skill-runs.mjs record` 记录项目内产物；仅生成文件但没有 Skill 凭证不能通过阶段门禁。

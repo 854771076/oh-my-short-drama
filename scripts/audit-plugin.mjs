@@ -270,6 +270,13 @@ for (const skill of ['short-drama', 'write-drama-episode', 'humanizer', 'review-
 for (const skill of ['remotion-best-practices', 'edit-drama-timeline']) if (!map.stages?.editing?.includes(skill)) failures.push(`剪辑阶段缺少：${skill}`)
 const editingGuide = await readFile(resolve(root, 'references/editing-workflow.md'), 'utf8')
 for (const token of ['selected', 'J/L-cut', '6–12 帧', '-14 至 -16 LUFS', '-1 dBTP', 'SRT', 'ASS', 'freeze-edit-candidate.mjs', 'export-edit-subtitles.mjs']) if (!editingGuide.includes(token)) failures.push(`剪辑规范缺少：${token}`)
+const renderEdit = await readFile(resolve(root, 'scripts/render-edit.mjs'), 'utf8')
+for (const token of ['scaffold', 'render', 'loudness', '--self-check', 'timeline.generated.ts', 'subtitleLayout', 'npm', 'install', 'npx', 'remotion']) if (!renderEdit.includes(token)) failures.push(`Remotion 渲染脚手架实现缺少：${token}`)
+for (const file of ['package.json', 'tsconfig.json', 'remotion.config.ts', '.gitignore', 'src/index.ts', 'src/Root.tsx', 'src/load-timeline.ts', 'src/timeline.generated.ts', 'src/DramaTimeline.tsx', 'src/components/SegmentVideo.tsx', 'src/components/AudioTrack.tsx', 'src/components/Subtitle.tsx', 'src/components/Label.tsx', 'src/components/Graphic.tsx', 'src/components/transitions.ts']) {
+  try { await access(resolve(root, 'assets/remotion-template', file)) } catch { failures.push(`Remotion 模板缺少：assets/remotion-template/${file}`) }
+}
+const dramaTimeline = await readFile(resolve(root, 'assets/remotion-template/src/DramaTimeline.tsx'), 'utf8')
+for (const token of ['tailOffsetFrames', 'segmentRate', 'audio_tracks', 'subtitles', 'labels', 'graphics']) if (!dramaTimeline.includes(token)) failures.push(`Remotion 主合成实现缺少：${token}`)
 const reviewSkill = await readFile(resolve(root, 'skills/review-drama-script/SKILL.md'), 'utf8')
 if (!reviewSkill.includes('../../references/writing/compliance-checklist.md')) failures.push('合规清单未接入剧本复核')
 const voiceDescriptionPrompt = await readFile(resolve(root, 'skills/design-drama-audio/assets/prompts/character_voice_description.zh.txt'), 'utf8')

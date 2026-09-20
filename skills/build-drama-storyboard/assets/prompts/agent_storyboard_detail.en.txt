@@ -37,7 +37,7 @@ For prop contact, state the before/contact/after states and any adjacent object 
 - On-screen dialogue: the visible speaker may use natural speaking lip movement, breath, and expression matching the verbatim line.
 - Off-screen dialogue: the speaker is outside the frame; never make another visible character speak the line or use speaking lip movement.
 - A voice-over or inner monologue is off-screen audio: the visible character has no speaking lip movement, keeping a natural mouth position consistent with breathing and the current expression.
-- Use multiple speaking faces in one shot only when the Provider supports it, speech windows do not overlap, and every visible mouth state can be scheduled; otherwise split coverage or use post-dub.
+- Use multiple speaking faces in one shot only when the Provider supports it, speech windows do not overlap, and every visible mouth state can be scheduled; otherwise split coverage, and use post-dub only when the Provider lacks native audio.
 
 Panel input JSON:
 {panels_json}

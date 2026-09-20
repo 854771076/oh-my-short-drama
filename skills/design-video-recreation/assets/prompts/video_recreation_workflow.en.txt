@@ -16,6 +16,7 @@ Compile the reference analysis into an editable and recompilable declarative vid
 4. Model Caption, Speech, and Film independently; a caption style edit must not force media regeneration.
 5. A `structure-only` workflow must apply every forbidden and transformed element from the analysis.
 6. `authorized-close-recreation` requires non-empty rights_basis and rights_scope; otherwise keep it unresolved and unapproved. Choose rights_scope only from `identity`, `voice`, `music`, `trademark`, `dialogue`, and `visual-style`; every scope must be allowed by allowed_uses and absent from restrictions.
+7. Default `speech.mode` to `native` (preserve the original dialogue mechanism; per-line alignment is resolved later by ASR/forced alignment). Use `post-dub`/`independent` only when the Provider lacks native audio or the user explicitly requests dubbing.
 
 ## Output
 

@@ -32,6 +32,16 @@ async function selectedEpisodes(root) {
   return output.sort()
 }
 
+// analysis 阶段还没有剧本选版，复刻工作流检查必须按分集目录枚举，否则 viral-recreation 永远过不了 analysis。
+async function episodeDirectories(root) {
+  const directory = resolve(root, 'episodes')
+  if (!await exists(directory)) return []
+  return (await readdir(directory, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory() && /^ep-\d{3}$/.test(entry.name))
+    .map((entry) => entry.name)
+    .sort()
+}
+
 async function selectedDocument(root, episode, kind) {
   const marker = resolve(root, 'episodes', episode, kind, 'selected.json')
   if (!await exists(marker)) return null
@@ -195,23 +205,27 @@ export async function inspectStage(root, stage) {
   }
 
   if (stage === 'analysis') {
-    for (const name of ['source-analysis', 'brief', 'bible', 'outline']) await requireFile(`.short-drama/${name}.json`, name)
+    const project = await json(resolve(root, '.short-drama/project.json'))
+    const viral = project.workflow?.type === 'viral-recreation'
+    // 复刻项目的来源分析是 reference-video-analysis.json（由 analyze-reference-video 产出），不需要文本 source-analysis.json。
+    for (const name of viral ? ['brief', 'bible', 'outline'] : ['source-analysis', 'brief', 'bible', 'outline']) await requireFile(`.short-drama/${name}.json`, name)
     if (missing.length === 0) {
-      const sourceAnalysis = await json(resolve(root, '.short-drama', 'source-analysis.json'))
       const brief = await json(resolve(root, '.short-drama', 'brief.json'))
       const bible = await json(resolve(root, '.short-drama', 'bible.json'))
       const outline = await json(resolve(root, '.short-drama', 'outline.json'))
-      if (sourceAnalysis.coverage?.complete !== true) missing.push('来源分析覆盖不完整')
+      if (!viral) {
+        const sourceAnalysis = await json(resolve(root, '.short-drama', 'source-analysis.json'))
+        if (sourceAnalysis.coverage?.complete !== true) missing.push('来源分析覆盖不完整')
+      }
       if (brief.approved !== true || brief.open_questions?.length) missing.push('创作简报尚未确认')
       if (bible.open_questions?.length) missing.push('故事圣经仍有未决项')
       if (outline.coverage_check?.complete !== true || outline.continuity_check?.valid !== true) missing.push('分集覆盖或连续性检查未通过')
     }
-    const project = await json(resolve(root, '.short-drama/project.json'))
-    if (project.workflow?.type === 'viral-recreation') {
+    if (viral) {
       await requireFile('.short-drama/reference-video/prepared.json', '参考视频准备清单')
       await requireFile('.short-drama/reference-video-analysis.json', '参考视频分析')
       let selectedRecreation = false
-      for (const episode of await selectedEpisodes(root)) if (await exists(resolve(root, 'episodes', episode, 'recreation-workflow', 'selected.json'))) selectedRecreation = true
+      for (const episode of await episodeDirectories(root)) if (await exists(resolve(root, 'episodes', episode, 'recreation-workflow', 'selected.json'))) selectedRecreation = true
       if (!selectedRecreation) missing.push('至少一个 selected 复刻工作流')
       if (await exists(resolve(root, '.short-drama/reference-video/prepared.json')) && await exists(resolve(root, '.short-drama/reference-video-analysis.json')) && selectedRecreation) {
         try { await validateRecreationEvidence(root) } catch (error) { missing.push(`复刻证据链无效：${error.message}`) }

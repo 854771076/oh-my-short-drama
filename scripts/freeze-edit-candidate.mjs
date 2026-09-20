@@ -44,7 +44,10 @@ export async function freezeCandidate(rootArg, episode, candidate, timelineArg, 
   const frozenTimeline = resolve(target, 'timeline.json')
   await writeFile(frozenTimeline, timelineContent, { flag: 'wx' })
 
-  const rendererFiles = (await files(resolve(remotion, 'src'))).concat(['package.json', 'package-lock.json', 'remotion.config.ts'].map((name) => resolve(remotion, name)))
+  const explicit = ['package.json', 'package-lock.json', 'remotion.config.ts'].map((name) => resolve(remotion, name))
+  const present = []
+  for (const path of explicit) { try { await stat(path); present.push(path) } catch { /* 跳过尚未生成的 package-lock.json */ } }
+  const rendererFiles = (await files(resolve(remotion, 'src'))).concat(present)
   const renderer = []
   for (const source of rendererFiles) {
     const local = relative(remotion, source)
@@ -54,7 +57,7 @@ export async function freezeCandidate(rootArg, episode, candidate, timelineArg, 
     renderer.push(await record(root, source, destination))
   }
 
-  const mediaPaths = [...timeline.segments.map((item) => item.file), ...(timeline.phone_audio || []).map((item) => item.file)]
+  const mediaPaths = [...timeline.segments.map((item) => item.file), ...(timeline.audio_tracks || []).map((item) => item.file)]
   const media = []
   for (const item of [...new Set(mediaPaths)].sort()) media.push(await record(root, await inside(root, resolve(remotion, 'public', item))))
   const manifest = {

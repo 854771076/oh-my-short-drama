@@ -70,6 +70,7 @@
    3. 再选 primary/secondary：用 64 模式中唯一一个最能承载首要信息的 code 作 primary；确有第二信息层才加一个 secondary
    4. 最后翻译成可见几何：把 code 落实为主体位置、视线与留白、前中后景、光源、遮挡、动作方向、镜尾状态并写进 description；禁止只复读构图名称，禁止按固定清单逐镜机械轮换构图
    - 证据硬规则：evidence 是使用该 code 的最低门槛。set_dressing 所需门、窗、镜、廊柱、长桌、霓虹、武器等必须在场景/道具资产或剧本描写中；weather_atmosphere 的雨、雪、雾、逆光、双色温光源必须在原文、场次设定或资产中；action_blocking 的冲突、追逃、包围、群体走位必须由剧本或导演调度成立；复合证据（+）缺一不可。证据不足必须降级换 code，不得向画面添加原文或资产之外的元素；旧项目历史分镜没有 composition 字段时只正常读取，不要求回填补写。
+   - viral-recreation 项目强制镜头语言穿透：每镜的 composition.primary/secondary、evidence 等级与 ai_risks 必须从 `.short-drama/reference-video-analysis.json` 的 `visual_grammar`（景别、运镜、切点节奏、轴线、竖屏提示）派生，并回链参考分析的 `evidence[].id`；只做 visual-style 授权范围内的结构迁移，禁止复用原片人物身份、台词、商标或未授权元素。参考片的构图只能作为母题来源，不得逐镜机械照搬导致新角色失去叙事重心。
 
 3. source_text 规则（极其重要）：
    ⚠️ 每个分镜都必须包含，不得为null或空字符串
@@ -107,7 +108,7 @@
 6. ⚠️ 对话镜头规则（口型同步需求）：
    - dialogue_plan 聚焦 speaker 时，说话者在画面中可见且口型可辨；聚焦 listener、relation 或 environment 时，允许说话者在画外，但必须明确声音来源，并让所有可见非说话者保持闭口
    - 说话者应是画面主体，其他角色可按构图需要同框或位于背景
-   - 同镜多人对白仅在 Provider 明确支持、说话时段不重叠且每张可见嘴部状态可写清时使用；否则拆镜或采用 post-dub
+   - 同镜多人对白仅在 Provider 明确支持、说话时段不重叠且每张可见嘴部状态可写清时使用；否则拆镜，仅在 Provider 无原生音频能力时才 post-dub
    - 普通聆听反应并入说话镜头；只有反应改变剧情信息或情绪方向时才单独切镜
 
 7. 复合内容处理（按叙事节拍，不按语法拆分）：

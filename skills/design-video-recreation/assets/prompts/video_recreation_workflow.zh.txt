@@ -16,6 +16,7 @@
 4. Caption、Speech、Film 独立建模；改字幕样式不得强制重新生成视频素材。
 5. `structure-only` 必须落实分析中的 forbidden elements 和 transform elements。
 6. `authorized-close-recreation` 必须有非空 rights_basis 和 rights_scope，否则保留未决且不得批准；rights_scope 只能从 `identity`、`voice`、`music`、`trademark`、`dialogue`、`visual-style` 中选择，并且必须同时获 allowed_uses 允许且未被 restrictions 禁止。
+7. `speech.mode` 默认 `native`（保留原声对白机制，逐句对齐由后续 ASR/强制对齐实现）；仅在 Provider 无原生音频能力或用户明确要求后配时才写 `post-dub`/`independent`。
 
 ## 输出
 

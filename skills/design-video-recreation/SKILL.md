@@ -13,6 +13,8 @@ episodes/<episode>/recreation-workflow/vNNN.json
 
 工作流必须同时描述 Script、Media、Caption、Speech、Film 五层，并把可替换内容声明为 `slots[]`。Media 触发器使用稳定 `segment_id` 和可选 `start_word/end_word`；不得只写“第几秒出现”。秒和帧属于后续编译结果，不是作者层唯一事实来源。
 
+对 `viral-recreation` 项目，优先消费上一步 Hypit 产出的语义事件、Timeline 节点和可迁移机制，但必须将其重写为本插件自己的五层合同。Hypit 在这里仍是中间分析/编排参考，不是最终生成器；不得调用 Hypit Build，不得把 Hypit 生成的素材、Provider、凭据或运行时路径写入 `references`、`media_tracks` 或最终资产账本。
+
 默认使用 `structure-only`：保留钩子、节拍、镜头功能、字幕和声音机制，但替换原人物、身份、原台词、商标、水印、音乐及禁止复制元素。只有分析文件的权利范围明确覆盖近似复刻时，才能使用 `authorized-close-recreation`，并填写 `rights_basis` 与 `rights_scope`。
 
 先运行：
