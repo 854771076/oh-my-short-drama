@@ -14,7 +14,10 @@ import { probeReferenceVideo } from './reference-video.mjs'
 const scripts = dirname(fileURLToPath(import.meta.url))
 const MAX_BYTES = 2 * 1024 * 1024 * 1024
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.webm', '.mkv'])
-const YTDLP_BROWSER_FALLBACK_CODE = 'YTDLP_HTTP_403_BROWSER_SESSION_REQUIRED'
+const YTDLP_USER_LOGIN_REQUIRED_CODE = 'YTDLP_USER_LOGIN_REQUIRED'
+const YTDLP_HTTP_403_BROWSER_FALLBACK_CODE = 'YTDLP_HTTP_403_BROWSER_SESSION_REQUIRED'
+const YTDLP_LOGIN_BROWSER_FALLBACK_CODE = 'YTDLP_LOGIN_BROWSER_SESSION_REQUIRED'
+const YTDLP_BROWSER_FALLBACK_CODES = new Set([YTDLP_USER_LOGIN_REQUIRED_CODE, YTDLP_HTTP_403_BROWSER_FALLBACK_CODE, YTDLP_LOGIN_BROWSER_FALLBACK_CODE])
 
 const PLATFORM_HOSTS = [
   ['douyin', /(?:^|\.)douyin\.com$/],
@@ -97,23 +100,43 @@ async function inspectWithDtk(reference, options) {
 }
 
 export class YtDlpBrowserFallbackError extends Error {
-  constructor() {
-    super('yt-dlp 被平台以 HTTP 403 拒绝；必须切换到用户现有且已登录的 Chrome 会话，禁止新建临时浏览器')
+  constructor(reason = 'http-403', browserLoginRetried = false) {
+    const loginRequired = reason === 'login-required'
+    super(browserLoginRetried
+      ? '用户登录后重试 yt-dlp 仍被平台拒绝；允许从用户现有且已登录的 Chrome 播放会话提取当前媒体'
+      : 'yt-dlp 被平台要求鉴权；请先在你自己的 Chrome 打开该作品并完成登录，让视频可播放后重试 yt-dlp')
     this.name = 'YtDlpBrowserFallbackError'
-    this.code = YTDLP_BROWSER_FALLBACK_CODE
+    this.code = browserLoginRetried ? loginRequired ? YTDLP_LOGIN_BROWSER_FALLBACK_CODE : YTDLP_HTTP_403_BROWSER_FALLBACK_CODE : YTDLP_USER_LOGIN_REQUIRED_CODE
     this.exitCode = 42
-    this.fallback = { type: 'browser-session', browser: 'chrome', session: 'existing-user', requires_login: true }
+    this.fallback = browserLoginRetried
+      ? { type: 'browser-session', browser: 'chrome', session: 'existing-user', reason, next: 'extract-current-media', resumable: true }
+      : { type: 'user-action', browser: 'chrome', session: 'existing-user', reason, requires_login: true, user_action: 'login-in-existing-chrome', next: 'retry-ytdlp', retry_flag: '--after-browser-login', resumable: true }
   }
 }
 
-function runYtDlp(binary, args) {
-  const result = spawnSync(binary, ['--ignore-config', ...args], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, env: { ...process.env, YTDLP_NO_PLUGINS: '1' } })
+function ytDlpRequiresBrowserLogin(failure) {
+  return [
+    /sign\s+in\s+to\s+confirm/i,
+    /\b(?:log\s*in|login|sign\s*in)[ -]*(?:is[ -]*)?required\b/i,
+    /only\s+available\s+for\s+(?:registered|logged[ -]*in)\s+users/i,
+    /--cookies-from-browser\b/i,
+    /fresh\s+cookies[^\n]*(?:needed|required)/i,
+    /(?:authentication|account)[ -]*(?:is[ -]*)?required/i,
+    /(?:请|需要).{0,8}登录|登录后.{0,8}(?:查看|播放|继续)/u,
+  ].some((pattern) => pattern.test(failure))
+}
+
+function runYtDlp(binary, args, browserLoginRetried = false) {
+  // 登录后的唯一一次重试直接复用用户 Chrome 会话，不导出或持久化 Cookie。
+  const browserSessionArgs = browserLoginRetried ? ['--cookies-from-browser', 'chrome', '--impersonate', 'chrome'] : []
+  const result = spawnSync(binary, ['--ignore-config', ...browserSessionArgs, ...args], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, env: { ...process.env, YTDLP_NO_PLUGINS: '1' } })
   if (result.error?.code === 'ENOENT') throw new Error('未安装 yt-dlp；请安装后重试，或配置 DTK')
   if (result.error) throw result.error
   if (result.status !== 0) {
     const failure = String(result.stderr || result.stdout || result.status)
-    // 403 通常代表平台拒绝非浏览器请求；不要把可能带签名 URL 的完整 stderr 写进日志或项目。
-    if (/(?:HTTP\s+Error\s+403|HTTP\s+403|403\s+Forbidden)/i.test(failure)) throw new YtDlpBrowserFallbackError()
+    // 只识别明确的 403 或鉴权挑战；普通网络、解析和磁盘错误不能借浏览器兜底掩盖。
+    if (/(?:HTTP\s+Error\s+403|HTTP\s+403|403\s+Forbidden)/i.test(failure)) throw new YtDlpBrowserFallbackError('http-403', browserLoginRetried)
+    if (ytDlpRequiresBrowserLogin(failure)) throw new YtDlpBrowserFallbackError('login-required', browserLoginRetried)
     throw new Error(`yt-dlp 执行失败（退出码 ${result.status}）；为避免泄露签名 URL 或会话信息，不记录下载器原始输出`)
   }
   return result.stdout
@@ -121,17 +144,17 @@ function runYtDlp(binary, args) {
 
 async function inspectWithYtDlp(reference, options) {
   const binary = options.ytDlpBinary || process.env.YT_DLP_BINARY || 'yt-dlp'
-  const output = runYtDlp(binary, ['--dump-single-json', '--no-playlist', '--no-warnings', '--', reference.url])
+  const output = runYtDlp(binary, ['--dump-single-json', '--no-playlist', '--no-warnings', '--', reference.url], options.browserLoginRetried)
   let metadata
   try { metadata = JSON.parse(output) } catch { throw new Error('yt-dlp 返回非 JSON 元数据') }
   if (!metadata.id || !metadata.webpage_url) throw new Error('yt-dlp 元数据缺少作品 ID 或规范链接')
-  return { provider: 'yt-dlp', reference, metadata, binary }
+  return { provider: 'yt-dlp', reference, metadata, binary, browserLoginRetried: options.browserLoginRetried === true }
 }
 
 export async function inspectReferenceVideoUrl(input, options = {}) {
   const reference = parseReferenceVideoUrl(input)
   const requested = options.provider || 'auto'
-  const useDtk = requested === 'dtk' || (requested === 'auto' && ['douyin', 'tiktok'].includes(reference.platform) && Boolean(options.dtk?.baseUrl || process.env.DTK_BASE_URL))
+  const useDtk = requested === 'dtk'
   if (useDtk) return inspectWithDtk(reference, options)
   if (!['auto', 'yt-dlp'].includes(requested)) throw new Error(`未知下载 Provider：${requested}`)
   return inspectWithYtDlp(reference, options)
@@ -166,7 +189,7 @@ async function downloadWithDtk(inspected, targetDirectory, options) {
 
 async function downloadWithYtDlp(inspected, targetDirectory) {
   const template = resolve(targetDirectory, 'download.%(ext)s')
-  runYtDlp(inspected.binary, ['--no-playlist', '--no-progress', '--max-filesize', '2G', '--merge-output-format', 'mp4', '-o', template, '--', inspected.reference.url])
+  runYtDlp(inspected.binary, ['--no-playlist', '--no-progress', '--max-filesize', '2G', '--merge-output-format', 'mp4', '-o', template, '--', inspected.reference.url], inspected.browserLoginRetried)
   const candidates = (await readdir(targetDirectory)).filter((name) => VIDEO_EXTENSIONS.has(extname(name).toLowerCase()))
   if (candidates.length !== 1) throw new Error('yt-dlp 必须且只能生成一个视频文件')
   return { path: resolve(targetDirectory, candidates[0]), upstreamDownloadId: null }
@@ -334,14 +357,14 @@ async function main() {
   if (command === 'inspect') {
     const input = args[0]
     if (!input) throw new Error('用法：reference-video-import.mjs inspect <链接或分享文本> [--provider auto|dtk|yt-dlp]')
-    const inspected = await inspectReferenceVideoUrl(input, { provider: optionValue(args, '--provider') || 'auto' })
+    const inspected = await inspectReferenceVideoUrl(input, { provider: optionValue(args, '--provider') || 'auto', browserLoginRetried: args.includes('--after-browser-login') })
     return console.log(JSON.stringify(publicInspection(inspected), null, 2))
   }
   if (command === 'import') {
     const [root, input, sourceKey, versionId] = args
     const basis = optionValue(args, '--rights-basis')
     if (!root || !input || !sourceKey || !versionId || !basis) throw new Error('用法：reference-video-import.mjs import <项目目录> <链接或分享文本> <source-key> <version> --rights-basis owned|licensed|authorized-reference [--provider auto|dtk|yt-dlp]')
-    const result = await importReferenceVideoUrl(root, { input, sourceKey, versionId, provider: optionValue(args, '--provider') || 'auto', rightsConfirmation: { confirmed: true, basis } })
+    const result = await importReferenceVideoUrl(root, { input, sourceKey, versionId, provider: optionValue(args, '--provider') || 'auto', browserLoginRetried: args.includes('--after-browser-login'), rightsConfirmation: { confirmed: true, basis } })
     return console.log(JSON.stringify(result, null, 2))
   }
   if (command === 'import-browser-file') {
@@ -356,7 +379,7 @@ async function main() {
 }
 
 if (resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) main().catch((error) => {
-  if (error?.code === YTDLP_BROWSER_FALLBACK_CODE) {
+  if (YTDLP_BROWSER_FALLBACK_CODES.has(error?.code)) {
     console.error(JSON.stringify({ error: { code: error.code, message: error.message, fallback: error.fallback } }))
     process.exitCode = error.exitCode
     return

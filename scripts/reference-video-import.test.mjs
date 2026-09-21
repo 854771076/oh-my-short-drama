@@ -125,6 +125,26 @@ test('DTK 成功导入后登记并选中 reference-video，收据不泄露 API k
   } finally { await dtk.close() }
 })
 
+test('auto 即使已配置 DTK 也优先使用 yt-dlp', async () => {
+  const root = await fixtureProject()
+  const video = await videoFixture()
+  const dtk = await dtkServer(video)
+  const tools = await mkdtemp(resolve(tmpdir(), 'fake-yt-dlp-default-'))
+  const binary = resolve(tools, 'yt-dlp')
+  await writeFile(binary, `#!/usr/bin/env node
+const fs = require('node:fs')
+const args = process.argv.slice(2)
+if (args.includes('--dump-single-json')) process.stdout.write(JSON.stringify({id:'7677937301649142961',webpage_url:'https://www.douyin.com/video/7677937301649142961',title:'抖音测试',uploader:'作者'}))
+else fs.writeFileSync(args[args.indexOf('-o') + 1].replace('%(ext)s', 'mp4'), Buffer.from('${video.toString('base64')}', 'base64'))
+`)
+  await chmod(binary, 0o755)
+  try {
+    const result = await importReferenceVideoUrl(root, { input: 'https://www.douyin.com/video/7677937301649142961', sourceKey: 'src-douyin', versionId: 'v001', provider: 'auto', rightsConfirmation: { confirmed: true, basis: 'authorized-reference' }, ytDlpBinary: binary, dtk: { baseUrl: dtk.baseUrl, apiKey: 'secret-key' } })
+    assert.equal(result.provider, 'yt-dlp')
+    assert.equal(dtk.requests.length, 0)
+  } finally { await dtk.close() }
+})
+
 test('yt-dlp 通过参数数组导入其他平台，不执行 URL 中的 shell 字符', async () => {
   const root = await fixtureProject()
   const video = await videoFixture()
@@ -150,7 +170,7 @@ if (args.includes('--dump-single-json')) {
   assert.equal(JSON.parse(await readFile(resolve(root, 'source/manifest.json'), 'utf8')).sources['src-youtube'].selectedVersionId, 'v001')
 })
 
-test('yt-dlp 遇到 403 时返回稳定的用户浏览器兜底合同且不留下半成品', async () => {
+test('yt-dlp 遇到 403 时先要求用户在现有 Chrome 登录并重试', async () => {
   const root = await fixtureProject()
   const tools = await mkdtemp(resolve(tmpdir(), 'fake-yt-dlp-403-'))
   const binary = resolve(tools, 'yt-dlp')
@@ -166,10 +186,50 @@ if (args.includes('--dump-single-json')) {
   await chmod(binary, 0o755)
   await assert.rejects(
     importReferenceVideoUrl(root, { input: 'https://www.douyin.com/video/7677937301649142961', sourceKey: 'src-douyin', versionId: 'v001', provider: 'yt-dlp', rightsConfirmation: { confirmed: true, basis: 'authorized-reference' }, ytDlpBinary: binary }),
-    (error) => error.code === 'YTDLP_HTTP_403_BROWSER_SESSION_REQUIRED' && error.exitCode === 42 && error.fallback?.session === 'existing-user' && !error.message.includes('private-token'),
+    (error) => error.code === 'YTDLP_USER_LOGIN_REQUIRED' && error.exitCode === 42 && error.fallback?.type === 'user-action' && error.fallback?.next === 'retry-ytdlp' && error.fallback?.retry_flag === '--after-browser-login' && !error.message.includes('private-token'),
   )
   assert.deepEqual(JSON.parse(await readFile(resolve(root, 'source/manifest.json'), 'utf8')).sources, {})
   await assert.rejects(readdir(resolve(root, '.short-drama/reference-imports')), /ENOENT/)
+})
+
+test('yt-dlp 明确要求登录或浏览器 Cookie 时先引导用户登录并重试', async () => {
+  const messages = [
+    'ERROR: Sign in to confirm you are not a bot. Use --cookies-from-browser or --cookies',
+    'ERROR: This video is only available for registered users. Login required',
+    'ERROR: [TikTok] 123: Fresh cookies (not necessarily logged in) are needed',
+  ]
+  for (const [index, message] of messages.entries()) {
+    const root = await fixtureProject()
+    const tools = await mkdtemp(resolve(tmpdir(), `fake-yt-dlp-login-${index}-`))
+    const binary = resolve(tools, 'yt-dlp')
+    await writeFile(binary, `#!/bin/sh
+echo '${message} token=do-not-leak' >&2
+exit 1
+`)
+    await chmod(binary, 0o755)
+    await assert.rejects(
+      importReferenceVideoUrl(root, { input: 'https://www.douyin.com/video/7677937301649142961', sourceKey: 'src-douyin', versionId: 'v001', provider: 'yt-dlp', rightsConfirmation: { confirmed: true, basis: 'authorized-reference' }, ytDlpBinary: binary }),
+      (error) => error.code === 'YTDLP_USER_LOGIN_REQUIRED' && error.exitCode === 42 && error.fallback?.reason === 'login-required' && error.fallback?.type === 'user-action' && error.fallback?.next === 'retry-ytdlp' && !error.message.includes('do-not-leak'),
+    )
+    assert.deepEqual(JSON.parse(await readFile(resolve(root, 'source/manifest.json'), 'utf8')).sources, {})
+  }
+})
+
+test('用户登录后重试 yt-dlp 仍遇挑战才允许浏览器会话兜底', async () => {
+  const root = await fixtureProject()
+  const tools = await mkdtemp(resolve(tmpdir(), 'fake-yt-dlp-after-login-'))
+  const binary = resolve(tools, 'yt-dlp')
+  await writeFile(binary, `#!/usr/bin/env node
+const args = process.argv.slice(2)
+if (args[args.indexOf('--cookies-from-browser') + 1] !== 'chrome' || args[args.indexOf('--impersonate') + 1] !== 'chrome') process.exit(9)
+process.stderr.write('ERROR: HTTP Error 403: Forbidden token=do-not-leak\\n')
+process.exit(1)
+`)
+  await chmod(binary, 0o755)
+  await assert.rejects(
+    importReferenceVideoUrl(root, { input: 'https://www.douyin.com/video/7677937301649142961', sourceKey: 'src-douyin', versionId: 'v001', provider: 'yt-dlp', browserLoginRetried: true, rightsConfirmation: { confirmed: true, basis: 'authorized-reference' }, ytDlpBinary: binary }),
+    (error) => error.code === 'YTDLP_HTTP_403_BROWSER_SESSION_REQUIRED' && error.exitCode === 42 && error.fallback?.type === 'browser-session' && error.fallback?.session === 'existing-user' && error.fallback?.next === 'extract-current-media' && !error.message.includes('do-not-leak'),
+  )
 })
 
 test('yt-dlp 非 403 失败不得误切浏览器且不回显下载器敏感输出', async () => {
@@ -234,7 +294,7 @@ test('链接导入 CLI 提供稳定自检入口', () => {
   assert.equal(result.stdout.trim(), 'ok')
 })
 
-test('链接导入 CLI 将 403 以退出码 42 和无凭据 JSON 暴露给编排器', async () => {
+test('链接导入 CLI 将首次 403 作为登录后重试动作返回', async () => {
   const root = await fixtureProject()
   const tools = await mkdtemp(resolve(tmpdir(), 'fake-yt-dlp-cli-403-'))
   const binary = resolve(tools, 'yt-dlp')
@@ -246,8 +306,26 @@ exit 1
   const result = spawnSync(process.execPath, [resolve(import.meta.dirname, 'reference-video-import.mjs'), 'import', root, 'https://www.douyin.com/video/7677937301649142961', 'src-douyin', 'v001', '--provider', 'yt-dlp', '--rights-basis', 'authorized-reference'], { encoding: 'utf8', env: { ...process.env, YT_DLP_BINARY: binary } })
   assert.equal(result.status, 42)
   const failure = JSON.parse(result.stderr)
-  assert.equal(failure.error.code, 'YTDLP_HTTP_403_BROWSER_SESSION_REQUIRED')
-  assert.equal(failure.error.fallback.session, 'existing-user')
+  assert.equal(failure.error.code, 'YTDLP_USER_LOGIN_REQUIRED')
+  assert.equal(failure.error.fallback.next, 'retry-ytdlp')
+  assert.doesNotMatch(result.stderr, /do-not-leak/)
+})
+
+test('链接导入 CLI 在用户登录重试仍失败后返回浏览器会话兜底', async () => {
+  const root = await fixtureProject()
+  const tools = await mkdtemp(resolve(tmpdir(), 'fake-yt-dlp-cli-login-'))
+  const binary = resolve(tools, 'yt-dlp')
+  await writeFile(binary, `#!/bin/sh
+echo 'ERROR: Sign in to confirm you are not a bot. Use --cookies-from-browser token=do-not-leak' >&2
+exit 1
+`)
+  await chmod(binary, 0o755)
+  const result = spawnSync(process.execPath, [resolve(import.meta.dirname, 'reference-video-import.mjs'), 'import', root, 'https://www.douyin.com/video/7677937301649142961', 'src-douyin', 'v001', '--provider', 'yt-dlp', '--after-browser-login', '--rights-basis', 'authorized-reference'], { encoding: 'utf8', env: { ...process.env, YT_DLP_BINARY: binary } })
+  assert.equal(result.status, 42)
+  const failure = JSON.parse(result.stderr)
+  assert.equal(failure.error.code, 'YTDLP_LOGIN_BROWSER_SESSION_REQUIRED')
+  assert.equal(failure.error.fallback.reason, 'login-required')
+  assert.equal(failure.error.fallback.next, 'extract-current-media')
   assert.doesNotMatch(result.stderr, /do-not-leak/)
 })
 

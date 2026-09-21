@@ -47,7 +47,7 @@ Codex / Claude Code / Hermes → oh-my-short-drama → drama-generation MCP → 
 
 ### 参考视频复刻
 
-项目设为 `workflow.type=viral-recreation` 后，固定执行“打开项目 Dashboard → 配置并探测图片/视频/音频 Provider → 导入、选中并准备参考视频 → Hypit 中间理解与 handoff → 正式参考分析 → 五层复刻工作流”。可导入并选择本地 mp4、mov、webm 或 mkv，也可在明确确认素材权利后从受支持的平台链接导入。抖音/TikTok 优先使用本机 DTK v5 服务，其他平台或未配置 DTK 时先使用 yt-dlp；若 yt-dlp 明确收到 HTTP 403，才切换到用户已经打开并登录的 Chrome 标签页读取当次媒体流，禁止创建临时浏览器或替用户完成登录验证。浏览器下载结果仍必须通过受控入口校验容器、文件大小、视频流、时长、帧率、分辨率和 SHA-256 后才能登记。插件用 ffprobe/ffmpeg 生成镜头候选、固定间隔兜底关键帧、音轨和失败记录；Hypit 自动作为复刻链路的中间理解器，但不参与 Build 或最终媒体生成；再由 Codex 输出带时间码证据的正式参考分析，以及 Script、Media、Caption、Speech、Film 五层声明式工作流。选版会生成锁定工作流与分析哈希的编译约束包，供后续简报、剧本、导演本、分镜、制作计划、音频和剪辑消费。媒体触发器绑定台词段和词语，修改人物、产品、Hook、CTA 或语言后可以按依赖重编译，而不是把整条时间线写死。默认只迁移结构；近似复刻、真人身份、声音、音乐和商标复用必须有明确权利依据与匹配的授权范围。
+项目设为 `workflow.type=viral-recreation` 后，固定执行“打开项目 Dashboard → 配置并探测图片/视频/音频 Provider → 导入、选中并准备参考视频 → Hypit 中间理解与 handoff → 正式参考分析 → 五层复刻工作流”。可导入并选择本地 mp4、mov、webm 或 mkv，也可在明确确认素材权利后从受支持的平台链接导入。所有平台默认先使用 yt-dlp，DTK 仅在用户显式指定时使用；若 yt-dlp 明确收到 HTTP 403 或登录/浏览器 Cookie 挑战，先引导用户在自己的 Chrome 登录，再以 `--cookies-from-browser chrome --impersonate chrome` 重试一次，仍失败才读取该现有 Chrome 播放会话。禁止创建临时浏览器、直接导出 Cookie、替用户输入凭据或因普通网络错误误切浏览器。浏览器下载结果仍必须通过受控入口校验容器、文件大小、视频流、时长、帧率、分辨率和 SHA-256 后才能登记。插件用 ffprobe/ffmpeg 生成镜头候选、固定间隔兜底关键帧、音轨和失败记录；Hypit 自动作为复刻链路的中间理解器，但不参与 Build 或最终媒体生成；再由 Codex 输出带时间码证据的正式参考分析，以及 Script、Media、Caption、Speech、Film 五层声明式工作流。选版会生成锁定工作流与分析哈希的编译约束包，供后续简报、剧本、导演本、分镜、制作计划、音频和剪辑消费。媒体触发器绑定台词段和词语，修改人物、产品、Hook、CTA 或语言后可以按依赖重编译，而不是把整条时间线写死。默认只迁移结构；近似复刻、真人身份、声音、音乐和商标复用必须有明确权利依据与匹配的授权范围。
 
 ```bash
 # 链接导入：先 inspect，再确认权利并 import。DTK 密钥只从环境变量读取。
