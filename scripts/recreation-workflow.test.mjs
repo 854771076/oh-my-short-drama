@@ -231,7 +231,7 @@ test('viral-recreation 只在 analysis 动态增加 Hypit 复刻 Skill', async (
   const standard = await skillProjectFixture('standard')
   const viral = await skillProjectFixture('viral-recreation')
   assert.equal((await requiredSkills(standard, 'analysis')).includes('analyze-reference-video'), false)
-  assert.deepEqual((await requiredSkills(viral, 'analysis')).filter((name) => ['analyze-reference-video', 'design-video-recreation', 'use-hypit-video'].includes(name)), ['analyze-reference-video', 'design-video-recreation', 'use-hypit-video'])
+  assert.deepEqual((await requiredSkills(viral, 'analysis')).filter((name) => ['use-short-drama-studio', 'configure-generation-providers', 'analyze-reference-video', 'use-hypit-video', 'design-video-recreation'].includes(name)), ['use-short-drama-studio', 'configure-generation-providers', 'analyze-reference-video', 'use-hypit-video', 'design-video-recreation'])
 })
 
 test('viral-recreation analysis 门禁报告准备清单、分析和工作流缺口', async () => {

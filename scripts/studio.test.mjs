@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process'
 import { homedir, tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { createStudioServer, DEFAULT_WORKSPACE_ROOT, initializeWorkspace } from './studio.mjs'
+import { createStudioServer, DEFAULT_WORKSPACE_ROOT, initializeWorkspace, openProjectStudio } from './studio.mjs'
 import { createMarketStore } from './market/store.mjs'
 import { analyzeMarket } from './market/analyze.mjs'
 import { renderDocument } from '../studio/document-view.js'
@@ -36,6 +36,21 @@ test('Dashboard 项目路由可在刷新后恢复', () => {
   assert.deepEqual(parseRoute(projectRoute('demo', 'recreation')), { projectKey: 'demo', view: 'recreation' })
   assert.deepEqual(parseRoute('#/projects/demo/unknown'), { projectKey: 'demo', view: 'overview' })
   assert.equal(parseRoute('#/'), null)
+})
+
+test('任意工作区项目可打开对应 Dashboard 路由并留下启动凭证', async () => {
+  const workspace = await mkdtemp(resolve(tmpdir(), 'short-drama-studio-open-project-'))
+  const projectRoot = resolve(workspace, 'rec-demo')
+  await mkdir(resolve(projectRoot, '.short-drama'), { recursive: true })
+  await writeFile(resolve(projectRoot, '.short-drama/project.json'), `${JSON.stringify({ key: 'rec-demo', workflow: { type: 'viral-recreation' } })}\n`)
+  let invocation = null
+  const result = await openProjectStudio(projectRoot, { openStudioFn: async (root, route) => { invocation = { root, route }; return `http://127.0.0.1:4173${route}` } })
+  assert.deepEqual(invocation, { root: workspace, route: '#/projects/rec-demo/overview' })
+  assert.equal(result.url, 'http://127.0.0.1:4173#/projects/rec-demo/overview')
+  const receipt = JSON.parse(await readFile(resolve(projectRoot, result.receipt_path), 'utf8'))
+  assert.equal(receipt.project_key, 'rec-demo')
+  assert.equal(receipt.workflow_type, 'viral-recreation')
+  assert.ok(Number.isFinite(Date.parse(receipt.opened_at)))
 })
 
 test('复刻项目的创建类型、复刻巡检与文档白名单', async (t) => {

@@ -17,7 +17,7 @@ for (const path of ['.DS_Store', '.playwright-mcp']) {
   } catch {}
 }
 
-for (const path of ['README.md', 'LICENSE', '.codex-plugin/plugin.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.claude-plugin/mcp.json', '.github/workflows/ci.yml', '.github/workflows/release.yml', '.github/workflows/upstream-sync.yml', 'references/project-spec-v1.md', 'references/codex-contracts.md', 'scripts/check-update.mjs', 'scripts/validate-project.mjs', 'scripts/skill-runs.mjs', 'scripts/preflight.mjs', 'scripts/blender-previz.py', 'scripts/previz-contract.mjs', 'scripts/previz-self-check.mjs', 'scripts/reference-video-import.mjs', 'scripts/generation/live-smoke-test.mjs', 'scripts/document-reference.mjs', 'scripts/reference-bindings.mjs', 'scripts/media-hosting/litterbox.mjs', 'scripts/media-hosting/publish.mjs']) {
+for (const path of ['README.md', 'LICENSE', '.codex-plugin/plugin.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.claude-plugin/mcp.json', '.github/workflows/ci.yml', '.github/workflows/release.yml', '.github/workflows/upstream-sync.yml', 'references/project-spec-v1.md', 'references/codex-contracts.md', 'scripts/check-update.mjs', 'scripts/validate-project.mjs', 'scripts/skill-runs.mjs', 'scripts/preflight.mjs', 'scripts/provider-setup.mjs', 'scripts/blender-previz.py', 'scripts/previz-contract.mjs', 'scripts/previz-self-check.mjs', 'scripts/reference-video-import.mjs', 'scripts/generation/live-smoke-test.mjs', 'scripts/document-reference.mjs', 'scripts/reference-bindings.mjs', 'scripts/media-hosting/litterbox.mjs', 'scripts/media-hosting/publish.mjs']) {
   try { await access(resolve(root, path)) } catch { failures.push(`缺少项目规范组件：${path}`) }
 }
 
@@ -227,6 +227,10 @@ const continuityIndex = map.workflow.indexOf('plan-shot-continuity')
 if (continuityIndex <= map.workflow.indexOf('plan-drama-production') || continuityIndex >= map.workflow.indexOf('write-drama-video-prompts') || !map.stages?.['production-plan']?.includes('plan-shot-continuity')) failures.push('plan-shot-continuity 必须位于制作计划与视频提示词之间并登记到 production-plan 阶段')
 const pipelineGuide = await readFile(resolve(root, 'references/pipeline.md'), 'utf8')
 if (pipelineGuide.indexOf('plan-shot-continuity') < pipelineGuide.indexOf('production-plan') || pipelineGuide.indexOf('plan-shot-continuity') > pipelineGuide.indexOf('video prompts')) failures.push('流水线文档必须把 plan-shot-continuity 放在制作计划与视频提示词之间')
+const referenceImport = await readFile(resolve(root, 'scripts/reference-video-import.mjs'), 'utf8')
+const referenceAnalysisSkill = await readFile(resolve(root, 'skills/analyze-reference-video/SKILL.md'), 'utf8')
+for (const token of ['YTDLP_HTTP_403_BROWSER_SESSION_REQUIRED', 'exitCode = 42', 'existing-user-chrome', 'browser-session', 'import-browser-file', 'probeReferenceVideo', 'fileSha256']) if (!referenceImport.includes(token)) failures.push(`参考视频浏览器兜底实现缺少：${token}`)
+for (const token of ['用户自己已经打开的 Chrome', '禁止调用创建标签页', '禁止打开 Codex 临时浏览器', 'HTTP 403', 'import-browser-file', 'Cookie', 'SHA-256']) if (!referenceAnalysisSkill.includes(token)) failures.push(`参考视频浏览器兜底 Skill 缺少：${token}`)
 const nativeAudioAudit = await readFile(resolve(root, 'scripts/native-audio-audit.mjs'), 'utf8')
 for (const token of ['audit-episode', 'auditVersion', '已审计']) if (!nativeAudioAudit.includes(token)) failures.push(`原生音频批量审计缺少：${token}`)
 const audioPlanContract = await readFile(resolve(root, 'scripts/audio-plan-contract.mjs'), 'utf8')

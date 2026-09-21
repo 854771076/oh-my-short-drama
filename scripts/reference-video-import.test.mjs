@@ -6,7 +6,7 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from 'no
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { importReferenceVideoUrl, parseReferenceVideoUrl, validateReferenceImportReceipts } from './reference-video-import.mjs'
+import { importReferenceVideoBrowserFile, importReferenceVideoUrl, parseReferenceVideoUrl, validateReferenceImportReceipts } from './reference-video-import.mjs'
 
 async function fixtureProject() {
   const root = await mkdtemp(resolve(tmpdir(), 'reference-url-import-'))
@@ -150,10 +150,105 @@ if (args.includes('--dump-single-json')) {
   assert.equal(JSON.parse(await readFile(resolve(root, 'source/manifest.json'), 'utf8')).sources['src-youtube'].selectedVersionId, 'v001')
 })
 
+test('yt-dlp 遇到 403 时返回稳定的用户浏览器兜底合同且不留下半成品', async () => {
+  const root = await fixtureProject()
+  const tools = await mkdtemp(resolve(tmpdir(), 'fake-yt-dlp-403-'))
+  const binary = resolve(tools, 'yt-dlp')
+  await writeFile(binary, `#!/usr/bin/env node
+const args = process.argv.slice(2)
+if (args.includes('--dump-single-json')) {
+  process.stdout.write(JSON.stringify({id:'7677937301649142961',webpage_url:'https://www.douyin.com/video/7677937301649142961',title:'抖音测试',uploader:'作者'}))
+} else {
+  process.stderr.write('ERROR: unable to download video data: HTTP Error 403: Forbidden; signed=https://example.invalid/private-token')
+  process.exit(1)
+}
+`)
+  await chmod(binary, 0o755)
+  await assert.rejects(
+    importReferenceVideoUrl(root, { input: 'https://www.douyin.com/video/7677937301649142961', sourceKey: 'src-douyin', versionId: 'v001', provider: 'yt-dlp', rightsConfirmation: { confirmed: true, basis: 'authorized-reference' }, ytDlpBinary: binary }),
+    (error) => error.code === 'YTDLP_HTTP_403_BROWSER_SESSION_REQUIRED' && error.exitCode === 42 && error.fallback?.session === 'existing-user' && !error.message.includes('private-token'),
+  )
+  assert.deepEqual(JSON.parse(await readFile(resolve(root, 'source/manifest.json'), 'utf8')).sources, {})
+  await assert.rejects(readdir(resolve(root, '.short-drama/reference-imports')), /ENOENT/)
+})
+
+test('yt-dlp 非 403 失败不得误切浏览器且不回显下载器敏感输出', async () => {
+  const root = await fixtureProject()
+  const tools = await mkdtemp(resolve(tmpdir(), 'fake-yt-dlp-generic-failure-'))
+  const binary = resolve(tools, 'yt-dlp')
+  await writeFile(binary, `#!/bin/sh
+echo 'network timeout signed_url=do-not-leak' >&2
+exit 7
+`)
+  await chmod(binary, 0o755)
+  await assert.rejects(
+    importReferenceVideoUrl(root, { input: 'https://youtu.be/abc123', sourceKey: 'src-youtube', versionId: 'v001', provider: 'yt-dlp', rightsConfirmation: { confirmed: true, basis: 'authorized-reference' }, ytDlpBinary: binary }),
+    (error) => !error.code && /退出码 7/.test(error.message) && !error.message.includes('do-not-leak'),
+  )
+})
+
+test('浏览器兜底只接受用户现有 Chrome 会话并在校验后登记来源', async () => {
+  const root = await fixtureProject()
+  const videoDirectory = await mkdtemp(resolve(tmpdir(), 'browser-session-video-'))
+  const videoPath = resolve(videoDirectory, 'douyin.mp4')
+  await writeFile(videoPath, await videoFixture())
+  const base = {
+    input: 'https://www.douyin.com/video/7677937301649142961',
+    localFile: videoPath,
+    sourceKey: 'src-douyin',
+    versionId: 'v001',
+    contentId: '7677937301649142961',
+    rightsConfirmation: { confirmed: true, basis: 'authorized-reference' },
+  }
+  await assert.rejects(importReferenceVideoBrowserFile(root, { ...base, browserSession: 'temporary-agent-browser' }), /用户现有.*Chrome|临时浏览器/)
+  const result = await importReferenceVideoBrowserFile(root, { ...base, browserSession: 'existing-user-chrome' })
+  assert.equal(result.provider, 'browser-session')
+  assert.equal(result.content_id, '7677937301649142961')
+  assert.equal(result.technical.width, 160)
+  assert.equal(result.technical.height, 120)
+  assert.ok(result.technical.duration_ms > 0)
+  assert.match(result.source_ref.sha256, /^[0-9a-f]{64}$/)
+  assert.deepEqual(await validateReferenceImportReceipts(root), ['src-douyin@v001'])
+})
+
+test('浏览器兜底拒绝伪装成 MP4 的网页响应且不登记来源', async () => {
+  const root = await fixtureProject()
+  const directory = await mkdtemp(resolve(tmpdir(), 'browser-session-invalid-video-'))
+  const localFile = resolve(directory, 'download.mp4')
+  await writeFile(localFile, '<html>login required</html>')
+  await assert.rejects(importReferenceVideoBrowserFile(root, {
+    input: 'https://www.douyin.com/video/7677937301649142961',
+    localFile,
+    sourceKey: 'src-douyin',
+    versionId: 'v001',
+    browserSession: 'existing-user-chrome',
+    contentId: '7677937301649142961',
+    rightsConfirmation: { confirmed: true, basis: 'authorized-reference' },
+  }), /ffprobe|视频流|执行失败/)
+  assert.deepEqual(JSON.parse(await readFile(resolve(root, 'source/manifest.json'), 'utf8')).sources, {})
+})
+
 test('链接导入 CLI 提供稳定自检入口', () => {
   const result = spawnSync(process.execPath, [resolve(import.meta.dirname, 'reference-video-import.mjs'), '--self-check'], { encoding: 'utf8' })
   assert.equal(result.status, 0, result.stderr)
   assert.equal(result.stdout.trim(), 'ok')
+})
+
+test('链接导入 CLI 将 403 以退出码 42 和无凭据 JSON 暴露给编排器', async () => {
+  const root = await fixtureProject()
+  const tools = await mkdtemp(resolve(tmpdir(), 'fake-yt-dlp-cli-403-'))
+  const binary = resolve(tools, 'yt-dlp')
+  await writeFile(binary, `#!/bin/sh
+echo 'ERROR: HTTP Error 403: Forbidden token=do-not-leak' >&2
+exit 1
+`)
+  await chmod(binary, 0o755)
+  const result = spawnSync(process.execPath, [resolve(import.meta.dirname, 'reference-video-import.mjs'), 'import', root, 'https://www.douyin.com/video/7677937301649142961', 'src-douyin', 'v001', '--provider', 'yt-dlp', '--rights-basis', 'authorized-reference'], { encoding: 'utf8', env: { ...process.env, YT_DLP_BINARY: binary } })
+  assert.equal(result.status, 42)
+  const failure = JSON.parse(result.stderr)
+  assert.equal(failure.error.code, 'YTDLP_HTTP_403_BROWSER_SESSION_REQUIRED')
+  assert.equal(failure.error.fallback.session, 'existing-user')
+  assert.doesNotMatch(result.stderr, /do-not-leak/)
 })
 
 test('导入收据必须绑定来源哈希并拒绝任何凭据字段', async () => {

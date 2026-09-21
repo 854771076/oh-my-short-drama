@@ -5,9 +5,9 @@ description: 编排从创意到成片的短剧生产流程。用于新建、继�
 
 # 短剧流程编排
 
-首次使用先读取 `use-short-drama-studio`。恢复项目先读取 `.short-drama/RESUME.md`，再运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/validate-project.mjs" <项目目录>` 和 `workflow.mjs status <项目目录>`；状态不存在时，经用户确认目录后调用 `manage-drama-projects` 初始化。进入媒体或剪辑阶段前分别运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/preflight.mjs" <media|editing> <项目目录>`。推进前运行 `workflow.mjs check`；`advance` 也会强制检查当前阶段的 selected 文档、未决项、资产、任务、逐镜验收或审片记录。按 [本地状态机](../../references/pipeline.md) 依次执行分析、剧本、导演本、资产分析、资产生成、制作规划、素材视频与配音、剪辑和交付。
+首次使用先读取 `use-short-drama-studio`。恢复项目先读取 `.short-drama/RESUME.md`，再运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/validate-project.mjs" <项目目录>` 和 `workflow.mjs status <项目目录>`；状态不存在时，经用户确认目录后调用 `manage-drama-projects` 初始化。初始化或恢复后立即运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/studio.mjs" open-project <项目目录>`，不得因为项目不在默认工作区而跳过 Dashboard。随后立即运行当前阶段的 `skill-runs.mjs required`，按返回顺序执行，不用临时文件枚举代替门禁。进入媒体或剪辑阶段前分别运行 `node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/preflight.mjs" <media|editing> <项目目录>`。推进前运行 `workflow.mjs check`；`advance` 也会强制检查当前阶段的 selected 文档、未决项、资产、任务、逐镜验收或审片记录。按 [本地状态机](../../references/pipeline.md) 依次执行分析、剧本、导演本、资产分析、资产生成、制作规划、素材视频与配音、剪辑和交付。
 
-当 `project.json.workflow.type=viral-recreation` 时不增加新的全局阶段：在 analysis 内先准备当前 selected 参考视频，执行 `analyze-reference-video` 与 `design-video-recreation`，并核对 prepared、分析、selected 复刻工作流和来源 SHA-256 的完整证据链。工作流使用台词段和词语作为媒体触发锚点，后续仍编译到现有 brief、剧本、导演本、分镜、制作计划和 Remotion 时间线。
+当 `project.json.workflow.type=viral-recreation` 时不增加新的全局阶段，但 analysis 内有不可调换的子流程：`use-short-drama-studio` 启动凭证 → `configure-generation-providers` 完成图片/视频/音频选择与连接探测 → `analyze-reference-video` 第一段导入、选中并准备参考视频 → `use-hypit-video` 完成中间理解与 handoff → `analyze-reference-video` 第二段生成正式分析 → `design-video-recreation` 生成并选中复刻工作流。Hypit 在复刻模式自动触发，不要求用户另行点名；缺少 Dashboard、Provider 探测或 Hypit handoff 时不得声称正式分析完成。最后核对 prepared、handoff、分析、selected 复刻工作流和来源 SHA-256 的完整证据链。工作流使用台词段和词语作为媒体触发锚点，后续仍编译到现有 brief、剧本、导演本、分镜、制作计划和 Remotion 时间线。
 
 读取 `project.json` 的 `automation_mode`：为 `true`（默认）时由 agent 自行决定常规确认项并继续流程；异步媒体任务单次等待超时或状态无变化时，必须继续调用对应批量等待工具直到终态，不得把工具超时当作任务结束或再次询问用户。为 `false` 时逐项等待用户确认。无论模式如何，阶段门禁、权限/素材权利事实和安全校验都不可绕过。
 

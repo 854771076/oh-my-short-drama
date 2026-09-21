@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { createReadStream, createWriteStream } from 'node:fs'
-import { access, mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { execFile, spawn } from 'node:child_process'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
+import { createServer as createTcpServer } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, extname, resolve, sep } from 'node:path'
 import { Transform } from 'node:stream'
@@ -639,17 +640,39 @@ export function openBrowser(url) {
   spawn(opener[0], opener.slice(1), { detached: true, stdio: 'ignore' }).unref()
 }
 
-export async function openStudio(rootArg = DEFAULT_WORKSPACE_ROOT) {
+async function availableLocalPort() {
+  const server = createTcpServer()
+  await new Promise((resolveListen, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolveListen)
+  })
+  const port = server.address().port
+  await new Promise((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose()))
+  return port
+}
+
+export async function openStudio(rootArg = DEFAULT_WORKSPACE_ROOT, route = '') {
   const root = resolve(rootArg)
-  const url = 'http://127.0.0.1:4173'
   await initializeWorkspace(root)
+  let port = 4173
+  let baseUrl = `http://127.0.0.1:${port}`
+  const workspaceAt = async (url) => {
+    try { return resolve((await fetch(`${url}/api/v1/workspace`, { signal: AbortSignal.timeout(500) }).then((response) => response.json())).workspace.path) }
+    catch { return null }
+  }
+  const occupiedWorkspace = await workspaceAt(baseUrl)
+  if (occupiedWorkspace && occupiedWorkspace !== root) {
+    // 不终止用户已打开的其他工作区；为当前项目另起本机端口。
+    port = await availableLocalPort()
+    baseUrl = `http://127.0.0.1:${port}`
+  }
+  const url = `${baseUrl}${route}`
   const active = async () => {
-    try { return resolve((await fetch(`${url}/api/v1/workspace`, { signal: AbortSignal.timeout(500) }).then((response) => response.json())).workspace.path) === root }
-    catch { return false }
+    return await workspaceAt(baseUrl) === root
   }
   if (!await active()) {
     // 子进程自行开浏览器会与 openStudio 的开窗重复，让它只起服务。
-    spawn(process.execPath, [fileURLToPath(import.meta.url), 'serve', root], { detached: true, stdio: 'ignore', env: { ...process.env, SHORT_DRAMA_STUDIO_NO_OPEN: '1' } }).unref()
+    spawn(process.execPath, [fileURLToPath(import.meta.url), 'serve', root, '--port', String(port)], { detached: true, stdio: 'ignore', env: { ...process.env, SHORT_DRAMA_STUDIO_NO_OPEN: '1' } }).unref()
     for (let attempt = 0; attempt < 20 && !await active(); attempt += 1) await new Promise((done) => setTimeout(done, 100))
   }
   if (!await active()) throw new Error(`Dashboard 未能启动，请手动打开：node scripts/studio.mjs serve ${root}`)
@@ -657,10 +680,30 @@ export async function openStudio(rootArg = DEFAULT_WORKSPACE_ROOT) {
   return url
 }
 
+export async function openProjectStudio(projectRootArg, options = {}) {
+  const projectRoot = resolve(projectRootArg)
+  const project = await readJson(resolve(projectRoot, '.short-drama/project.json'))
+  const directoryKey = basename(projectRoot)
+  if (project.key !== directoryKey) throw new Error(`Dashboard 要求项目目录名与 project.key 一致：${directoryKey} != ${project.key}`)
+  const route = `#/projects/${encodeURIComponent(project.key)}/overview`
+  const url = await (options.openStudioFn || openStudio)(dirname(projectRoot), route)
+  const receiptPath = resolve(projectRoot, '.short-drama/dashboard.json')
+  const temporary = `${receiptPath}.${randomUUID()}.tmp`
+  const receipt = { version: 1, opened_at: new Date().toISOString(), project_key: project.key, workflow_type: project.workflow?.type || 'standard', route }
+  try {
+    await writeFile(temporary, `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx' })
+    await rename(temporary, receiptPath)
+  } finally {
+    await rm(temporary, { force: true })
+  }
+  return { url, receipt_path: '.short-drama/dashboard.json', receipt }
+}
+
 async function main() {
   const [command = 'serve', rootArg = DEFAULT_WORKSPACE_ROOT, ...args] = process.argv.slice(2)
   if (command === 'init') { await initializeWorkspace(rootArg, args.join(' ') || basename(resolve(rootArg))); return console.log(resolve(rootArg, WORKSPACE_FILE)) }
-  if (command !== 'serve') throw new Error('用法：studio.mjs init|serve <工作区目录> [--port 4173]')
+  if (command === 'open-project') return console.log(JSON.stringify(await openProjectStudio(rootArg), null, 2))
+  if (command !== 'serve') throw new Error('用法：studio.mjs init|serve <工作区目录> [--port 4173] | open-project <项目目录>')
   await initializeWorkspace(rootArg)
   const portIndex = args.indexOf('--port')
   const port = portIndex >= 0 ? Number(args[portIndex + 1]) : 4173

@@ -5,12 +5,14 @@ import { dirname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { stages } from './workflow-stages.mjs'
 import { withFileLock } from './file-lock.mjs'
-import { isH3Model } from './generation/providers.mjs'
+import { isH3Model, providerSetupCatalog } from './generation/providers.mjs'
 
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const skillMap = JSON.parse(await readFile(resolve(pluginRoot, 'references/skill-map.json'), 'utf8'))
 const providerPrompts = new Set(skillMap.provider_prompts || [])
 const evidencePatterns = {
+  'use-short-drama-studio': /^\.short-drama\/dashboard\.json$/,
+  'configure-generation-providers': /^\.short-drama\/provider-setup\.json$/,
   'use-hypit-video': /^\.short-drama\/hypit\/handoff\.json$/,
   'analyze-reference-video': /^\.short-drama\/reference-video-analysis\.json$/,
   'design-video-recreation': /episodes\/ep-\d{3}\/recreation-workflow\/v\d{3}\.json$/,
@@ -77,6 +79,53 @@ async function validateHypitHandoff(root, evidence) {
     if (!await exists(path) || (await lstat(path)).isSymbolicLink() || !confined(projectRoot, await realpath(path)) || await sha256(path) !== item.sha256) throw new Error(`Hypit handoff 文件缺失、越界或哈希不一致：${item.path}`)
   }
 }
+
+async function validateDashboardReceipt(root, evidence) {
+  const path = evidence.find((item) => item === '.short-drama/dashboard.json')
+  if (!path) throw new Error('use-short-drama-studio 必须由 studio.mjs open-project 生成 Dashboard 启动凭证')
+  const [receipt, project] = await Promise.all([
+    readFile(resolve(root, path), 'utf8').then(JSON.parse),
+    readFile(resolve(root, '.short-drama/project.json'), 'utf8').then(JSON.parse),
+  ])
+  if (receipt.version !== 1 || !Number.isFinite(Date.parse(receipt.opened_at)) || receipt.project_key !== project.key || receipt.workflow_type !== project.workflow?.type || receipt.route !== `#/projects/${encodeURIComponent(project.key)}/overview`) throw new Error('Dashboard 启动凭证未绑定当前项目或工作流')
+}
+
+export async function validateProviderSetup(root, evidence, catalogItems = providerSetupCatalog()) {
+  const path = evidence.find((item) => item === '.short-drama/provider-setup.json')
+  if (!path) throw new Error('configure-generation-providers 必须由 provider-setup.mjs 生成连接探测凭证')
+  const [project, receipt] = await Promise.all([
+    readFile(resolve(root, '.short-drama/project.json'), 'utf8').then(JSON.parse),
+    readFile(resolve(root, path), 'utf8').then(JSON.parse),
+  ])
+  const catalog = new Map(catalogItems.map((item) => [item.key, item]))
+  if (receipt.version !== 1 || !Number.isFinite(Date.parse(receipt.checked_at)) || receipt.project_key !== project.key || receipt.workflow_type !== project.workflow?.type) throw new Error('Provider 探测凭证未绑定当前项目或工作流')
+  for (const modality of ['image', 'video', 'audio']) {
+    const selected = project.providers?.[modality]
+    if (!selected?.provider || !selected?.model_or_workflow) throw new Error(`复刻启动前必须在 Dashboard 选择并保存 ${modality} Provider 与模型`)
+    const provider = catalog.get(selected.provider)
+    if (!provider?.configured) throw new Error(`${selected.provider} 尚未配置本机凭据或连接信息`)
+    if (!provider.models?.[modality]?.some((model) => model.id === selected.model_or_workflow)) throw new Error(`${modality} Provider 模型不在当前可用目录`)
+    if (receipt.selections?.[modality]?.provider !== selected.provider || receipt.selections?.[modality]?.model_or_workflow !== selected.model_or_workflow) throw new Error(`Provider 探测凭证中的 ${modality} 配置已过期`)
+  }
+  const expectedProviders = new Set(['image', 'video', 'audio'].map((modality) => project.providers[modality].provider))
+  const successfulProviders = new Set((receipt.providers || []).filter((item) => item?.ok === true).map((item) => item.provider))
+  for (const provider of expectedProviders) if (!successfulProviders.has(provider)) throw new Error(`${provider} 缺少成功的连接探测结果`)
+}
+
+async function validateViralAnalysisEvidence(root, skill, evidence) {
+  const project = JSON.parse(await readFile(resolve(root, '.short-drama/project.json'), 'utf8'))
+  if (project.workflow?.type !== 'viral-recreation') return
+  if (skill === 'use-short-drama-studio') await validateDashboardReceipt(root, evidence)
+  if (skill === 'configure-generation-providers') await validateProviderSetup(root, evidence)
+  if (skill === 'analyze-reference-video') {
+    if (!await exists(resolve(root, '.short-drama/hypit/handoff.json'))) throw new Error('正式参考视频分析前必须完成 Hypit 中间分析与 handoff')
+    await validateHypitHandoff(root, ['.short-drama/hypit/handoff.json'])
+  }
+  if (skill === 'design-video-recreation') {
+    const ledger = await readSkillRuns(root)
+    for (const required of ['use-hypit-video', 'analyze-reference-video']) if (ledger.runs?.[`analysis:${required}`]?.status !== 'completed') throw new Error(`design-video-recreation 前必须完成并记录 ${required}`)
+  }
+}
 function promptMode(skill, stage) {
   const prompts = Object.entries(skillMap.prompts).filter(([, owner]) => owner === skill).map(([name]) => name)
   if (!prompts.length) return null
@@ -129,9 +178,10 @@ export async function requiredSkills(root, stage) {
     if (project.workflow?.type === 'viral-recreation') {
       // 复刻项目的来源是参考视频而非文本，由 analyze-reference-video 产出参考视频分析，不再要求文本来源分析。
       required.delete('analyze-drama-source')
-      required.add('analyze-reference-video')
-      required.add('design-video-recreation')
-      required.add('use-hypit-video')
+      for (const skill of ['use-short-drama-studio', 'configure-generation-providers', 'analyze-reference-video', 'use-hypit-video', 'design-video-recreation']) required.delete(skill)
+      const remainder = [...required]
+      required.clear()
+      for (const skill of ['manage-drama-projects', 'use-short-drama-studio', 'configure-generation-providers', 'analyze-reference-video', 'use-hypit-video', 'design-video-recreation', ...remainder.filter((name) => name !== 'manage-drama-projects')]) required.add(skill)
     }
   }
   if (stage === 'asset-analysis') {
@@ -233,6 +283,7 @@ async function main() {
       const expected = evidencePatterns[name]
       if (expected && !evidence.some((path) => expected.test(path))) throw new Error(`${name} 的证据类型无效`)
       if (name === 'use-hypit-video') await validateHypitHandoff(root, evidence)
+      await validateViralAnalysisEvidence(root, name, evidence)
       const episodePattern = episodeEvidence[name]
       if (episodePattern) for (const episode of await selectedEpisodes(root)) if (!evidence.some((path) => episodePattern(episode).test(path))) throw new Error(`${name} 缺少 ${episode} 的执行证据`)
       const linkedPromptRuns = await promptRuns(root, name, stage, evidence)
@@ -258,6 +309,7 @@ async function main() {
   const expected = evidencePatterns[skill]
   if (expected && !evidence.some((path) => expected.test(path))) throw new Error(`${skill} 的证据类型无效`)
   if (skill === 'use-hypit-video') await validateHypitHandoff(root, evidence)
+  await validateViralAnalysisEvidence(root, skill, evidence)
   if (snapshotEvidenceSkills.has(skill) && !evidence.some((path) => new RegExp(`^\\.short-drama/evidence/${stage}-[0-9a-f-]+\\.json$`).test(path))) throw new Error(`${skill} 必须使用不可变阶段资产快照作为证据`)
   const episodePattern = episodeEvidence[skill]
   if (episodePattern) for (const episode of await selectedEpisodes(root)) if (!evidence.some((path) => episodePattern(episode).test(path))) throw new Error(`${skill} 缺少 ${episode} 的执行证据`)

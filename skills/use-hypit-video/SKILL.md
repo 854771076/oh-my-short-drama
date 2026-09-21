@@ -1,13 +1,13 @@
 ---
 name: use-hypit-video
-description: 在用户需要 Hypit 的完整视频编排、SVML/SVS/SVRun、Studio 或可复用变体时，按需安装并调用官方 Hypit Skill 与可执行程序。
+description: 在 viral-recreation 复刻分析中自动使用 Hypit 做中间理解，或在用户明确需要完整视频编排、SVML/SVS/SVRun、Studio、Build 或可复用变体时，按需安装并调用官方 Hypit Skill 与可执行程序。
 ---
 
 # 使用 Hypit 完整视频工作流
 
-当用户明确要求 Hypit、SVML、Studio、完整视频变体或需要 Hypit 的运行时能力时使用。本插件不复制 Hypit 源码，而是从官方发布渠道安装并复用当前机器已有版本。
+当项目为 `viral-recreation` 时自动且必须使用，无需用户再次点名；当项目不是复刻流程时，只有用户明确要求 Hypit、SVML、Studio、Build、完整视频变体或运行时能力才使用。本插件不复制 Hypit 源码，而是从官方发布渠道安装并复用当前机器已有版本。
 
-在 `viral-recreation` 复刻链路中，Hypit 的角色固定为中间理解器：它读取参考视频并形成 Brief、Analysis、Timeline、Treatment 等可回读项目文件；本插件随后把这些内容翻译为自己的 `reference-video-analysis` 和 `recreation-workflow`。此模式禁止调用 Hypit Build，最终图片、视频、音频、时间线和交付必须继续走本插件的 Provider、资产账本、审片和 Remotion 门禁。
+在 `viral-recreation` 复刻链路中，Hypit 的角色固定为中间理解器：它在参考视频已经 selected 且 prepared 之后、正式 `reference-video-analysis` 之前运行，形成 Brief、Analysis、Timeline、Treatment 等可回读项目文件；本插件随后把这些内容翻译为自己的 `reference-video-analysis` 和 `recreation-workflow`。此模式禁止调用 Hypit Build，最终图片、视频、音频、时间线和交付必须继续走本插件的 Provider、资产账本、审片和 Remotion 门禁。
 
 首次使用先执行：
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createWriteStream } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, extname, resolve } from 'node:path'
 import { Readable, Transform } from 'node:stream'
@@ -14,6 +14,7 @@ import { probeReferenceVideo } from './reference-video.mjs'
 const scripts = dirname(fileURLToPath(import.meta.url))
 const MAX_BYTES = 2 * 1024 * 1024 * 1024
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.webm', '.mkv'])
+const YTDLP_BROWSER_FALLBACK_CODE = 'YTDLP_HTTP_403_BROWSER_SESSION_REQUIRED'
 
 const PLATFORM_HOSTS = [
   ['douyin', /(?:^|\.)douyin\.com$/],
@@ -95,11 +96,26 @@ async function inspectWithDtk(reference, options) {
   return inspected
 }
 
+export class YtDlpBrowserFallbackError extends Error {
+  constructor() {
+    super('yt-dlp 被平台以 HTTP 403 拒绝；必须切换到用户现有且已登录的 Chrome 会话，禁止新建临时浏览器')
+    this.name = 'YtDlpBrowserFallbackError'
+    this.code = YTDLP_BROWSER_FALLBACK_CODE
+    this.exitCode = 42
+    this.fallback = { type: 'browser-session', browser: 'chrome', session: 'existing-user', requires_login: true }
+  }
+}
+
 function runYtDlp(binary, args) {
   const result = spawnSync(binary, ['--ignore-config', ...args], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, env: { ...process.env, YTDLP_NO_PLUGINS: '1' } })
   if (result.error?.code === 'ENOENT') throw new Error('未安装 yt-dlp；请安装后重试，或配置 DTK')
   if (result.error) throw result.error
-  if (result.status !== 0) throw new Error(`yt-dlp 执行失败：${String(result.stderr || result.stdout || result.status).trim()}`)
+  if (result.status !== 0) {
+    const failure = String(result.stderr || result.stdout || result.status)
+    // 403 通常代表平台拒绝非浏览器请求；不要把可能带签名 URL 的完整 stderr 写进日志或项目。
+    if (/(?:HTTP\s+Error\s+403|HTTP\s+403|403\s+Forbidden)/i.test(failure)) throw new YtDlpBrowserFallbackError()
+    throw new Error(`yt-dlp 执行失败（退出码 ${result.status}）；为避免泄露签名 URL 或会话信息，不记录下载器原始输出`)
+  }
   return result.stdout
 }
 
@@ -171,6 +187,40 @@ async function atomicJson(root, path, value) {
   await rename(temporary, path)
 }
 
+function validateImportIdentity(options) {
+  if (options.rightsConfirmation?.confirmed !== true || !['owned', 'licensed', 'authorized-reference'].includes(options.rightsConfirmation?.basis)) throw new Error('下载前必须确认素材权利或参考分析授权')
+  if (!/^src-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(options.sourceKey || '')) throw new Error('sourceKey 必须为 src-xxx 格式')
+  if (!/^v\d{3}$/.test(options.versionId || '')) throw new Error('versionId 必须为 v001 格式')
+}
+
+async function finalizeReferenceImport(projectRoot, options, downloaded, provider, reference, metadata, receiptPath) {
+  const contentId = metadata.content_id || metadata.id
+  if (typeof contentId !== 'string' || !contentId.trim()) throw new Error('参考视频元数据缺少作品 ID')
+  const sourceUrl = metadata.web_url || metadata.webpage_url || reference.url
+  parseReferenceVideoUrl(sourceUrl)
+  const info = await stat(downloaded.path)
+  if (!info.isFile() || info.size <= 0 || info.size > MAX_BYTES) throw new Error('下载视频为空或超过 2 GiB')
+  const technical = await probeReferenceVideo(downloaded.path)
+  const digest = await fileSha256(downloaded.path)
+  runProjectStore('put-source', projectRoot, options.sourceKey, options.versionId, downloaded.path, '--select')
+  const receipt = {
+    schema_version: 1,
+    imported_at: new Date().toISOString(),
+    provider,
+    platform: metadata.platform || reference.platform,
+    content_id: String(contentId),
+    source_url: sourceUrl,
+    title: metadata.title || null,
+    author: metadata.author?.nickname || metadata.uploader || null,
+    source_ref: { key: options.sourceKey, version_id: options.versionId, sha256: digest, size_bytes: info.size },
+    technical,
+    upstream_download_id: downloaded.upstreamDownloadId || null,
+    rights_confirmation: { confirmed: true, basis: options.rightsConfirmation.basis },
+  }
+  await atomicJson(projectRoot, receiptPath, receipt)
+  return { ...receipt, receipt_path: `.short-drama/reference-imports/${options.sourceKey}/${options.versionId}.json` }
+}
+
 function rejectCredentialFields(value, path = '') {
   if (!value || typeof value !== 'object') return
   for (const [key, child] of Object.entries(value)) {
@@ -195,7 +245,7 @@ export async function validateReferenceImportReceipts(rootValue) {
       const versionId = file.slice(0, -5)
       const receipt = JSON.parse(await readFile(resolve(receiptsRoot, sourceEntry.name, file), 'utf8'))
       rejectCredentialFields(receipt)
-      if (!receipt || Object.keys(receipt).sort().join() !== [...fields].sort().join() || receipt.schema_version !== 1 || !Number.isFinite(Date.parse(receipt.imported_at)) || !['dtk', 'yt-dlp'].includes(receipt.provider)) throw new Error(`${sourceEntry.name}@${versionId} 导入收据合同无效`)
+      if (!receipt || Object.keys(receipt).sort().join() !== [...fields].sort().join() || receipt.schema_version !== 1 || !Number.isFinite(Date.parse(receipt.imported_at)) || !['dtk', 'yt-dlp', 'browser-session'].includes(receipt.provider)) throw new Error(`${sourceEntry.name}@${versionId} 导入收据合同无效`)
       parseReferenceVideoUrl(receipt.source_url)
       if (receipt.source_ref?.key !== sourceEntry.name || receipt.source_ref?.version_id !== versionId || !/^[0-9a-f]{64}$/.test(receipt.source_ref?.sha256 || '') || !Number.isInteger(receipt.source_ref?.size_bytes) || receipt.source_ref.size_bytes <= 0) throw new Error(`${sourceEntry.name}@${versionId} source_ref 无效`)
       if (receipt.rights_confirmation?.confirmed !== true || !['owned', 'licensed', 'authorized-reference'].includes(receipt.rights_confirmation?.basis)) throw new Error(`${sourceEntry.name}@${versionId} 权利确认无效`)
@@ -211,10 +261,8 @@ export async function validateReferenceImportReceipts(rootValue) {
 }
 
 export async function importReferenceVideoUrl(root, options = {}) {
-  if (options.rightsConfirmation?.confirmed !== true || !['owned', 'licensed', 'authorized-reference'].includes(options.rightsConfirmation?.basis)) throw new Error('下载前必须确认素材权利或参考分析授权')
+  validateImportIdentity(options)
   const projectRoot = resolve(root)
-  if (!/^src-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(options.sourceKey || '')) throw new Error('sourceKey 必须为 src-xxx 格式')
-  if (!/^v\d{3}$/.test(options.versionId || '')) throw new Error('versionId 必须为 v001 格式')
   const receiptPath = resolve(projectRoot, '.short-drama/reference-imports', options.sourceKey, `${options.versionId}.json`)
   // 收据是导入事务的最后一步，所有可预检的路径风险必须在网络请求与来源登记前失败。
   await assertSafeOutputPath(projectRoot, receiptPath, '参考视频导入收据')
@@ -223,28 +271,37 @@ export async function importReferenceVideoUrl(root, options = {}) {
   const staging = await mkdtemp(resolve(tmpdir(), 'short-drama-reference-import-'))
   try {
     const downloaded = inspected.provider === 'dtk' ? await downloadWithDtk(inspected, staging, options) : await downloadWithYtDlp(inspected, staging)
-    const info = await stat(downloaded.path)
-    if (!info.isFile() || info.size <= 0 || info.size > MAX_BYTES) throw new Error('下载视频为空或超过 2 GiB')
-    const technical = await probeReferenceVideo(downloaded.path)
-    const digest = await fileSha256(downloaded.path)
-    runProjectStore('put-source', projectRoot, options.sourceKey, options.versionId, downloaded.path, '--select')
-    const metadata = inspected.metadata
-    const receipt = {
-      schema_version: 1,
-      imported_at: new Date().toISOString(),
-      provider: inspected.provider,
-      platform: metadata.platform || inspected.reference.platform,
-      content_id: String(metadata.content_id || metadata.id),
-      source_url: metadata.web_url || metadata.webpage_url || inspected.reference.url,
-      title: metadata.title || null,
-      author: metadata.author?.nickname || metadata.uploader || null,
-      source_ref: { key: options.sourceKey, version_id: options.versionId, sha256: digest, size_bytes: info.size },
-      technical,
-      upstream_download_id: downloaded.upstreamDownloadId,
-      rights_confirmation: { confirmed: true, basis: options.rightsConfirmation.basis },
-    }
-    await atomicJson(projectRoot, receiptPath, receipt)
-    return { ...receipt, receipt_path: `.short-drama/reference-imports/${options.sourceKey}/${options.versionId}.json` }
+    return await finalizeReferenceImport(projectRoot, options, downloaded, inspected.provider, inspected.reference, inspected.metadata, receiptPath)
+  } finally {
+    await rm(staging, { recursive: true, force: true })
+  }
+}
+
+export async function importReferenceVideoBrowserFile(root, options = {}) {
+  validateImportIdentity(options)
+  if (options.browserSession !== 'existing-user-chrome') throw new Error('浏览器兜底只允许用户现有且已登录的 Chrome 会话，禁止临时浏览器或新建隔离会话')
+  const reference = parseReferenceVideoUrl(options.input)
+  const localFile = resolve(options.localFile || '')
+  if (!VIDEO_EXTENSIONS.has(extname(localFile).toLowerCase())) throw new Error('浏览器会话下载结果必须是 mp4、mov、webm 或 mkv')
+  const inputInfo = await stat(localFile)
+  if (!inputInfo.isFile() || inputInfo.size <= 0 || inputInfo.size > MAX_BYTES) throw new Error('浏览器会话下载视频为空或超过 2 GiB')
+  const metadata = {
+    platform: reference.platform,
+    content_id: options.contentId,
+    web_url: reference.url,
+    title: options.title || null,
+    author: options.author || null,
+  }
+  const projectRoot = resolve(root)
+  const receiptPath = resolve(projectRoot, '.short-drama/reference-imports', options.sourceKey, `${options.versionId}.json`)
+  await assertSafeOutputPath(projectRoot, receiptPath, '参考视频导入收据')
+  await assertSafeOutputPath(projectRoot, dirname(receiptPath), '参考视频导入收据目录')
+  const staging = await mkdtemp(resolve(tmpdir(), 'short-drama-browser-reference-import-'))
+  const snapshot = resolve(staging, `download${extname(localFile).toLowerCase()}`)
+  try {
+    // 浏览器下载文件可能仍在外部目录被改写，先固定一次性快照再探测和登记，避免哈希与项目副本竞态。
+    await copyFile(localFile, snapshot)
+    return await finalizeReferenceImport(projectRoot, options, { path: snapshot, upstreamDownloadId: null }, 'browser-session', reference, metadata, receiptPath)
   } finally {
     await rm(staging, { recursive: true, force: true })
   }
@@ -287,7 +344,23 @@ async function main() {
     const result = await importReferenceVideoUrl(root, { input, sourceKey, versionId, provider: optionValue(args, '--provider') || 'auto', rightsConfirmation: { confirmed: true, basis } })
     return console.log(JSON.stringify(result, null, 2))
   }
-  throw new Error('用法：reference-video-import.mjs inspect|import|--self-check ...')
+  if (command === 'import-browser-file') {
+    const [root, input, localFile, sourceKey, versionId] = args
+    const basis = optionValue(args, '--rights-basis')
+    const contentId = optionValue(args, '--content-id')
+    if (!root || !input || !localFile || !sourceKey || !versionId || !basis || !contentId) throw new Error('用法：reference-video-import.mjs import-browser-file <项目目录> <页面链接> <本地视频> <source-key> <version> --browser-session existing-user-chrome --content-id <作品ID> --rights-basis owned|licensed|authorized-reference')
+    const result = await importReferenceVideoBrowserFile(root, { input, localFile, sourceKey, versionId, browserSession: optionValue(args, '--browser-session'), contentId, rightsConfirmation: { confirmed: true, basis } })
+    return console.log(JSON.stringify(result, null, 2))
+  }
+  throw new Error('用法：reference-video-import.mjs inspect|import|import-browser-file|--self-check ...')
 }
 
-if (resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) main().catch((error) => { console.error(error.message); process.exitCode = 1 })
+if (resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) main().catch((error) => {
+  if (error?.code === YTDLP_BROWSER_FALLBACK_CODE) {
+    console.error(JSON.stringify({ error: { code: error.code, message: error.message, fallback: error.fallback } }))
+    process.exitCode = error.exitCode
+    return
+  }
+  console.error(error.message)
+  process.exitCode = 1
+})
