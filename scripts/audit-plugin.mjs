@@ -4,9 +4,11 @@ import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { injectPromptSystemVars, systemVariableNames } from './prompt-system-vars.mjs'
+import { validateModuleMap } from './module-map.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const map = JSON.parse(await readFile(resolve(root, 'references/skill-map.json'), 'utf8'))
+const moduleMap = validateModuleMap(JSON.parse(await readFile(resolve(root, 'references/module-map.json'), 'utf8')))
 const failures = []
 
 for (const path of ['.DS_Store', '.playwright-mcp']) {
@@ -17,7 +19,7 @@ for (const path of ['.DS_Store', '.playwright-mcp']) {
   } catch {}
 }
 
-for (const path of ['README.md', 'LICENSE', '.codex-plugin/plugin.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.claude-plugin/mcp.json', '.github/workflows/ci.yml', '.github/workflows/release.yml', '.github/workflows/upstream-sync.yml', 'references/project-spec-v1.md', 'references/codex-contracts.md', 'scripts/check-update.mjs', 'scripts/validate-project.mjs', 'scripts/skill-runs.mjs', 'scripts/preflight.mjs', 'scripts/provider-setup.mjs', 'scripts/blender-previz.py', 'scripts/previz-contract.mjs', 'scripts/previz-self-check.mjs', 'scripts/reference-video-import.mjs', 'scripts/generation/live-smoke-test.mjs', 'scripts/document-reference.mjs', 'scripts/reference-bindings.mjs', 'scripts/media-hosting/litterbox.mjs', 'scripts/media-hosting/publish.mjs']) {
+for (const path of ['README.md', 'LICENSE', '.codex-plugin/plugin.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.claude-plugin/mcp.json', '.github/workflows/ci.yml', '.github/workflows/release.yml', '.github/workflows/upstream-sync.yml', 'references/project-spec-v1.md', 'references/codex-contracts.md', 'references/module-map.json', 'scripts/check-update.mjs', 'scripts/validate-project.mjs', 'scripts/skill-runs.mjs', 'scripts/module-map.mjs', 'scripts/preflight.mjs', 'scripts/provider-setup.mjs', 'scripts/blender-previz.py', 'scripts/previz-contract.mjs', 'scripts/previz-self-check.mjs', 'scripts/reference-video-import.mjs', 'scripts/generation/live-smoke-test.mjs', 'scripts/document-reference.mjs', 'scripts/reference-bindings.mjs', 'scripts/media-hosting/litterbox.mjs', 'scripts/media-hosting/publish.mjs']) {
   try { await access(resolve(root, path)) } catch { failures.push(`缺少项目规范组件：${path}`) }
 }
 
@@ -50,6 +52,7 @@ async function files(directory) {
 const skillNames = (await readdir(resolve(root, 'skills'), { withFileTypes: true }))
   .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()
 const declaredSkills = [...map.workflow, ...map.support].sort()
+if (Object.keys(moduleMap.modules).length !== skillNames.length) failures.push('模块注册表未覆盖全部现有 Skill')
 if (new Set(declaredSkills).size !== declaredSkills.length) failures.push('workflow/support 存在重复 Skill')
 for (const name of skillNames.filter((name) => !declaredSkills.includes(name))) failures.push(`未声明 Skill：${name}`)
 for (const name of declaredSkills.filter((name) => !skillNames.includes(name))) failures.push(`缺少 Skill：${name}`)
