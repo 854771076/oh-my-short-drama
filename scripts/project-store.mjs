@@ -10,7 +10,7 @@ import { withFileLock } from './file-lock.mjs'
 import { runPreflight } from './preflight.mjs'
 import { invalidateFrom, invalidateShot } from './invalidate-workflow.mjs'
 import { invalidateShotAssets } from './asset-ledger.mjs'
-import { ANTI_GRID_CLAIM_ZH, ANTI_GRID_CLAIM_EN, hasAntiGridClaim } from './grid-detect.mjs'
+import { ANTI_GRID_CLAIM_ZH, ANTI_GRID_CLAIM_EN, NO_GENERATED_TEXT_CLAIM_ZH, NO_GENERATED_TEXT_CLAIM_EN, hasAntiGridClaim, hasNoGeneratedTextClaim } from './grid-detect.mjs'
 import { changedShotNumbers } from './shot-fingerprint.mjs'
 import { DEFAULT_WORKSPACE_ROOT, openStudio } from './studio.mjs'
 import { normalizeModelParameters, providerSetupCatalog, providerSupports } from './generation/providers.mjs'
@@ -534,6 +534,7 @@ export function validateVideoPrompts(document, episodeKey) {
     }
     // 固定反宫格声明：所有配置文件无错镜头必须原样包含（归一化匹配，标点空白不敏感）
     if (shot.errors.length === 0 && !hasAntiGridClaim(shot.prompt)) throw new Error(`video-prompts shot ${shot.shot_number} prompt 必须原样包含固定反宫格声明（见 write-drama-video-prompts 模板）`)
+    if (shot.errors.length === 0 && !hasNoGeneratedTextClaim(shot.prompt)) throw new Error(`video-prompts shot ${shot.shot_number} prompt 必须原样包含固定禁生成文字声明（见 write-drama-video-prompts 模板）`)
   }
   if (document.approved && (document.unresolved.length || document.shots.some((shot) => shot.errors.length))) throw new Error('video-prompts 存在未决项或错误时不得 approved')
 }
@@ -785,11 +786,12 @@ async function main() {
     validateDocument('outline', { episodes: [{ key: 'ep-001', order: 1 }], coverage_check: {}, continuity_check: {} })
     validateDocument('continuity-plan', { episode_key: 'ep-001', source_versions: { storyboard: 'v001', 'director-book': 'v001', 'production-plan': 'v001' }, scenes: [{ scene_key: 'scene-001', coordinate_mode: 'semantic', axis_id: 'axis-a', axis_description: '门到窗形成主轴线', camera_side: 'north', anchors: ['door', 'window'], lighting_anchor: 'window-left' }], shots: [{ shot_number: 1, scene_key: 'scene-001', camera_setup_id: 'cam-a', start_state: { actors: [], props: [], axis_id: 'axis-a', camera_side: 'north', lighting_anchor: 'window-left' }, end_state: { actors: [], props: [], axis_id: 'axis-a', camera_side: 'north', lighting_anchor: 'window-left' }, transition_link: { mode: 'independent', source_shot_number: null, source_camera_setup_id: null, enabled: false, reason: '首镜建立空间', required_provider_capability: null }, inherited_fields: ['axis_id', 'camera_side', 'lighting_anchor'], allowed_changes: [], evidence: ['director-book:scene-001'] }], unresolved: [], approved: true }, 'ep-001')
     validateDocument('audio-plan', { episode_key: 'ep-001', source_versions: {}, audio_strategy: { mode: 'native-first', provider_selection: 'prefer-native', fallback_allowed: true, fallback_reasons: [...NATIVE_AUDIO_FAILURE_REASONS] }, lines: [], voice_bindings: [], music_tracks: [{ key: 'op', purpose: 'op', title: '片头曲', source_mode: 'generated', prompt: '紧张悬疑电子乐', tags: 'cinematic,electronic', lyrics: '', make_instrumental: true, provider: 'starrouter', model: 'suno_music', matched_shots: [1] }], unresolved: [], approved: true }, 'ep-001')
-    validateVideoPrompts({ episode_key: 'ep-001', source_versions: {}, unresolved: [], approved: true, shots: [{ shot_number: 1, production_plan_version: 'v001', storyboard_version: 'v001', provider: 'runninghub', model_or_workflow: 'minimax-h3-reference-to-video', prompt_profile: 'h3', input_mode: 'Ref2VA', prompt: `subject_definitions:\nA\nsummary:\nA\nretention_analysis:\nA\ndetailed_description:\n${ANTI_GRID_CLAIM_EN}\nA\n${ANTI_GRID_CLAIM_EN}\noverall_soundscape:\nA\nnon_diegetic_music:\nN/A`, duration: 5, references: [], continuity: {}, audio_policy: {}, errors: [] }] }, 'ep-001')
-    const seedance = { episode_key: 'ep-001', source_versions: {}, unresolved: [], approved: true, shots: [{ shot_number: 1, production_plan_version: 'v001', storyboard_version: 'v001', provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: 'first-last-frame', prompt: `${ANTI_GRID_CLAIM_ZH}\n[0–5s] 人物走到门口。[5–15s] 人物停下并回头。\n${ANTI_GRID_CLAIM_ZH}`, duration: 15, references: [], continuity: {}, audio_policy: {}, errors: [] }] }
+    validateVideoPrompts({ episode_key: 'ep-001', source_versions: {}, unresolved: [], approved: true, shots: [{ shot_number: 1, production_plan_version: 'v001', storyboard_version: 'v001', provider: 'runninghub', model_or_workflow: 'minimax-h3-reference-to-video', prompt_profile: 'h3', input_mode: 'Ref2VA', prompt: `subject_definitions:\nA\nsummary:\nA\nretention_analysis:\nA\ndetailed_description:\n${ANTI_GRID_CLAIM_EN}\n${NO_GENERATED_TEXT_CLAIM_EN}\nA\n${ANTI_GRID_CLAIM_EN}\noverall_soundscape:\nA\nnon_diegetic_music:\nN/A`, duration: 5, references: [], continuity: {}, audio_policy: {}, errors: [] }] }, 'ep-001')
+    const seedance = { episode_key: 'ep-001', source_versions: {}, unresolved: [], approved: true, shots: [{ shot_number: 1, production_plan_version: 'v001', storyboard_version: 'v001', provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: 'first-last-frame', prompt: `${ANTI_GRID_CLAIM_ZH}\n${NO_GENERATED_TEXT_CLAIM_ZH}\n[0–5s] 人物走到门口。[5–15s] 人物停下并回头。\n${ANTI_GRID_CLAIM_ZH}`, duration: 15, references: [], continuity: {}, audio_policy: {}, errors: [] }] }
     validateVideoPrompts(seedance, 'ep-001')
     try { validateVideoPrompts({ ...seedance, shots: [{ ...seedance.shots[0], prompt: '[1–8s] 人物走动。[9–15s] 人物停下。' }] }, 'ep-001'); throw new Error('时间段自检失败') } catch (error) { if (!String(error.message).includes('从 0 连续覆盖')) throw error }
     try { validateVideoPrompts({ ...seedance, shots: [{ ...seedance.shots[0], prompt: '[0–15s] 连续画面，不要分屏。' }] }, 'ep-001'); throw new Error('反宫格声明自检失败') } catch (error) { if (!String(error.message).includes('反宫格声明')) throw error }
+    try { validateVideoPrompts({ ...seedance, shots: [{ ...seedance.shots[0], prompt: `${ANTI_GRID_CLAIM_ZH}\n[0–15s] 人物连续走动。\n${ANTI_GRID_CLAIM_ZH}` }] }, 'ep-001'); throw new Error('禁生成文字声明自检失败') } catch (error) { if (!String(error.message).includes('禁生成文字声明')) throw error }
     return console.log('ok')
   }
   if (command === 'init') {

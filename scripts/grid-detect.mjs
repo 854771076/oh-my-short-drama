@@ -8,6 +8,10 @@ import { resolve } from 'node:path'
 export const ANTI_GRID_CLAIM_ZH = '成片必须是单一连续的电影画面并铺满整个屏幕，严禁宫格、分屏、分框、拼贴、分割线、分镜编号或任何多画面构图'
 export const ANTI_GRID_CLAIM_EN = 'The final video must be one single continuous cinematic frame filling the entire screen; no grid, split screen, panels, collage, dividing lines, panel numbers, or any multi-image composition'
 
+// 编译后的视频提示词必须明确禁止模型把文字直接烙进源视频；获批文字统一留给后期图形层。
+export const NO_GENERATED_TEXT_CLAIM_ZH = '源视频画面不得生成任何字幕、标题、标签、Logo、水印、UI文字或其他可读文字，所有获批文字只允许由后期图形层添加'
+export const NO_GENERATED_TEXT_CLAIM_EN = 'The source video must contain no generated subtitles, captions, titles, labels, logos, watermarks, UI text, or any other readable text; all approved text must be added only in post-production'
+
 // 整张多格分镜板直接作为语义参考时，必须额外原样包含的条款：格子=时间顺序，不是成片布局
 export const PANEL_BOARD_CLAIM_ZH = '参考分镜板中的画格只表示动作的时间顺序与叙事关键帧，禁止把画格边框、分割线、编号或多格并排构图拍进成片'
 export const PANEL_BOARD_CLAIM_EN = 'The panels in the reference storyboard indicate only the chronological order of actions and narrative keyframes; never render panel borders, dividing lines, numbers, or side-by-side multiple panels in the final video'
@@ -21,6 +25,16 @@ const EN_BAN = normalize('grid split screen panels')
 export function hasAntiGridClaim(prompt) {
   const text = normalize(prompt)
   return (text.includes(ZH_MARK) && text.includes(ZH_BAN.slice(0, 2))) || (text.includes(EN_MARK) && text.includes('gridsplitscreen'))
+}
+
+const NO_TEXT_ZH_MARK = normalize('源视频画面不得生成任何字幕')
+const NO_TEXT_ZH_POST = normalize('所有获批文字只允许由后期图形层添加')
+const NO_TEXT_EN_MARK = normalize('source video must contain no generated subtitles')
+const NO_TEXT_EN_POST = normalize('approved text must be added only in post-production')
+
+export function hasNoGeneratedTextClaim(prompt) {
+  const text = normalize(prompt)
+  return (text.includes(NO_TEXT_ZH_MARK) && text.includes(NO_TEXT_ZH_POST)) || (text.includes(NO_TEXT_EN_MARK) && text.includes(NO_TEXT_EN_POST))
 }
 
 const PANEL_ZH_MARK = normalize('画格只表示动作的时间顺序')
@@ -249,6 +263,7 @@ async function selfCheck() {
   const video = detectGridInFrames(Array.from({ length: 8 }, (_, index) => ({ width, height, data: index === 4 ? natural : grid })))
   if (!video.detected || video.lines[0].frames < 7) throw new Error('宫格视频持续性自检失败')
   if (!hasAntiGridClaim(`${ANTI_GRID_CLAIM_ZH}，其他内容`) || !hasAntiGridClaim(`intro. ${ANTI_GRID_CLAIM_EN}.`) || hasAntiGridClaim('成片是一个好看的宫格')) throw new Error('反宫格声明匹配自检失败')
+  if (!hasNoGeneratedTextClaim(`${NO_GENERATED_TEXT_CLAIM_ZH}。`) || !hasNoGeneratedTextClaim(`${NO_GENERATED_TEXT_CLAIM_EN}.`) || hasNoGeneratedTextClaim('不要出现字幕')) throw new Error('禁生成文字声明匹配自检失败')
   if (!hasPanelBoardClaim(`${PANEL_BOARD_CLAIM_ZH}。`) || !hasPanelBoardClaim(`${PANEL_BOARD_CLAIM_EN}.`) || hasPanelBoardClaim('画格表示构图参考，画格边框很好看') || hasPanelBoardClaim('the panels show a nice grid layout with borders')) throw new Error('分镜板条款匹配自检失败')
   console.log('ok')
 }

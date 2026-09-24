@@ -14,7 +14,7 @@ import { selfCheck as checkLitterbox } from './media-hosting/litterbox.mjs'
 import { selfCheck as checkBailian } from './generation/bailian.mjs'
 import { listReferenceUploads, publishReferenceImage, selfCheck as checkPublish, validateTemporaryReferenceUrl } from './media-hosting/publish.mjs'
 import { validateVideoReferenceBindings } from './reference-bindings.mjs'
-import { ANTI_GRID_CLAIM_ZH, PANEL_BOARD_CLAIM_ZH } from './grid-detect.mjs'
+import { ANTI_GRID_CLAIM_ZH, NO_GENERATED_TEXT_CLAIM_ZH, PANEL_BOARD_CLAIM_ZH } from './grid-detect.mjs'
 import { missingPrevizAssets, missingStoryboardAssets } from './workflow-gates.mjs'
 import { putFinalSpeechAlignment } from './speech-timing.mjs'
 import { DUBBING_REVIEW_DIMENSIONS, putDubbingPerformanceReview } from './dubbing-performance-review.mjs'
@@ -337,8 +337,8 @@ async function main() {
     try { await validateVideoReferenceBindings(root, 'runninghub', { model: 'minimax-h3-reference-to-video', reference_image_paths: [media] }, [referenceManifest[0]]); throw new Error('错误本地参考路径仍被接受') } catch (error) { if (!String(error.message).includes('本地参考路径与资产版本不一致')) throw error }
     try { await validateTemporaryReferenceUrl(root, 'https://litter.catbox.moe/untracked.png', { asset_key: 'char-a', version_id: 'v001' }); throw new Error('无收据 Litterbox URL 被接受') } catch (error) { if (!String(error.message).includes('本地上传收据')) throw error }
     const snapshot = async (name, target, type, provider, tool, args, promptDocument = null) => JSON.parse(run('task-ledger.mjs', 'snapshot', root, await json(root, `${name}-request.json`, { tool, target, type, provider, modelOrWorkflow: args.model || args.workflow_id, promptDocument, arguments: { ...args, confirmed: true } })))
-    const videoPromptText = `${ANTI_GRID_CLAIM_ZH}\n@图片1 作为首帧，人物抬头后停在结束姿态。\n${ANTI_GRID_CLAIM_ZH}`
-    const videoPromptText2 = `${ANTI_GRID_CLAIM_ZH}\n@图片1 作为首帧，人物转身走向门口后停住。\n${ANTI_GRID_CLAIM_ZH}`
+    const videoPromptText = `${ANTI_GRID_CLAIM_ZH}\n${NO_GENERATED_TEXT_CLAIM_ZH}\n@图片1 作为首帧，人物抬头后停在结束姿态。\n${ANTI_GRID_CLAIM_ZH}`
+    const videoPromptText2 = `${ANTI_GRID_CLAIM_ZH}\n${NO_GENERATED_TEXT_CLAIM_ZH}\n@图片1 作为首帧，人物转身走向门口后停住。\n${ANTI_GRID_CLAIM_ZH}`
     const videoPromptReference = { episode_key: 'ep-001', version_id: 'v001', shot_number: 1 }
     const videoPromptReference2 = { episode_key: 'ep-001', version_id: 'v001', shot_number: 2 }
     const audioPromptReference = { kind: 'audio-plan', episode_key: 'ep-001', version_id: 'v001', line_index: 1 }
@@ -541,7 +541,7 @@ async function main() {
     run('review-ledger.mjs', 'put', root, await json(root, 'board-review-ep001-002-v002.json', { assetKey: 'board-ep001-002', versionId: 'v002', visual: 'passed', audio: 'not-applicable', transition: 'not-applicable', captions: 'not-applicable', issues: [], criteria: storyboardCriteria.map((criterion) => ({ criterion, status: 'passed', observation: `${criterion}已有可见证据` })) }))
     await publishReferenceImage(root, { ...publishInput, asset_key: 'board-ep001-002', version_id: 'v002' }, async () => new Response('https://litter.catbox.moe/board.png', { status: 200 }))
     const boardRole = (role) => [{ type: 'image', order: 1, asset_key: 'board-ep001-002', version_id: 'v002', role }]
-    const panelDoc = (version, inputMode, role, withClause) => ({ episode_key: 'ep-001', source_versions: { production_plan: version, storyboard: 'v001' }, unresolved: [], approved: true, shots: [{ ...videoPrompts.shots[0], production_plan_version: version }, { shot_number: 2, production_plan_version: version, storyboard_version: 'v001', provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: inputMode, prompt: `${ANTI_GRID_CLAIM_ZH}\n${withClause ? `${PANEL_BOARD_CLAIM_ZH}\n` : ''}人物走向门口。\n${ANTI_GRID_CLAIM_ZH}`, duration: 5, references: boardRole(role), continuity: {}, audio_policy: { mode: 'post-dub' }, errors: [] }] })
+    const panelDoc = (version, inputMode, role, withClause) => ({ episode_key: 'ep-001', source_versions: { production_plan: version, storyboard: 'v001' }, unresolved: [], approved: true, shots: [{ ...videoPrompts.shots[0], production_plan_version: version }, { shot_number: 2, production_plan_version: version, storyboard_version: 'v001', provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: inputMode, prompt: `${ANTI_GRID_CLAIM_ZH}\n${NO_GENERATED_TEXT_CLAIM_ZH}\n${withClause ? `${PANEL_BOARD_CLAIM_ZH}\n` : ''}人物走向门口。\n${ANTI_GRID_CLAIM_ZH}`, duration: 5, references: boardRole(role), continuity: {}, audio_policy: { mode: 'post-dub' }, errors: [] }] })
     const putPanelVersion = async (version, inputMode, role, withClause) => {
       const panelProduction = { ...production, shots: production.shots.map((shot, index) => index === 0 ? shot : { ...shot, input_mode: inputMode, reference_assets: boardRole(role).map(({ asset_key: key, version_id, role: referenceRole, order }) => ({ key, version_id, role: referenceRole, order })) }) }
       run('project-store.mjs', 'put-episode-document', root, 'production-plan', 'ep-001', version, await json(root, `production-panel-${version}.json`, panelProduction))
