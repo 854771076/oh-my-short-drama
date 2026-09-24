@@ -29,11 +29,11 @@
 
 付费确认只授权费用，不改变阶段。生成 MCP 会在请求落盘前检查当前阶段和全部上游门禁；直接编辑 `selected.json`、项目配置或占位文档不能使越级调用通过。
 
-每一步不是只“参考”表中的 Skill：进入阶段后运行 `node scripts/skill-runs.mjs required <项目目录> <阶段>`，完整读取并执行返回的每个原子 Skill，再用 `record` 关联实际项目产物。`workflow.mjs advance` 会拒绝没有 Skill 执行凭证的剧本、导演本、资产、分镜、制作计划、媒体或剪辑结果。
+全流程只调用 `short-drama` 主 Skill。进入阶段后运行 `node scripts/module-runs.mjs required <项目目录> <阶段>`，主 Skill 完整读取并执行返回的 reference 模块，再用 `record` 关联实际项目产物。`workflow.mjs advance` 会拒绝没有模块执行凭证的结果。
 
-## 原子 Skill
+## Reference 模块
 
-| Skill | 用途与使用场景 | 上下游/顺序 | 必须由用户确认 |
+| 模块 | 用途与使用场景 | 上下游/顺序 | 必须由用户确认 |
 |---|---|---|---|
 | `manage-drama-projects` | 按规范 v1 初始化和校验本地项目、来源、分集、剧本、导演本、制作计划与分镜版本 | 全流程控制面；第一步 | 项目目录、名称、语言、画幅、集数；旧配置迁移、覆盖/重命名 |
 | `analyze-drama-source` | Codex 全量分析小说、资料和制作要求 | 初始化后；先于简报/剧本 | 原文范围、改编边界、冲突要求 |
@@ -74,7 +74,7 @@
 | `edit-drama-timeline` | 用本地 Remotion 工程完成剪辑、字幕、转场、声音和渲染 | 全部选镜验收通过后 | 入选版本、剪辑结构、字幕样式、转场、声音目标、输出规格 |
 | `edit-deliver-drama` | 完整审片、技术检查和本地交付打包 | 最后一步 | 批准版、文件名、交付目录和发布规格 |
 | `orchestrate-short-drama` | 按状态机编排完整流程，不替代原子工作 | 新建、继续、查看项目时 | 阶段回退、批量范围和任何付费动作 |
-| `short-drama-skill-index` | 按产物类型查找对应 Skill | 不确定该调用谁时 | 无；只路由 |
+| `short-drama-skill-index` | 按产物类型查找对应模块 | 不确定该加载哪个 reference 时 | 无；只路由 |
 | `use-short-drama-studio` | 使用者入口，解释全流程、依赖、顺序和确认门禁 | 开始制作或询问怎么使用时 | 汇总当前缺失决策，不自行代选 |
 
 ## 市场调研流程

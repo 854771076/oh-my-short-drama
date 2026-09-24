@@ -803,7 +803,7 @@ async function main() {
     for (const path of [
       resolve(root, '.short-drama/project.json'),
       resolve(root, '.short-drama/state.json'),
-      resolve(root, '.short-drama/skill-runs.json'),
+      resolve(root, '.short-drama/module-runs.json'),
       resolve(root, '.short-drama/assets.json'),
       resolve(root, '.short-drama/tasks.json'),
       resolve(root, '.short-drama/shot-reviews.json'),
@@ -819,15 +819,15 @@ async function main() {
     validateProject(project)
     await writeJson(resolve(root, '.short-drama/project.json'), project, true)
     await writeJson(resolve(root, '.short-drama/state.json'), { version: 1, stage: stages[0], completed: [], invalidatedAt: {}, updatedAt: now }, true)
-    await writeJson(resolve(root, '.short-drama/skill-runs.json'), { version: 1, runs: {} }, true)
+    await writeJson(resolve(root, '.short-drama/module-runs.json'), { version: 1, runs: {} }, true)
     await writeJson(resolve(root, '.short-drama/assets.json'), { version: 1, assets: {} }, true)
     await writeJson(resolve(root, '.short-drama/tasks.json'), { version: 1, tasks: {} }, true)
     await writeJson(resolve(root, '.short-drama/shot-reviews.json'), { version: 1, reviews: {} }, true)
     await writeJson(resolve(root, 'source/manifest.json'), { version: 1, sources: {} }, true)
     await runPreflight(root, 'init')
-    await writeText(resolve(root, '.short-drama/RESUME.md'), '# 短剧项目恢复入口\n\n每次新会话先读取 `project.json`、`state.json`、`skill-runs.json`、`environment.json` 与 `source/manifest.json`，再运行插件的 `validate-project.mjs`、`workflow.mjs status` 和 `skill-runs.mjs required`。读取 `project.json` 的 `automation_mode`：默认开启时由 agent 自行处理常规确认，关闭时逐项等待用户；任何模式都不得绕过阶段门禁、权限事实或安全校验。只执行当前阶段返回的原子 Skill；文本由 Codex 生成，媒体才调用 Provider。提示词渲染记录在 `prompt-runs/`，媒体调用记录在 `requests/`，临时公开参考图记录在 `uploads/`；先查询有效收据，不能直接重复上传。\n', true)
+    await writeText(resolve(root, '.short-drama/RESUME.md'), '# 短剧项目恢复入口\n\n每次新会话先读取 `project.json`、`state.json`、`module-runs.json`、`environment.json` 与 `source/manifest.json`，再运行插件的 `validate-project.mjs`、`workflow.mjs status` 和 `module-runs.mjs required`。读取 `project.json` 的 `automation_mode`：默认开启时由 agent 自行处理常规确认，关闭时逐项等待用户；任何模式都不得绕过阶段门禁、权限事实或安全校验。只通过 short-drama 主 Skill 执行当前阶段返回的 reference 模块；文本由 Codex 生成，媒体才调用 Provider。提示词渲染记录在 `prompt-runs/`，媒体调用记录在 `requests/`，临时公开参考图记录在 `uploads/`；先查询有效收据，不能直接重复上传。旧项目若只有 `skill-runs.json`，先运行 `module-runs.mjs migrate` 做只读迁移。\n', true)
     try {
-      await writeText(resolve(root, 'AGENTS.md'), '# 本地短剧项目\n\n本目录由 `oh-my-short-drama` 管理。开始或恢复制作时，必须先读取 `.short-drama/RESUME.md`、`.short-drama/project.json` 和 `.short-drama/state.json`。`project.json` 的 `automation_mode` 默认为 `true`；开启时 agent 自主处理常规确认，关闭时等待用户确认。任何模式都不得跳过 Skill 凭证、版本、选版、权限事实和验收门禁。\n', true)
+      await writeText(resolve(root, 'AGENTS.md'), '# 本地短剧项目\n\n本目录由 `oh-my-short-drama` 管理。开始或恢复制作时，必须先读取 `.short-drama/RESUME.md`、`.short-drama/project.json` 和 `.short-drama/state.json`。`project.json` 的 `automation_mode` 默认为 `true`；开启时 agent 自主处理常规确认，关闭时等待用户确认。任何模式都不得跳过模块凭证、版本、选版、权限事实和验收门禁。\n', true)
     } catch (error) { if (error?.code !== 'EEXIST') throw error }
     if (dirname(root) === DEFAULT_WORKSPACE_ROOT && process.env.SHORT_DRAMA_STUDIO_ACTIVE !== '1') try { await openStudio() } catch (error) { console.warn(error.message) }
     return console.log(root)
@@ -920,15 +920,16 @@ async function main() {
     if (artStyleChanged) await markVisualAssetsStale()
     if (artStyleChanged && next.creative.art_style) await saveCustomArtStyle(next.creative.art_style, dirname(root))
     await writeJson(resolve(root, '.short-drama/project.json'), next)
-    const skillRunsPath = resolve(root, '.short-drama/skill-runs.json')
-    if (await exists(skillRunsPath)) {
-      // 项目配置由本命令完成授权写入，立即刷新管理 Skill 自身证据；下游证据仍由失效阶段门禁重新要求。
-      const skillRuns = await readJson(skillRunsPath)
-      const manageRun = skillRuns.runs?.['analysis:manage-drama-projects']
+    const moduleRunsPath = resolve(root, '.short-drama/module-runs.json')
+    if (await exists(moduleRunsPath)) {
+      // 项目配置由本命令完成授权写入，立即刷新项目管理模块自身绑定；下游凭证仍由失效阶段门禁重新要求。
+      const moduleRuns = await readJson(moduleRunsPath)
+      const manageRun = moduleRuns.runs?.['analysis:manage-drama-projects']
       if (manageRun?.evidence?.includes('.short-drama/project.json')) {
         manageRun.evidenceSha256['.short-drama/project.json'] = await sha256(resolve(root, '.short-drama/project.json'))
+        if (manageRun.inputs?.includes('.short-drama/project.json')) manageRun.inputSha256['.short-drama/project.json'] = manageRun.evidenceSha256['.short-drama/project.json']
         manageRun.completedAt = new Date().toISOString()
-        await writeJson(skillRunsPath, skillRuns)
+        await writeJson(moduleRunsPath, moduleRuns)
       }
     }
     return console.log(JSON.stringify(next, null, 2))

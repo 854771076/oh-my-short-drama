@@ -21,19 +21,19 @@ import { DUBBING_REVIEW_DIMENSIONS, putDubbingPerformanceReview } from './dubbin
 import { createMarketStore } from './market/store.mjs'
 
 const plugin = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const skillMap = JSON.parse(await readFile(resolve(plugin, 'references/skill-map.json'), 'utf8'))
-const skillIndexText = await readFile(resolve(plugin, 'skills/short-drama-skill-index/SKILL.md'), 'utf8')
+const moduleMap = JSON.parse(await readFile(resolve(plugin, 'references/module-map.json'), 'utf8'))
+const moduleIndexText = await readFile(resolve(plugin, 'skills/short-drama/references/operations/short-drama-skill-index.md'), 'utf8')
 const usageGuideText = await readFile(resolve(plugin, 'references/usage-guide.md'), 'utf8')
 const codexManifest = JSON.parse(await readFile(resolve(plugin, '.codex-plugin/plugin.json'), 'utf8'))
 const claudeManifest = JSON.parse(await readFile(resolve(plugin, '.claude-plugin/plugin.json'), 'utf8'))
 const marketplaceManifest = JSON.parse(await readFile(resolve(plugin, '.claude-plugin/marketplace.json'), 'utf8'))
-if (!skillMap.support.includes('analyze-drama-market')) throw new Error('市场分析 Skill 未登记')
-if (!skillMap.support.includes('ideate-drama-from-market')) throw new Error('市场灵感 Skill 未登记为 support')
-if (!/市场.*analyze-drama-market/.test(skillIndexText)) throw new Error('Skill 索引缺少市场分析路由')
-if (!/市场.*ideate-drama-from-market/.test(skillIndexText)) throw new Error('Skill 索引缺少市场灵感路由')
+if (!moduleMap.support.includes('analyze-drama-market')) throw new Error('市场分析模块未登记')
+if (!moduleMap.support.includes('ideate-drama-from-market')) throw new Error('市场灵感模块未登记为 support')
+if (!/市场.*analyze-drama-market/.test(moduleIndexText)) throw new Error('模块索引缺少市场分析路由')
+if (!/市场.*ideate-drama-from-market/.test(moduleIndexText)) throw new Error('模块索引缺少市场灵感路由')
 if (!/market-research\.mjs refresh/.test(usageGuideText)) throw new Error('使用手册缺少市场刷新命令')
 if (codexManifest.version !== claudeManifest.version || claudeManifest.version !== marketplaceManifest.plugins[0].version) throw new Error('插件版本未在 Codex、Claude 与 marketplace 三处清单统一')
-const providerPrompts = new Set(skillMap.provider_prompts || [])
+const providerPrompts = new Set(moduleMap.provider_prompts || [])
 function run(script, ...args) {
   const result = spawnSync(process.execPath, [resolve(plugin, 'scripts', script), ...args], { encoding: 'utf8' })
   if (result.status !== 0) throw new Error(`${script} 失败：${result.stderr || result.stdout}`)
@@ -62,7 +62,7 @@ async function json(root, name, value) {
 }
 
 async function recordSkills(root, stage, evidence) {
-  const required = JSON.parse(run('skill-runs.mjs', 'required', root, stage))
+  const required = JSON.parse(run('module-runs.mjs', 'required', root, stage))
   const typedEvidence = {
     'analyze-drama-source': '.short-drama/source-analysis.json',
     'define-drama-brief': '.short-drama/brief.json',
@@ -86,18 +86,18 @@ async function recordSkills(root, stage, evidence) {
   }
   for (const skill of required) {
     const skillEvidence = typedEvidence[skill] || evidence
-    const owned = skillMap.completion_prompts?.[skill] || Object.entries(skillMap.prompts).filter(([, owner]) => owner === skill).map(([name]) => name)
+    const owned = moduleMap.completion_prompts?.[skill] || Object.entries(moduleMap.prompts).filter(([, owner]) => owner === skill).map(([name]) => name)
     if (owned.length) {
       const providerOwned = owned.filter((name) => providerPrompts.has(name))
       const prompt = ['asset-generation', 'media-production'].includes(stage) && providerOwned.length ? providerOwned[0] : owned.find((name) => !providerPrompts.has(name)) || providerOwned[0]
-      const template = resolve(plugin, 'skills', skill, 'assets/prompts', `${prompt}.zh.txt`)
+      const template = resolve(plugin, 'skills/short-drama/assets/modules', skill, 'prompts', `${prompt}.zh.txt`)
       const templateText = await readFile(template, 'utf8')
       const vars = Object.fromEntries([...templateText.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((match) => [match[1], '测试']))
       const varsPath = await json(root, `prompt-vars-${stage}-${skill}.json`, vars)
       if (providerPrompts.has(prompt)) run('render-prompt.mjs', '--template', template, '--vars', varsPath, '--output', resolve(root, `prompt-${stage}-${skill}.txt`), '--project-root', root)
       else run('render-prompt.mjs', '--template', template, '--vars', varsPath, '--codex-output', resolve(root, skillEvidence), '--project-root', root)
     }
-    run('skill-runs.mjs', 'record', root, stage, skill, skillEvidence)
+    run('module-runs.mjs', 'record', root, stage, skill, skillEvidence)
   }
 }
 
@@ -105,18 +105,18 @@ async function checkMultiEpisodeEvidence() {
   const root = await mkdtemp(resolve(tmpdir(), 'short-drama-multi-'))
   try {
     run('project-store.mjs', 'init', root)
-    const ledgerBefore = await readFile(resolve(root, '.short-drama/skill-runs.json'), 'utf8')
+    const ledgerBefore = await readFile(resolve(root, '.short-drama/module-runs.json'), 'utf8')
     const duplicateInit = spawnSync(process.execPath, [resolve(plugin, 'scripts/project-store.mjs'), 'init', root], { encoding: 'utf8' })
     if (duplicateInit.status === 0 || !duplicateInit.stderr.includes('项目已存在')) throw new Error('重复初始化保护失效')
     run('project-store.mjs', 'update-project', root, await json(root, 'same-config.json', { description: null }))
-    if ((await readFile(resolve(root, '.short-drama/skill-runs.json'), 'utf8')) !== ledgerBefore) throw new Error('保存未变化配置不应清理 Skill 凭证')
+    if ((await readFile(resolve(root, '.short-drama/module-runs.json'), 'utf8')) !== ledgerBefore) throw new Error('保存未变化配置不应清理模块凭证')
     for (const [key, order] of [['ep-001', 1], ['ep-002', 2]]) {
       run('project-store.mjs', 'put-episode', root, await json(root, `${key}.json`, { key, order, title: `第${order}集` }))
       await writeFile(resolve(root, `${key}.md`), `# 第${order}集\n`)
       run('project-store.mjs', 'put-script', root, key, 'v001', resolve(root, `${key}.md`))
     }
-    const incomplete = spawnSync(process.execPath, [resolve(plugin, 'scripts/skill-runs.mjs'), 'record', root, 'script', 'write-drama-episode', 'episodes/ep-001/scripts/v001.md'], { encoding: 'utf8' })
-    if (incomplete.status === 0 || !incomplete.stderr.includes('缺少 ep-002 的执行证据')) throw new Error('多集 Skill 证据覆盖门禁失效')
+    const incomplete = spawnSync(process.execPath, [resolve(plugin, 'scripts/module-runs.mjs'), 'record', root, 'script', 'write-drama-episode', 'episodes/ep-001/scripts/v001.md'], { encoding: 'utf8' })
+    if (incomplete.status === 0 || !incomplete.stderr.includes('缺少 ep-002 的执行证据')) throw new Error('多集模块证据覆盖门禁失效')
     await writeFile(resolve(root, 'editing/timeline.json'), '{}\n')
     await writeFile(resolve(root, 'delivery/final.mp4'), 'legacy')
     await writeFile(resolve(root, 'delivery/manifest.json'), '{}\n')
@@ -282,8 +282,8 @@ async function main() {
     try { await callGeneration('transcribe_audio', { provider: 'starrouter', model: 'whisper-1', file_path: '/etc/hosts', project_root: root, confirmed: true }); throw new Error('项目外 ASR 文件未被拒绝') }
     catch (error) { if (!String(error.message).includes('assets/ 内文件')) throw error }
     const environment = JSON.parse(await readFile(resolve(root, '.short-drama/environment.json'), 'utf8'))
-    if (!environment.ok || !(await readFile(resolve(root, '.short-drama/RESUME.md'), 'utf8')).includes('skill-runs.mjs required')) throw new Error('环境预检或跨会话恢复入口初始化失败')
-    const promptTemplate = resolve(plugin, 'skills/generate-character-images/assets/prompts/character_asset_sheet.zh.txt')
+    if (!environment.ok || !(await readFile(resolve(root, '.short-drama/RESUME.md'), 'utf8')).includes('module-runs.mjs required')) throw new Error('环境预检或跨会话恢复入口初始化失败')
+    const promptTemplate = resolve(plugin, 'skills/short-drama/assets/modules/generate-character-images/prompts/character_asset_sheet.zh.txt')
     const promptOutput = resolve(root, 'prompt-output.txt')
     const promptText = await readFile(promptTemplate, 'utf8')
     const promptVars = Object.fromEntries([...promptText.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((match) => [match[1], '测试']))
@@ -291,7 +291,7 @@ async function main() {
     const promptRuns = await readdir(resolve(root, '.short-drama/prompt-runs'))
     const promptRun = JSON.parse(await readFile(resolve(root, '.short-drama/prompt-runs', promptRuns[0]), 'utf8'))
     if (promptRun.executionMode !== 'provider-prompt' || Object.keys(promptRun.variables).length === 0) throw new Error('Provider 提示词留痕失败')
-    const codexTemplate = resolve(plugin, 'skills/define-drama-brief/assets/prompts/drama_brief.zh.txt')
+    const codexTemplate = resolve(plugin, 'skills/short-drama/assets/modules/define-drama-brief/prompts/drama_brief.zh.txt')
     const codexTemplateText = await readFile(codexTemplate, 'utf8')
     const codexVars = Object.fromEntries([...codexTemplateText.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((match) => [match[1], '测试']))
     const codexOutput = resolve(root, 'codex-output.md')
@@ -379,19 +379,19 @@ async function main() {
     delete legacyBible.characters[0].hidden_fact
     const legacyBibleResult = spawnSync(process.execPath, [resolve(plugin, 'scripts/project-store.mjs'), 'put-document', root, 'bible', await json(root, 'legacy-bible.json', legacyBible)], { encoding: 'utf8' })
     if (legacyBibleResult.status === 0 || !legacyBibleResult.stderr.includes('hidden_fact')) throw new Error('故事圣经旧 secret 字段未被合同层明确拒绝')
-    const missingPromptRun = spawnSync(process.execPath, [resolve(plugin, 'scripts/skill-runs.mjs'), 'record', root, 'analysis', 'analyze-drama-source', '.short-drama/source-analysis.json'], { encoding: 'utf8' })
-    if (missingPromptRun.status === 0 || !missingPromptRun.stderr.includes('缺少 codex-contract 提示词运行记录')) throw new Error('缺少提示词运行记录的 Skill 被错误登记')
+    const missingPromptRun = spawnSync(process.execPath, [resolve(plugin, 'scripts/module-runs.mjs'), 'record', root, 'analysis', 'analyze-drama-source', '.short-drama/source-analysis.json'], { encoding: 'utf8' })
+    if (missingPromptRun.status === 0 || !missingPromptRun.stderr.includes('缺少 codex-contract 提示词运行记录')) throw new Error('缺少提示词运行记录的模块被错误登记')
     await recordSkills(root, 'analysis', '.short-drama/source-analysis.json')
     const sourceAnalysisPath = resolve(root, '.short-drama/source-analysis.json')
     const originalAnalysis = await readFile(sourceAnalysisPath, 'utf8')
     await writeFile(sourceAnalysisPath, `${originalAnalysis.trim()} \n`)
     const changedEvidence = spawnSync(process.execPath, [resolve(plugin, 'scripts/workflow.mjs'), 'advance', root, 'script'], { encoding: 'utf8' })
-    if (changedEvidence.status === 0 || !changedEvidence.stderr.includes('证据无效或已变化')) throw new Error('Skill 证据篡改未被拒绝')
+    if (changedEvidence.status === 0 || !changedEvidence.stderr.includes('证据无效或已变化')) throw new Error(`模块证据篡改未被拒绝：${changedEvidence.stderr || changedEvidence.stdout}`)
     await writeFile(sourceAnalysisPath, originalAnalysis)
     run('workflow.mjs', 'advance', root, 'script')
     await new Promise((done) => setTimeout(done, 5))
     run('project-store.mjs', 'select-source', root, 'src-story', 'v001')
-    const replayedPrompt = spawnSync(process.execPath, [resolve(plugin, 'scripts/skill-runs.mjs'), 'record', root, 'analysis', 'analyze-drama-source', '.short-drama/source-analysis.json'], { encoding: 'utf8' })
+    const replayedPrompt = spawnSync(process.execPath, [resolve(plugin, 'scripts/module-runs.mjs'), 'record', root, 'analysis', 'analyze-drama-source', '.short-drama/source-analysis.json'], { encoding: 'utf8' })
     if (replayedPrompt.status === 0 || !replayedPrompt.stderr.includes('缺少 codex-contract 提示词运行记录')) throw new Error('阶段失效后仍可重放旧提示词凭证')
     await recordSkills(root, 'analysis', '.short-drama/source-analysis.json')
     run('workflow.mjs', 'advance', root, 'script')
@@ -423,7 +423,7 @@ async function main() {
     if (invalidSelection.status === 0 || !invalidSelection.stderr.includes('顶层字段')) throw new Error('被篡改的文档仍可选版')
     const currentStyle = JSON.parse(run('project-store.mjs', 'project', root)).creative.art_style
     run('project-store.mjs', 'put-document', root, 'art-style', await json(root, 'art-style.json', { mode: 'confirmed-default', style: currentStyle, decision_reason: '确认使用项目默认真人风格', approved: true }))
-    const planAsProfile = spawnSync(process.execPath, [resolve(plugin, 'scripts/skill-runs.mjs'), 'record', root, 'asset-analysis', 'generate-character-profiles', 'episodes/ep-001/asset-plan/v001.json'], { encoding: 'utf8' })
+    const planAsProfile = spawnSync(process.execPath, [resolve(plugin, 'scripts/module-runs.mjs'), 'record', root, 'asset-analysis', 'generate-character-profiles', 'episodes/ep-001/asset-plan/v001.json'], { encoding: 'utf8' })
     if (planAsProfile.status === 0 || !planAsProfile.stderr.includes('证据类型无效')) throw new Error('资产计划被错误接受为人物档案证据')
     const characterProfile = { new_characters: [integrationCharacter], updated_characters: [] }
     run('character-profiles.mjs', 'validate', root, await json(root, 'character-profile.json', characterProfile))
@@ -445,7 +445,7 @@ async function main() {
       throw new Error('无关图片提示词未被拒绝')
     } catch (error) { if (!String(error.message).includes('对应 Skill')) throw error }
 
-    if (JSON.parse(run('skill-runs.mjs', 'required', root, 'asset-generation')).includes('generate-character-images')) throw new Error('可复用导入资产仍错误要求生成 Skill')
+    if (JSON.parse(run('module-runs.mjs', 'required', root, 'asset-generation')).includes('generate-character-images')) throw new Error('可复用导入资产仍错误要求生成模块')
     const assetEvidence = run('snapshot-stage-evidence.mjs', root, 'asset-generation').trim()
     await recordSkills(root, 'asset-generation', assetEvidence)
     run('workflow.mjs', 'advance', root, 'production-plan')
@@ -468,11 +468,11 @@ async function main() {
     run('project-store.mjs', 'put-episode-document', root, 'production-plan', 'ep-001', 'v007', await json(root, 'production-blender.json', blenderSelection))
     if ((await missingStoryboardAssets(root, 'ep-001', 'v001', blenderSelection.shots, JSON.parse(run('asset-ledger.mjs', 'list', root)))).length) throw new Error('白模分镜仍被错误要求图片分镜')
     run('project-store.mjs', 'select-episode-document', root, 'production-plan', 'ep-001', 'v007')
-    const blenderSkills = JSON.parse(run('skill-runs.mjs', 'required', root, 'media-production'))
-    if (blenderSkills.includes('generate-storyboard-images') || !blenderSkills.includes('direct-blender-previz') || !blenderSkills.includes('generate-blender-previz')) throw new Error('全白模分镜未正确切换媒体 Skill')
+    const blenderSkills = JSON.parse(run('module-runs.mjs', 'required', root, 'media-production'))
+    if (blenderSkills.includes('generate-storyboard-images') || !blenderSkills.includes('direct-blender-previz') || !blenderSkills.includes('generate-blender-previz')) throw new Error('全白模分镜未正确切换媒体模块')
     run('project-store.mjs', 'put-episode-document', root, 'production-plan', 'ep-001', 'v001', await json(root, 'production.json', production))
     run('project-store.mjs', 'select-episode-document', root, 'production-plan', 'ep-001', 'v001')
-    if (!JSON.parse(run('skill-runs.mjs', 'required', root, 'media-production')).includes('generate-storyboard-images')) throw new Error('媒体阶段未强制要求分镜图 Skill')
+    if (!JSON.parse(run('module-runs.mjs', 'required', root, 'media-production')).includes('generate-storyboard-images')) throw new Error('媒体阶段未强制要求分镜图模块')
     const videoPrompts = {
       episode_key: 'ep-001', source_versions: { production_plan: 'v001', storyboard: 'v001' }, unresolved: [], approved: true,
       shots: [videoPromptText, videoPromptText2].map((prompt, index) => ({ shot_number: index + 1, production_plan_version: 'v001', storyboard_version: 'v001', provider: 'starrouter', model_or_workflow: 'dreamina-seedance-2-0-260128', prompt_profile: 'seedance2', input_mode: 'first-last-frame', prompt, duration: 5, references: referenceManifest, continuity: {}, audio_policy: { mode: 'post-dub' }, errors: [] })),
@@ -498,7 +498,7 @@ async function main() {
       const key = `board-ep001-${String(shotNumber).padStart(3, '0')}`
       const promptDocument = { kind: 'storyboard', episode_key: 'ep-001', version_id: 'v001', shot_number: shotNumber }
       const promptName = shotNumber === 1 ? 'single_panel_image' : 'panel_grid_image'
-      const template = resolve(plugin, 'skills/generate-storyboard-images/assets/prompts', `${promptName}.zh.txt`)
+      const template = resolve(plugin, 'skills/short-drama/assets/modules/generate-storyboard-images/prompts', `${promptName}.zh.txt`)
       const templateText = await readFile(template, 'utf8')
       const vars = Object.fromEntries([...templateText.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((match) => [match[1], match[1] === 'panel_grid_size' ? 3 : match[1] === 'grid_layout' ? '三格横排' : '测试']))
       const promptPath = resolve(root, `${key}-prompt.txt`)
@@ -528,7 +528,7 @@ async function main() {
     // 发布前有图片嗅探，给 board-ep001-002 追加一个真实 1x1 PNG 版本并完成选版/审计
     await writeFile(resolve(root, 'board-ep001-002-v002.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'))
     // 按完整生成任务链登记 v002（带 storyboard 文档绑定和 Skill 提示词留痕，否则证据链不认）
-    const boardV002Template = resolve(plugin, 'skills/generate-storyboard-images/assets/prompts', 'panel_grid_image.zh.txt')
+    const boardV002Template = resolve(plugin, 'skills/short-drama/assets/modules/generate-storyboard-images/prompts', 'panel_grid_image.zh.txt')
     const boardV002Vars = Object.fromEntries([...(await readFile(boardV002Template, 'utf8')).matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((match) => [match[1], match[1] === 'panel_grid_size' ? 3 : match[1] === 'grid_layout' ? '三格横排' : '测试']))
     const boardV002PromptPath = resolve(root, 'board-task-2b-prompt.txt')
     run('render-prompt.mjs', '--template', boardV002Template, '--vars', await json(root, 'board-task-2b-vars.json', boardV002Vars), '--output', boardV002PromptPath, '--project-root', root)
@@ -576,12 +576,12 @@ async function main() {
       await callGeneration('generate_music', { provider: 'starrouter', model: 'suno_music', prompt: '紧张悬疑电子乐', title: '错误标题', tags: 'cinematic,electronic', lyrics: '', make_instrumental: true, confirmed: true, project_root: root, target: 'audio-ep001-op', prompt_document: { kind: 'audio-plan', episode_key: 'ep-001', version_id: 'v001', track_key: 'op' } })
       throw new Error('与 audio-plan 不一致的音乐参数未被拒绝')
     } catch (error) { if (!String(error.message).includes('title 不一致')) throw error }
-    const auxiliaryAudioTemplate = resolve(plugin, 'skills/design-drama-audio/assets/prompts/character_voice_recommend.zh.txt')
+    const auxiliaryAudioTemplate = resolve(plugin, 'skills/short-drama/assets/modules/design-drama-audio/prompts/character_voice_recommend.zh.txt')
     const auxiliaryAudioText = await readFile(auxiliaryAudioTemplate, 'utf8')
     const auxiliaryAudioVars = Object.fromEntries([...auxiliaryAudioText.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((match) => [match[1], '测试']))
     run('render-prompt.mjs', '--template', auxiliaryAudioTemplate, '--vars', await json(root, 'auxiliary-audio-vars.json', auxiliaryAudioVars), '--codex-output', resolve(root, 'episodes/ep-001/audio-plan/v001.json'), '--project-root', root)
-    const auxiliaryAsCompletion = spawnSync(process.execPath, [resolve(plugin, 'scripts/skill-runs.mjs'), 'record', root, 'media-production', 'design-drama-audio', 'episodes/ep-001/audio-plan/v001.json'], { encoding: 'utf8' })
-    if (auxiliaryAsCompletion.status === 0 || !auxiliaryAsCompletion.stderr.includes('缺少 codex-contract')) throw new Error('辅助提示词被错误接受为 Skill 完成合同')
+    const auxiliaryAsCompletion = spawnSync(process.execPath, [resolve(plugin, 'scripts/module-runs.mjs'), 'record', root, 'media-production', 'design-drama-audio', 'episodes/ep-001/audio-plan/v001.json'], { encoding: 'utf8' })
+    if (auxiliaryAsCompletion.status === 0 || !auxiliaryAsCompletion.stderr.includes('缺少 codex-contract')) throw new Error('辅助提示词被错误接受为模块完成合同')
 
     for (const [shotNumber, taskId, promptDocument] of [[1, 'task-a', videoPromptReference], [2, 'task-d', videoPromptReference2]]) {
       const key = `shot-ep001-${String(shotNumber).padStart(3, '0')}`

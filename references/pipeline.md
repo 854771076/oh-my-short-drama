@@ -16,7 +16,7 @@
 │   ├── project.json
 │   ├── state.json
 │   ├── environment.json / RESUME.md
-│   ├── skill-runs.json
+│   ├── module-runs.json
 │   ├── prompt-runs/<prompt-run-id>.json
 │   ├── requests/<request-id>.json
 │   ├── uploads/<upload-receipt-id>.json
@@ -51,9 +51,9 @@
 
 市场灵感严格分层：报告保存可追溯事实和分析推断，灵感文档保存待验证的创作假设，`decision` 保存用户已选择/拒绝的决定。报告引用绑定 report ID、snapshot IDs、筛选条件、生成时间和 SHA-256；登记时同时校验并原子写入 `market-inspiration.json` 与 Brief 引用。该可选动作不得覆盖 `project.json` 的题材、Brief 的平台、来源事实或合规约束，Bible 与 Outline 也不得绕过 Brief 直接消费榜单作品清单。
 
-用 `node scripts/project-store.mjs init <项目目录> [项目元数据.json]` 初始化并执行 init 环境预检；进入媒体或剪辑阶段前再运行 `node scripts/preflight.mjs <media|editing> <项目目录>`。原始资料先用 `put-source` 或 `select-source` 归档，项目、简报/圣经/目录、分集、剧本和分镜均通过该脚本写入。每阶段先用 `node scripts/skill-runs.mjs required <项目目录> <阶段>` 获取并完整执行原子 Skill，完成后用 `record` 绑定项目内证据；同一阶段已有证据时可用 `record-stage <项目目录> <阶段>` 批量重算凭证。阶段检查、推进与回退使用 `node scripts/workflow.mjs <status|check|advance|rewind> <项目目录> [阶段]`；`advance` 会拒绝缺少 Skill 凭证、真实本地产物或验收的阶段。
+用 `node scripts/project-store.mjs init <项目目录> [项目元数据.json]` 初始化并执行 init 环境预检；进入媒体或剪辑阶段前再运行 `node scripts/preflight.mjs <media|editing> <项目目录>`。每阶段先用 `node scripts/module-runs.mjs required <项目目录> <阶段>` 获取 reference 模块，由 `short-drama` 主 Skill 完整执行，完成后用 `record` 绑定项目内证据；同一阶段已有证据时可用 `record-stage`。阶段检查、推进与回退使用 `workflow.mjs`；`advance` 会拒绝缺少模块凭证、真实本地产物或验收的阶段。
 
-初始化一次性创建资产、任务、逐镜审核和 Skill 账本。媒体 MCP 不信任聊天中的流程声明或手写 selected 文件：每次付费生成前校验当前阶段并重新检查所有上游阶段门禁；失败发生在请求快照和 Provider 访问之前。项目配置同时校验画幅—分辨率方向和 Provider 模型参数枚举。
+初始化一次性创建资产、任务、逐镜审核和模块账本。媒体 MCP 不信任聊天中的流程声明或手写 selected 文件：每次付费生成前校验当前阶段并重新检查所有上游阶段门禁；失败发生在请求快照和 Provider 访问之前。项目配置同时校验画幅—分辨率方向和 Provider 模型参数枚举。
 
 图片、音频和视频生成成功后，必须立即用 `node scripts/asset-ledger.mjs <import|fetch|decode> ...` 把结果存入项目的 `assets/`，登记 SHA-256、文件大小、本地相对路径和 provenance，再允许选版或进入下游。独立配音先保存并选中 `audio-plan/vNNN.json`。资产生成与媒体制作阶段结束时用 `snapshot-stage-evidence.mjs` 生成不可变证据，避免后续合法修改总账导致早期凭证失效。远程 URL 只是临时传输结果，不得作为最终资产。
 

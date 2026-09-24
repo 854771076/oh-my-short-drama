@@ -189,7 +189,7 @@ test('market-inspiration 引用拒绝空值和重复筛选数组，以及非 RFC
 })
 
 test('公开 Schema 要求筛选数组非空且唯一，并固定 RFC 3339 时间模式', async () => {
-  const schema = JSON.parse(await readFile(resolve(scripts, '../skills/ideate-drama-from-market/references/market-inspiration.schema.json'), 'utf8'))
+  const schema = JSON.parse(await readFile(resolve(scripts, '../skills/short-drama/references/market/ideate-drama-from-market/market-inspiration.schema.json'), 'utf8'))
   const filterArray = schema.$defs.nonEmptyStrings
   assert.equal(filterArray.minItems, 1)
   assert.equal(filterArray.uniqueItems, true)

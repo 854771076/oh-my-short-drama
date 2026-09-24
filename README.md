@@ -60,7 +60,7 @@ node scripts/reference-video-import.mjs import <项目> '<抖音分享链接>' s
 node scripts/project-store.mjs put-source <项目> src-reference-video v001 reference.mp4
 node scripts/project-store.mjs select-source <项目> src-reference-video v001
 node scripts/reference-video.mjs prepare <项目> src-reference-video v001
-node scripts/skill-runs.mjs required <项目> analysis
+node scripts/module-runs.mjs required <项目> analysis
 ```
 
 ## 支持的生成 Provider
@@ -186,7 +186,7 @@ node scripts/project-store.mjs init project-key project.json
 node scripts/preflight.mjs init ~/darma_project/project-key
 node scripts/project-store.mjs put-source ~/darma_project/project-key src-original-novel v001 novel.txt
 node scripts/project-store.mjs select-source ~/darma_project/project-key src-original-novel v001
-node scripts/skill-runs.mjs required ~/darma_project/project-key analysis
+node scripts/module-runs.mjs required ~/darma_project/project-key analysis
 node scripts/validate-project.mjs ~/darma_project/project-key
 ```
 
@@ -252,12 +252,12 @@ project/
 .codex-plugin/plugin.json  # 插件清单
 .mcp.json                  # 生成服务 MCP 注册
 hooks/                     # 会话恢复 hook
-skills/                    # 原子化制作 Skills 与内置提示词
+skills/short-drama/        # 唯一 Skill 入口、references 模块与内置提示词
 scripts/                   # 项目、资产、任务、生成和校验脚本
 references/                # 项目合同、Provider 合同和制作参考
 ```
 
-原系统的文本 LLM 提示词已转换为所属 Skill 的 Codex 执行合同，不会再提交给外部文本模型；只有图片等媒体模板保留 Provider prompt 语义。`render-prompt.mjs` 会把合同、变量、Codex 实际产物或媒体提示词留存在项目 `prompt-runs/`，`skill-runs.mjs record` 再把正确模式的运行记录绑定到对应 Skill。剧本阶段固定执行内置 `short-drama` + `write-drama-episode` + `humanizer` + `review-drama-script`；剪辑阶段固定执行内置 `remotion-best-practices` + `edit-drama-timeline`。上游选版、配置、时间线或审片变化会自动回退受影响阶段；`workflow.mjs complete` 会复查全部阶段。交付 manifest v2 同时锁定时间线、批准审片、成片和字幕的哈希。
+插件只暴露 `short-drama` 一个 Skill，其余制作能力作为 `references` 模块按项目状态加载。文本合同不会提交给外部文本模型；只有图片等媒体模板保留 Provider prompt 语义。`render-prompt.mjs` 留存合同与产物，`module-runs.mjs record` 将运行记录绑定到对应模块。上游选版、配置、时间线或审片变化会自动回退受影响阶段；`workflow.mjs complete` 会复查全部阶段。
 
 ## 验证
 
@@ -298,7 +298,7 @@ node scripts/market-inspiration-offline-smoke.mjs
 
 ## 进一步阅读
 
-- [Skill 总索引](skills/short-drama-skill-index/SKILL.md)
+- [模块总索引](skills/short-drama/references/operations/short-drama-skill-index.md)
 - [项目规范 v1](references/project-spec-v1.md)
 - [本地生产合同](references/pipeline.md)
 - [能力审计](references/feature-completeness.md)

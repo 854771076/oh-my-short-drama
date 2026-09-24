@@ -1,6 +1,6 @@
 # 短剧本地项目规范 v1
 
-本规范是插件创建、继续、复制和校验短剧项目的唯一文件合同。文本资产由 Codex 使用各 Skill 内置提示词直接输出；图片、视频和音频才调用用户选择的 Provider。项目文件不得包含 API Key、Token、密码或 Authorization。
+本规范是插件创建、继续、复制和校验短剧项目的唯一文件合同。文本资产由 Codex 通过 `short-drama` 主 Skill 加载当前 reference 模块后直接输出；图片、视频和音频才调用用户选择的 Provider。项目文件不得包含 API Key、Token、密码或 Authorization。
 
 ## 固定目录
 
@@ -11,7 +11,7 @@
 │   ├── state.json
 │   ├── environment.json
 │   ├── environment/<timestamp>-<mode>.json
-│   ├── skill-runs.json
+│   ├── module-runs.json
 │   ├── RESUME.md
 │   ├── prompt-runs/prompt-<uuid>.json
 │   ├── evidence/<stage>-<uuid>.json
@@ -51,19 +51,19 @@
 
 用户未明确指定其他绝对路径时，新项目统一位于 `~/darma_project/<project-key>`；Dashboard 与 `project-store.mjs init <相对项目目录>` 使用同一默认根目录。新项目还会在项目根创建 `AGENTS.md` 作为 Codex 的项目级恢复入口；若目录已有用户自己的 `AGENTS.md`，初始化不会覆盖。更换会话时只要从项目根或其子目录打开任务，SessionStart hook 会向上定位 `.short-drama/project.json` 并恢复阶段；从无关目录打开时必须显式给出项目路径。不要建立跨项目全局记忆，避免旧选版、旧 Provider 或旧阶段污染当前项目。
 
-初始化必须原子创建 `assets.json`、`tasks.json`、`shot-reviews.json` 与 `skill-runs.json` 空账本。`format.resolution` 使用“宽x高”，方向必须与 `aspect_ratio` 一致；Provider、模型和 `parameters` 必须通过已注册目录校验。更新 Provider 参数时整组替换，不能残留上一模型字段。
+初始化必须原子创建 `assets.json`、`tasks.json`、`shot-reviews.json` 与 `module-runs.json` 空账本。`format.resolution` 使用“宽x高”，方向必须与 `aspect_ratio` 一致；Provider、模型和 `parameters` 必须通过已注册目录校验。更新 Provider 参数时整组替换，不能残留上一模型字段。
 
 每个版本目录通过 `selected.json` 指向当前入选版本。版本文件不可覆盖；剧本初稿、Humanizer 成稿和后续修改依次产生新版本。`script-review` 必须记录并匹配当前 selected 剧本版本，批准后才允许进入导演本。剪辑、审片和交付必须按 `ep-NNN` 分集保存，禁止多集共用 timeline 或 manifest。复制项目时保留相对路径，删除 `.short-drama/tasks.json` 中仍在运行的外部任务前必须先核对 Provider 状态。
 
 资产计划包含人物时，必须先由 `generate-character-profiles` 生成并确认 `assets/characters/profiles.json`；计划中的每个规范人物名都必须存在于人物档案，不能用资产计划本身冒充人物档案执行证据。
 
-`skill-runs.json` 记录每个阶段实际执行的原子 Skill、项目内证据及 SHA-256，并绑定该次 Skill 使用的 `prompt-runs` 记录与哈希。用 `skill-runs.mjs required` 获取当前阶段要求，完整读取对应 `SKILL.md`、运行所属 Codex 合同或 Provider 提示词并完成产物后，再用 `record` 登记；缺少正确执行模式或 `completion_prompts` 指定的最终合同会拒绝登记。局部细化、修改和推荐提示词不能冒充最终产物合同，也不能用同一个无关文件冒充多个关键 Skill 产物。证据或提示词运行记录变化后必须重新执行并登记。`workflow.mjs <check|advance|complete>` 会重新检查全部已完成阶段，而不只检查当前阶段。
+`module-runs.json` 记录每个阶段实际执行的 reference 模块、模块哈希、输入、项目内证据及 `prompt-runs`。用 `module-runs.mjs required` 获取当前阶段要求，由主 Skill 完整读取对应 reference、运行 Codex 合同或 Provider 提示词并完成产物后，再用 `record` 登记。模块、输入、证据或提示词运行记录变化后必须重新执行并登记；旧 `skill-runs.json` 只能由 `module-runs.mjs migrate` 读取迁移。`workflow.mjs <check|advance|complete>` 会重新检查全部已完成阶段。
 
-选中新的来源、剧本、导演本、资产计划、分镜、制作计划、视频提示词或媒体版本，以及更新项目创作/Provider 配置、时间线或完整审片时，脚本会自动回退到最早受影响阶段并清除该阶段及之后的 Skill 凭证；`state.json.invalidatedAt` 保存各受影响阶段的最近失效时间。新 Skill 记录及其提示词运行必须晚于该时间，历史 `prompt-runs` 只供审计，不能重放为当前凭证。交付完成后执行 `workflow.mjs complete`，在 `state.json.finishedAt` 固化终态。
+选中新的来源、剧本、导演本、资产计划、分镜、制作计划、视频提示词或媒体版本，以及更新项目创作/Provider 配置、时间线或完整审片时，脚本会自动回退到最早受影响阶段并清除该阶段及之后的模块凭证；`state.json.invalidatedAt` 保存各受影响阶段的最近失效时间。新模块记录及其提示词运行必须晚于该时间，历史 `prompt-runs` 只供审计，不能重放为当前凭证。交付完成后执行 `workflow.mjs complete`，在 `state.json.finishedAt` 固化终态。
 
 ## 生成请求快照
 
-文本资产不调用文本模型。Codex 按所属 Skill 与 [Codex 原生合同](codex-contracts.md) 直接制作；完成后 `render-prompt.mjs --codex-output` 将合同、合同哈希、完整变量、解析后的约束、实际产物和产物哈希保存为不可变 `.short-drama/prompt-runs/prompt-<uuid>.json`。合同本身不会自动执行，必须由阶段返回的原子 Skill 明确选择。只有 `skill-map.json` 登记的 `provider_prompts` 能使用 `--output`；脚本会拒绝 Codex 合同与 Provider 提示词混用。
+文本资产不调用文本模型。Codex 按当前 reference 模块与 [Codex 原生合同](codex-contracts.md) 直接制作；完成后 `render-prompt.mjs --codex-output` 将合同、合同哈希、完整变量、解析后的约束、实际产物和产物哈希保存为不可变 `.short-drama/prompt-runs/prompt-<uuid>.json`。合同必须由主 Skill 在当前模块中明确选择。只有 `module-map.json` 登记的 `provider_prompts` 能使用 `--output`；脚本会拒绝 Codex 合同与 Provider 提示词混用。
 
 图片、视频、音频 MCP 调用前会自动生成 `.short-drama/requests/req-<uuid>.json`，并在访问 Provider 前以请求 ID 登记 `submitting` 任务。本地参考文件必须位于当前项目 `assets/` 且逐项等于清单版本的真实路径；Litterbox URL 必须绑定提交时间点有效的同版本收据。视频必须引用明确的 `{episode_key,version_id,shot_number}` 提示词文档。快照保存实际提交给生成适配器的完整参数并计算稳定输入指纹；快照使用独占创建，不覆盖旧请求，失败和中断请求同样保留。
 

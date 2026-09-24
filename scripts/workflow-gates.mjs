@@ -183,13 +183,19 @@ export async function inspectStage(root, stage) {
   const cutoff = state.invalidatedAt?.[stage]
   for (const moduleId of await requiredModules(root, stage)) {
     const run = moduleRuns.runs?.[`${stage}:${moduleId}`]
-    if (!await isModuleRunValid(root, run) || (cutoff && Date.parse(run.completedAt) < Date.parse(cutoff))) missing.push(`模块未在当前阶段修订后执行：${moduleId}`)
-    else for (const path of run.evidence) {
+    const stale = cutoff && Date.parse(run?.completedAt) < Date.parse(cutoff)
+    if (!run || stale) missing.push(`模块未在当前阶段修订后执行：${moduleId}`)
+    let invalidEvidence = false
+    for (const path of run?.evidence || []) {
       const local = relative(root, resolve(root, path))
       let actual
       try { actual = await realpath(resolve(root, path)) } catch {}
-      if (!local || local === '..' || local.startsWith(`..${sep}`) || !actual || (actual !== rootReal && !actual.startsWith(`${rootReal}${sep}`)) || run.evidenceSha256?.[path] !== await sha256(actual)) missing.push(`模块证据无效或已变化：${moduleId} -> ${path}`)
+      if (!local || local === '..' || local.startsWith(`..${sep}`) || !actual || (actual !== rootReal && !actual.startsWith(`${rootReal}${sep}`)) || run.evidenceSha256?.[path] !== await sha256(actual)) {
+        invalidEvidence = true
+        missing.push(`模块证据无效或已变化：${moduleId} -> ${path}`)
+      }
     }
+    if (run && !stale && !invalidEvidence && !await isModuleRunValid(root, run)) missing.push(`模块 reference、输入或凭证无效：${moduleId}`)
     const mode = promptMode(moduleId, stage)
     if (mode) {
       if (!Array.isArray(run?.promptRuns) || run.promptRuns.length === 0) missing.push(`模块缺少提示词运行记录：${moduleId}`)

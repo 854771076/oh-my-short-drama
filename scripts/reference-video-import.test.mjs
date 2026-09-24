@@ -14,7 +14,7 @@ async function fixtureProject() {
   await mkdir(resolve(root, 'source'), { recursive: true })
   await writeFile(resolve(root, 'source/manifest.json'), '{"version":1,"sources":{}}\n')
   await writeFile(resolve(root, '.short-drama/state.json'), '{"version":1,"stage":"analysis","completed":[],"invalidatedAt":{},"updatedAt":"2026-09-16T00:00:00.000Z"}\n')
-  await writeFile(resolve(root, '.short-drama/skill-runs.json'), '{"version":1,"runs":{}}\n')
+  await writeFile(resolve(root, '.short-drama/module-runs.json'), '{"version":1,"runs":{}}\n')
   return root
 }
 

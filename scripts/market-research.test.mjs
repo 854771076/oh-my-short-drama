@@ -197,11 +197,11 @@ test('全部上游榜单失败以退出码 3 中止且不写入空快照', async
   assert.equal((await createMarketStore(root).readLatest()).latestSnapshot, null)
 })
 
-test('市场 Skill 固化触发边界、命令合同与报告输出顺序', async () => {
-  const skill = await readFile(resolve('skills/analyze-drama-market/SKILL.md'), 'utf8')
-  const schema = JSON.parse(await readFile(resolve('skills/analyze-drama-market/references/market-report.schema.json'), 'utf8'))
+test('市场模块固化触发边界、命令合同与报告输出顺序', async () => {
+  const skill = await readFile(resolve('skills/short-drama/references/market/analyze-drama-market.md'), 'utf8')
+  const schema = JSON.parse(await readFile(resolve('skills/short-drama/references/market/analyze-drama-market/market-report.schema.json'), 'utf8'))
 
-  assert.match(skill, /^---\nname: analyze-drama-market\ndescription: 分析近期短剧市场、剧查查公开排行榜、题材趋势、平台差异、竞争拥挤度、新剧势能和公司集中度，并生成带数据证据与置信度的市场调研报告；不用于分析单部小说\/剧本，不预测投资收益，不绕过付费或登录权限。\n---/)
+  assert.match(skill, /^# 分析短剧市场/)
   for (const command of ['refresh <workspace>', 'analyze <workspace> [snapshot-id]', 'report <workspace> [report-id]', 'list <workspace>', '--self-check']) assert.match(skill, new RegExp(command.replace(/[.[\]{}()*+?^$|\\]/gu, '\\$&')))
   for (const phrase of ['近期短剧题材趋势', '平台榜单', '市场机会', '竞争格局', '市场报告', '单部小说或剧本', '预测投资收益', '绕过付费或登录权限', '只有用户明确要求刷新时才联网', '公开 Top 30']) assert.match(skill, new RegExp(phrase))
   for (const heading of ['事实', '机会', '风险', '平台', '新剧', '创作启示', '限制']) assert.match(skill, new RegExp(`## ${heading}`))
@@ -227,7 +227,7 @@ test('真实报告通过嵌套 Schema 合同，额外嵌套字段被递归拒绝
   })
   const result = await runMarketResearch(['analyze', root])
   const report = await store.readReport(result.report_id)
-  const schema = JSON.parse(await readFile(resolve('skills/analyze-drama-market/references/market-report.schema.json'), 'utf8'))
+  const schema = JSON.parse(await readFile(resolve('skills/short-drama/references/market/analyze-drama-market/market-report.schema.json'), 'utf8'))
   assert.deepEqual(validateSchema(schema, schema, report), [])
   const malformed = structuredClone(report)
   malformed.topic_metrics[0].confidence_detail.unknown = true
