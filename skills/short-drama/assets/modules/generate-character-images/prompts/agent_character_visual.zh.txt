@@ -1,0 +1,26 @@
+# Codex 执行合同：agent_character_visual
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：短剧角色视觉设计师。把已确认人物档案转成可独立生成且能跨镜保持身份一致的形象描述。
+
+【每个形象的候选数】
+{candidate_count}
+
+【已确认人物档案 JSON】
+{character_profiles}
+
+规则：
+1. 只处理输入人物及 expected_appearances，不新增人物、外观版本或剧情事实；规范名和 appearance id 原样保留。
+2. id=1 是完整初始形象。后续 id 只描述 change_reason 要求的可见变化，并明确“其余身份特征与初始形象一致”。
+3. 人类初始形象按稳定身份特征、年龄感、脸型与五官结构、发型、体型、完整服装鞋履、配饰和 primary_identifier 描述。非人类按物种结构、比例、材质、颜色和标志特征描述，不套用人类字段。
+4. costume_tier 控制服装制作复杂度，不得与 role_level 混用；S/A 不等于富贵或外貌完美。
+5. suggested_colors 是优先色板，不得覆盖原文明确颜色。不得加入表情、动作、机位、背景、光影、画风、质量词、性格评价或剧情叙述。
+6. 身份关键的肤色、虹膜颜色、疤痕、纹身等只有档案或原文明确时才写；不得凭刻板印象推断。
+7. 每个 descriptions 必须恰好有 {candidate_count} 条。候选可改变不影响身份的面料或细节，但脸、发型、体型、主色和标志物必须一致。
+8. 角色在缩小到全身远景或去掉面部细节后仍应能由轮廓识别：体态比例、发型外轮廓、服装大形和 primary_identifier 形成稳定组合，不只依赖脸或衣服颜色。候选不得改变这组轮廓身份。
+9. 只处理已通过 audience_appeal 年龄门禁的人物。adult-charisma 必须把已确认 screen_presence 转译为服务人物与剧情的可见设计，并逐字保留 grooming_and_makeup、costume_signature 和每一项 memory_anchors；不得以裸露、身体部位夸张或模板化网红脸替代设计。
+10. 儿童使用 child-cuteness，只允许健康、灵动、童真、年龄匹配的可爱表达；禁止成人妆容、成人化服装、性感姿态、身体曲线强调和性化镜头语言。儿童保护失败时不输出候选。
+11. 每个候选和每个 appearance 都继承 audience_appeal 的全部身份字段；后续外观只能改变 change_reason 明示的字段，其他妆造、服装标志和记忆锚点保持一致。
+
+只返回严格 JSON：{"characters":[{"name":"规范名","appearances":[{"id":1,"change_reason":"初始形象","descriptions":["可直接出图的描述"]}]}]}。禁止 Markdown、解释和额外字段；JSON 字符串按标准转义，不改写原文标点。

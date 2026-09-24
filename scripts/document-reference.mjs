@@ -34,7 +34,7 @@ async function requireImagePromptRun(root, target, prompt, requireCurrent) {
   for (const file of await readdir(resolve(root, '.short-drama/prompt-runs'))) {
     if (!/^prompt-[0-9a-f-]+\.json$/.test(file)) continue
     const record = await json(resolve(root, '.short-drama/prompt-runs', file))
-    if (!expectedSkills.includes(record.skill) || (requireCurrent && cutoff && Date.parse(record.createdAt) < Date.parse(cutoff))) continue
+    if (!expectedSkills.includes(record.module_id ?? record.skill) || (requireCurrent && cutoff && Date.parse(record.createdAt) < Date.parse(cutoff))) continue
     candidates.push(record)
     let matchesPrompt = record.executionMode === 'provider-prompt' && record.resolvedContractOrPrompt === prompt
     if (record.executionMode === 'codex-contract' && record.prompt === 'image_prompt_modify') {

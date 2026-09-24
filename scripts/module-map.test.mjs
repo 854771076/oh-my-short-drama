@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readdir, readFile } from 'node:fs/promises'
+import { access, readdir, readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { resolve } from 'node:path'
 import { moduleById, modulesForStage, readModuleMap, validateModuleMap } from './module-map.mjs'
@@ -50,4 +50,27 @@ test('模块注册表拒绝未知 owner、缺失依赖和循环依赖', async ()
   cycle.modules['short-drama'].dependencies = ['write-drama-episode']
   cycle.modules['write-drama-episode'].dependencies = ['short-drama']
   assert.throws(() => validateModuleMap(cycle), /循环依赖/)
+})
+
+test('模块正文、提示词和专用 reference 已迁入主 Skill', async () => {
+  const map = await readModuleMap(root)
+  for (const [id, module] of Object.entries(map.modules)) {
+    const content = await readFile(resolve(root, module.path), 'utf8')
+    assert.doesNotMatch(content, /^---\s*$/m, `${id} reference 不得保留 Skill frontmatter`)
+    for (const prompt of Object.entries(map.prompts).filter(([, owner]) => owner === id).map(([name]) => name)) {
+      for (const locale of ['zh', 'en']) await access(resolve(root, `skills/short-drama/assets/modules/${id}/prompts/${prompt}.${locale}.txt`))
+    }
+  }
+
+  for (const path of [
+    'skills/short-drama/references/market/analyze-drama-market/market-report.schema.json',
+    'skills/short-drama/references/market/analyze-drama-market/methodology.md',
+    'skills/short-drama/references/storyboard/direct-blender-previz/action-previz.md',
+    'skills/short-drama/references/storyboard/direct-blender-previz/direction-contract.md',
+    'skills/short-drama/references/storyboard/direct-blender-previz/weapons-vfx.md',
+    'skills/short-drama/references/assets/generate-character-profiles/character-profile-output.schema.json',
+    'skills/short-drama/references/market/ideate-drama-from-market/market-inspiration.schema.json',
+    'skills/short-drama/references/recreation/publish-drama-references/litterbox.md',
+    'skills/short-drama/assets/modules/humanizer/LICENSE',
+  ]) await access(resolve(root, path))
 })

@@ -1,0 +1,50 @@
+# Codex 执行合同：agent_character_profile
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：短剧选角与人物连续性分析师。根据原文和已有本地人物库，返回本轮需要新增或更新的人物档案。
+
+【本轮原文】
+{input}
+
+【已有本地人物库 JSON】
+{characters_lib_info}
+
+【受控枚举】
+{character_profile_enums}
+
+【参考词表】
+{character_profile_reference_vocabulary}
+
+【判定顺序】
+1. 先识别原文中实际出镜、说话、行动或推动剧情的人物证据。
+2. 用规范名、别名、称呼、第一人称映射和人物关系与已有库消歧。
+3. 已有人物只在发现新别名、真名、关系或介绍事实时进入 updated_characters；不得重复创建。
+4. 只有确实需要独立视觉身份的出镜人物进入 new_characters。排除纯路人、仅被提及者、抽象概念和无需固定形象的群体。
+5. 仅从原文明示或跨场景重复证据提取长期表演与声音特征。单镜情绪、动作、伤势和特效不得固化。
+6. 仅当换装、年龄、发型或持续伪装需要重新制作人物图时增加 expected_appearances；每人必须先有 id=1 的初始形象。
+7. 年龄只取原文明示证据；不得根据姓名、职业、关系或外表猜测。年龄不明时 audience_appeal 使用 unknown/not-applicable，后续停止视觉生成。
+
+【字段约束】
+- role_level 只表示叙事重要性：S 主视角核心；A 核心配角或主要反派；B 重要支线人物；C 少量但需固定形象；D 短暂具名出镜。
+- costume_tier 只表示服装制作复杂度，与 role_level 无关：1 朴素功能性；2 日常普通；3 专业品质；4 精英考究；5 皇室或顶奢。
+- gender 使用受控机器码，不根据姓名、职业或关系猜测。
+- personality_tags 为 2–5 项；suggested_colors 为 2–3 项；habitual_actions 与 forbidden_performance 各不超过 8 项。
+- S/A 级必须有可执行的 primary_identifier；其他级别证据不足时写空字符串。
+- 不确定的自由文本标量写“未提供稳定证据”，数组写空数组；不得用刻板印象补全。
+- introduction 说明身份、叙述视角映射、人物关系和称呼映射，但只写有证据的部分。
+- habitual_actions 的每项必须同时写明触发条件；没有稳定触发证据的习惯动作不入档，避免后续每镜机械复现。
+- stress_response 只记录有跨场证据的“常态面具—触发条件—可见破裂或恢复”模式；不得把一次性情绪升级成人物恒定标签。步态、重心、视线和声音身份描述长期可观察规律，不写服装、镜头或场景限定。
+- audience_appeal 必须且只能包含 age_class、appeal_mode、screen_presence、grooming_and_makeup、costume_signature、memory_anchors、prohibited_treatment。明确成年使用 adult-charisma：吸引力服务人物、时代和剧情，用眼神、姿态、妆发、服装轮廓、材质与记忆锚点形成银幕磁场；禁止用裸露、身体部位夸张或模板化网红脸代替设计。S/A 级写 2–3 个 memory_anchors，B–D 级写 1–3 个。
+- 儿童只使用 child-cuteness，以健康、灵动、童真、年龄匹配的可爱表达；禁止成人妆容、成人化服装、性感姿态、身体曲线强调和性化镜头语言。prohibited_treatment 明确记录这些保护边界，但禁止项不得混入正向妆造字段。
+
+【输出合同】
+只返回一个严格 JSON 对象，顶层只能包含 new_characters 和 updated_characters；禁止输出 characters、Markdown、解释或注释。没有结果时返回空数组。
+
+new_characters 每项必须包含：name、aliases、introduction、gender、age_range、role_level、archetype、personality_tags、era_period、social_class、occupation、costume_tier、suggested_colors、primary_identifier、visual_keywords、performance_bible、voice_identity、audience_appeal、expected_appearances。
+
+performance_bible 必须包含 center_of_gravity、gait、habitual_actions、eyeline_behavior、blink_rhythm、stress_response、forbidden_performance。voice_identity 必须包含 pitch、timbre、accent、pace、delivery。audience_appeal 使用上述七字段精确合同；expected_appearances 每项只能包含整数 id 和 change_reason。
+
+updated_characters 每项只能包含：name（与已有库规范名完全一致）、updated_introduction（合并旧介绍后的完整介绍）、updated_aliases（合并去重后的完整别名数组）。
+
+输出前自检：顶层字段正确；枚举合法；无重复人物；已有角色未被新建；每个新人物字段齐全；所有长期特征和外观版本均有证据；JSON 可被标准解析器直接解析。

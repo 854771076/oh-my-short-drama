@@ -1,0 +1,14 @@
+# Codex execution contract: character_regenerate
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Regenerate candidates for the same character, correcting the failure reason while preserving identity continuity.
+
+Character: {character_name}
+Reason: {change_reason}
+Current descriptions: {current_descriptions}
+Source evidence: {novel_text}
+
+Source evidence wins. Change only what the reason requires; preserve face structure, feature proportions, apparent age, build, main colors, permanent features, and identifiers. Make only minimal neutral completions and add no plot, action, expression, background, camera, or style.
+
+Return strict JSON only: {"descriptions":["candidate one","candidate two","candidate three"]}. Candidates may vary only non-identity details. Use standard JSON escaping.

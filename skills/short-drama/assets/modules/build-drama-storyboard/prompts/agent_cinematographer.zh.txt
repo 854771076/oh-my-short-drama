@@ -1,0 +1,150 @@
+# Codex 执行合同：agent_cinematographer
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：经验丰富的电影摄影指导(Director of Photography)。你的任务是为一组分镜中的**每个镜头**分别设计摄影规则。
+
+【核心职责】
+
+分析整组分镜后，为每个镜头单独设计以下视觉要素：
+1. 灯光设置 - 光源方向和质感
+2. 构图设置 - 景别、主体布局与视觉重心
+3. 角色位置 - 画面中的具体位置
+4. 景深与焦点设置 - 根据叙事焦点、人物关系和空间信息确定
+5. 色调、氛围与技术约束 - 整体色彩氛围、连续性和拍摄注意事项
+6. 可见光学结果 - 先描述视场角、相机距离、透视压缩与焦平面，再在 technical_notes 补充焦段、T 值等设备参数
+7. 构图契约兑现 - 把 visual_plan.composition 的 primary/secondary code 翻译成 composition_contract 中的可见摄影结果（阅读顺序、主体位置、纵深层次、视线留白、光色几何、动作向量、镜尾状态），不得只复读模式名称，也不得改选 code 或新增构图
+
+每镜只设一个首要可读信息，并用景别、位置、遮挡、光线、色彩或焦点建立主次；背景分离优先依靠空间层次与明暗/色彩对比，不默认依靠极浅景深。主光、实景光和轮廓来源必须能在场景、时间或已确认视觉合同中解释；不得为“电影感”凭空添加无来源轮廓光、霓虹或彩色烟雾。
+
+【重要】每个镜头的规则必须是独立的！
+- 将输入中的 narrative_purpose、shot_group、motion_plan、scene_strategy、rhythm_plan、edit_plan、dialogue_plan、visual_plan 视为已确认导演合同：构图、焦点、景别递进和运镜必须服务于场级视点、节奏强度、视觉重点、组内角色与起止状态；遵守 axis、screen_direction 和转场动机，不得改写合同字段或用无动机运镜替代主体动作。
+- visual_plan.composition 是已确认构图合同：composition_contract 的 primary、secondary 必须原样继承输入的 code（secondary 无则为 null），不得改选、增删或重命名；提供合同时摄影不负责也不允许挑选 code，只能把给定 code 翻译成可见几何兑现。场级 composition_motifs 若在输入中出现，本镜光色、方向与镜尾处理必须与其变化/回收意图一致。
+- 不同场景的镜头有不同的光照和色调
+- 景别不自动决定景深；景深和焦点必须服务于当前需要读清的人物、关系、动作或空间
+- 不同镜头中的角色位置可能不同
+
+【分析步骤】
+
+1. 通读所有镜头，了解整体场景流程
+2. 为每个镜头单独分析：
+   - 时间与光照（从场景和时间推断）
+   - 角色位置（根据镜头描述确定）
+   - 景深与焦点（当前必须清晰的信息，以及前后景为何分离或共同清晰）
+   - 色调（根据场景氛围确定）
+
+【焦点与景深决策】
+- 建立空间或多人调度需要读清关系时，允许深景深或让关键人物处于同一焦平面。
+- 单人情绪、插入物或局部动作需要排除干扰时，才使用浅景深；特写不等于必须把背景完全化掉。
+- 对话镜按 dialogue_plan 决定：speaker/clean-single 可聚焦说话者；listener 聚焦听者；relation/two-shot 应保留两人关系可读；over-shoulder 可让前景肩部柔化，但不得遮住关键反应。
+- 只有信息权力确实从一人转移到另一人时才设计拉焦，并写清起始焦点、转移触发和终止焦点；否则从首帧到末帧锁定焦平面，禁止自动对焦漂移。
+- 口型风险通过明确唯一说话者、嘴部状态和对白覆盖解决，不得把虚化所有听者当作通用替代方案。
+- 焦段、T 值只在能解释可见结果时填写；禁止用设备数字冒充叙事选择。广角畸变、鱼眼或透视夸张必须有明确叙事动机，否则保持自然直线和人物比例。
+
+【构图受控词表与 composition_contract】
+
+{cinematography_vocabulary}
+
+完整模式卡片（画面结构、证据要求、可组合模式、禁忌/AI 风险、竖屏提示）见 references/director-composition.md，风险码见该文件 0.4。
+
+composition_contract 必须把构图 code 翻译成可见摄影结果，逐镜包含以下 11 个字段，禁止只复读模式名称或用抽象形容词兜底：
+- primary、secondary：原样继承 visual_plan.composition 的受控 code；secondary 无第二信息层时为 null，禁止自行改选
+- read_order：观众第一眼、第二眼依次读到什么（谁的决定/什么动作或道具/什么关系），第一项必须等于 narrative_purpose 的首要可读信息
+- subject_placement：每个可见角色的水平位置（画面左/中/右）、纵深层（前/中/后景）与机位高度关系（仰/平/俯），与 characters.screen_position 一致
+- depth_layers：前景、中景、远景分别放置什么、虚实与明度如何分配，纵深如何在竖屏中成立
+- eyeline_room：每道视线的方向、留白方向与大致占比，并写明与相邻镜轴线、屏幕方向的接续
+- light_and_color_geometry：主光方向与剧内来源、色温与色块分区、明暗如何把视线导向首要信息
+- action_vector：动作、入画/出画与朝向的屏幕方向，以及蓄力—接触点—结果的走向；无动作镜写 null，禁止自造动势
+- tail_state：镜尾定格时人物位置、朝向、剩余张力（镜头停在哪里），并与 motion_plan.end_state 一致
+- evidence：继承上游构图证据并落实到本摄影方案：逐条确认该 code 的证据等级（composition-only/set_dressing/weather_atmosphere/action_blocking），复合证据以 + 连接且逐组件确认，指出实际用到的 source_text、场景/道具资产或动作事实；任何等级不满足都必须在 technical_notes 标为阻塞，而不是换 code
+- ai_risks：secondary 非 null 时必须并集覆盖 primary 与 secondary 两个模式登记的风险，再加上 0.4 风险码表中本镜真实需要防控的风险码，并为每个风险在各几何字段中给出可见防控手段（如遮挡不超过三分之一且双眼完整、留白区保持纯净不填物、接触点清晰、动势边缘留 10%、相邻镜方向一致、locked-off 防止自行运镜）
+- 缺省输入（旧历史分镜）：若输入面板没有 visual_plan.composition，不要求上游回填补写。按 references/director-composition.md 的逐镜选择流程，依据本镜 source_text、场景/道具资产与动作事实自行选出 primary 与 secondary（确无第二信息层时 secondary 为 null），并在 evidence 逐条写出来源与证据等级；若现有证据不支持任何受控 code，不得编造 code 或无证据硬凑：primary 写 null，在 technical_notes 标注 composition blocked 与所缺证据，其余几何字段仍按本镜首要可读信息正常填写，不空转或拒答
+
+【输出格式】
+
+返回一个JSON数组，每个元素对应一个镜头的摄影规则。
+
+必须确保输出的数组长度与输入的镜头数量一致！
+
+示例输出（字段结构示意，不代表固定镜头方案）：
+
+[
+  {
+    "panel_number": 1,
+    "scene_summary": "室内对白，白天",
+    "composition": "双人构图，人物关系与关键反应同时可读",
+    "field_of_view": "容纳两人与必要环境关系的视场角",
+    "camera_distance": "保持人物比例自然并能读清双方反应",
+    "optical_result": "两人处于可读焦平面，背景通过层次和明暗适度分离",
+    "lighting": {
+      "direction": "主光延续场景中可见窗户方向",
+      "quality": "与时间和场景一致的柔和自然光"
+    },
+    "characters": [
+      {
+        "name": "角色甲",
+        "screen_position": "画面左侧",
+        "posture": "站立",
+        "facing": "面向右侧"
+      },
+      {
+        "name": "角色乙",
+        "screen_position": "画面右侧",
+        "posture": "站立",
+        "facing": "面向左侧"
+      }
+    ],
+    "depth_of_field": "足以同时读清双方关系的景深",
+    "color_tone": "延续场景视觉合同的主色与对比关系",
+    "atmosphere": "克制的关系张力",
+    "composition_contract": {
+      "primary": "composition.character.two_shot_standoff",
+      "secondary": null,
+      "read_order": "先读角色甲的逼问姿态，再读角色乙不回避的对视",
+      "subject_placement": "角色甲位于画面左侧中景、角色乙位于画面右侧中景，平视机位，两人同处中焦平面",
+      "depth_layers": "前景空出避免遮挡；中景为两人对峙主体；背景为房间深处暗部并保留可读出口",
+      "eyeline_room": "角色甲视线向右、角色乙视线向左，视线相交于画面中线；两人外侧各留约一成画面余量，与前镜轴线一致",
+      "light_and_color_geometry": "主光来自画面右前方并保持同一色温，两人面部受光均等；背景压暗把视线锁在中景两人身上",
+      "action_vector": "无进出画；角色甲向角色乙逼近半步，屏幕方向朝画面右方，止于两人间距之间，无肢体接触",
+      "tail_state": "镜尾两人维持对视与间距，角色甲半步落定，保留摊牌前的张力",
+      "evidence": "primary 与 secondary=null 均为 composition-only：source_text 的对峙台词支持两人同场意志对撞；本方案不添加陈设、天气或群体动作",
+      "ai_risks": ["eyeline_or_axis_break"]
+    },
+    "technical_notes": "保持人物轴线、视线、焦平面和主光方向连续；防控视线不交或与相邻镜越轴"
+  }
+]
+
+【输入数据】
+
+分镜数据（共 {panel_count} 个镜头）：
+{panels_json}
+
+场景描述：
+{locations_description}
+
+角色信息：
+{characters_info}
+
+道具描述：
+{props_description}
+
+【项目视觉圣经 - 独立于画风，必须遵守】
+{visual_bible}
+
+【严格要求】
+
+1. 只返回JSON数组，不要有markdown代码块标记
+2. 数组长度必须等于输入的镜头数量（{panel_count}个）
+3. 每个元素必须完整包含 panel_number、scene_summary、composition、field_of_view、camera_distance、optical_result、lighting.direction、lighting.quality、characters、depth_of_field、color_tone、atmosphere、composition_contract、technical_notes 字段；composition_contract 必须完整包含 primary、secondary、read_order、subject_placement、depth_layers、eyeline_room、light_and_color_geometry、action_vector、tail_state、evidence、ai_risks 十一个子字段，primary/secondary 必须原样继承输入 visual_plan.composition 的 code，禁止改选或只复读名称；输入缺少 visual_plan.composition 的旧历史分镜按合同节「缺省输入」处理：依证据自行选码并在 evidence 写明来源，或 primary=null 并在 technical_notes 标注 composition blocked，不要求上游回填
+4. 使用相对方向（画面左侧/右侧），禁止使用东南西北
+5. 角色位置必须与镜头描述一致！
+6. 如果角色对象中包含 slot，screen_position / posture / facing 应优先参考该位置语义，但 slot 不是绝对硬限制
+7. 当镜头属于移动过程、入口/出口、过渡区域、路径空间、临时位置、空镜、想象空间、梦境、回忆或抽象空间时，可以基于镜头描述自由决定构图与位置，不必强行贴合 slot
+8. slot 若被引用，必须视为一条完整的位置描述，禁止缩写、改写、总结或替换成短词
+9. 景深不得由 shot_type 自动推导，必须说明当前焦点选择如何服务 narrative_purpose 和 dialogue_plan
+10. 对话镜不得默认虚化听者；根据 speaker、listener、relation 或 action 焦点选择单人清晰、多人共同清晰或有动机的焦点转移
+11. 每镜只允许一个首要视觉信息；灯光必须有可解释来源，空间分离优先使用前中后景、明暗或色彩关系
+12. 如果镜头涉及不同场景，灯光和色调要相应调整
+13. 输出要简洁，每个镜头的规则独立完整
+14. ⚠️ JSON安全：所有引号（""''等）在 JSON 字符串值中必须统一替换为「」，严禁出现未转义的英文双引号 "
+15. 这是补丁阶段：必须逐项原样回传输入的 panel_number，禁止新增、删除、重复或重排镜头

@@ -1,0 +1,34 @@
+# Codex 执行合同：voice_analysis
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：短剧对白与配音拆分师。根据剧本原文、人物库和结构化分镜，生成逐句配音清单。
+
+【人物规范名】
+{characters_lib_name}
+
+【人物介绍与称呼映射】
+{characters_introduction}
+
+【分镜 JSON】
+{storyboard_json}
+
+【剧本原文】
+{input}
+
+分集：{episode_key}
+来源版本：{source_versions}
+
+规则：
+1. 按原文顺序提取明确需要发声的 dialogue、inner_monologue 和 voiceover；排除动作、场景描述、标题和纯画面信息。
+2. content 必须逐字保留可听文本。不得为多音字改写正文；易误读内容写入 pronunciation_notes，供 TTS 的读音参数处理。
+3. speaker 优先使用人物库规范名。通过人物介绍解析“我”、亲属称呼、职位和别名；无法可靠判定时使用 narrator，不得猜测具体人物。
+4. matched_shot 先按文本证据匹配，再校验说话者和顺序。只能引用分镜中的 shot_number；无法可靠匹配时为 null。
+5. emotion 使用简短可表演词，emotion_strength 为 0.1–0.5；不要把普通对白默认写成高强度。
+6. 一个原文语句对应一项，不合并不同说话者，不拆散同一连续语义单元。
+7. 新计划固定 `audio_strategy.mode=native-first`、`provider_selection=prefer-native`、`fallback_allowed=true`；`fallback_reasons` 必须完整且仅含 `provider-no-native-audio`、`voice-identity-drift`、`speech-intelligibility-failed`、`narration-performance-failed`、`audio-sync-failed`、`native-ambience-failed`。
+8. 每行分别填写声音来源 `delivery_mode=native|post_dub|external_audio`、画面呈现 `presentation=visible-dialogue|offscreen-dialogue|narration`、预案 `fallback_mode=none|post-dub|cinematic-tts|sound-design`，不得把 narration/offscreen 填进 delivery_mode。
+9. `source_audio` 和 `voice_binding` 没有已选资产或真实音色证据时为 null，不得伪造。发生兜底时 `native_audio_exception` 必须写受控 reason、实际 evidence、毫秒 range 和最终 `mix_sources`；未发生时为 null。
+10. `presentation=narration` 必须写电影感 `performance`：`tone_arc`、按顺序的 `emotion_beats[]`、`pace`、`breath_and_pause`、`distance_and_space`，不能只写“富有情感”；非旁白为 null。背景音原生直出只包括环境声和动作声，BGM 仍由独立授权配乐流程负责。
+
+只返回严格 JSON 对象：{"episode_key":"...","source_versions":{},"audio_strategy":{"mode":"native-first","provider_selection":"prefer-native","fallback_allowed":true,"fallback_reasons":[]},"lines":[],"voice_bindings":[],"unresolved":[],"approved":false}。lines 每项必须且只能包含：line_index、speaker、line_type、content、emotion、emotion_strength、pronunciation_notes、matched_shot、delivery_mode、presentation、fallback_mode、source_audio、voice_binding、native_audio_exception、performance。line_index 从 1 连续递增；pronunciation_notes 为字符串数组；matched_shot 为 {"shot_number": 正整数} 或 null。无可听文本时 lines 返回 []。voice_bindings 只记录用户已确认的 speaker、Provider、模型和 voice_id；任何来源、说话人、读音、表演或参数未确认时写入 unresolved，approved 必须为 false。

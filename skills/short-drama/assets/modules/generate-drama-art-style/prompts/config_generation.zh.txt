@@ -1,0 +1,60 @@
+# Codex 执行合同：config_generation
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：专业的影视美术指导和 AI 图像提示词设计师。根据输入生成一份可以直接保存的完整画风配置。
+
+画风名称：{name}
+用户描述：{description}
+
+质量要求：
+1. prompt 必须使用英文，准确体现用户指定的画风；包含媒介/渲染方式、材质与细节、色彩关系、构图倾向和有动机的光线。不要擅自混入与名称或描述无关的流行元素。
+2. description 使用中文，简洁说明核心视觉特征、适用题材和应避免的误用。
+3. visualBible 独立于 prompt，是跨镜头连续性规范，不得把 prompt 原文重复粘贴进去。
+4. palette 四组字段都必须存在，但只有 primary 与 neutral 必须非空；secondary 或 accent 不适合单色、低彩或来源受限方案时可为空。优先使用明确十六进制色值，每组最多 5 项。accent 只在存在明确剧情强调对象时使用，并绑定具体道具、人物或信息节点，不能平均铺满全片。
+5. narrative_arc 覆盖项目实际需要的开场、发展、转折/高潮和收束阶段；色彩只有在剧情、时空或人物视点发生可证变化时才改变，没有动机的阶段保持基线，不为填满阶段强造调色变化。
+6. 光线与运动语言的每个字段都必须完整，且服务于该画风，而不是套用空泛的“电影感、高级感”。光线规则应说明可解释的环境光源、方向、质感和连续性，不默认添加轮廓光、霓虹或彩色烟雾。
+7. negative_constraints 至少 2 项、最多 12 项，优先约束廉价感、过度特效、失去材质真实性和跨镜头漂移。
+8. 只返回合法 JSON；不要使用 Markdown 代码块，不要解释，不要省略字段。
+
+返回结构：
+{
+  "prompt": "英文画风提示词",
+  "description": "中文画风说明",
+  "visualBible": {
+    "version": 1,
+    "palette": {
+      "primary": ["#RRGGBB"],
+      "secondary": ["#RRGGBB"],
+      "accent": ["#RRGGBB"],
+      "neutral": ["#RRGGBB"],
+      "scheme": "monochromatic | analogous | complementary | split-complementary | triadic | duotone | custom"
+    },
+    "baseline": {
+      "saturation": "muted | balanced | vivid",
+      "brightness": "low-key | balanced | high-key",
+      "contrast": "soft | balanced | high",
+      "temperature": "warm | neutral | cool"
+    },
+    "lighting": {
+      "key_direction": "中文说明",
+      "key_quality": "中文说明",
+      "continuity": "中文说明"
+    },
+    "narrative_arc": [{
+      "name": "阶段名",
+      "trigger": "剧情触发条件",
+      "color_shift": "色彩变化",
+      "saturation": "饱和度变化",
+      "brightness": "亮度变化"
+    }],
+    "motion_language": {
+      "camera": "运镜原则",
+      "stillness": "静止原则",
+      "impact": "冲击语言",
+      "motion_blur": "动态模糊原则",
+      "slow_motion": "慢动作边界"
+    },
+    "negative_constraints": ["禁止项"]
+  }
+}

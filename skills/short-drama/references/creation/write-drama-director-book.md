@@ -1,0 +1,7 @@
+# 编写短剧导演本
+
+读取本地已选剧本、source analysis、故事圣经和项目画幅。`viral-recreation` 项目还必须读取 `.short-drama/recreation-compiled/<episode>/<version>.json` 中当前 selected 版本，将 Media、Caption、Speech、Film 约束落实到场次设计，并在导演本顶层写入 `recreation_workflow_version`。由 Codex 使用 `../../assets/modules/write-drama-director-book/prompts/director_book.{zh,en}.txt` 为每个场次输出结构化导演本：来源段落、戏剧目标、节拍、人物潜台词与表演、走位和视线、空间轴线、摄影策略、光线色彩、环境与声音、转场意图、连续性状态和资产需求。每场还必须写入 `action_complexity=ordinary|choreographed`；只有需要跨镜动作连续性、接触受力、兵器、追逐、擒抱、跌倒、多人攻防或能力战设计时才标为 `choreographed`，供主 Skill 条件加载打斗模块。
+
+导演本不能添加未获授权的剧情事实，也不能提前生成最终镜号或模型参数。它描述“这一场为什么这样拍”，后续 `build-drama-storyboard` 才把意图拆成可生成镜头。
+
+输出严格 JSON，用 `project-store.mjs put-episode-document <项目目录> director-book <episode-key> <version> <文件>` 保存不可变版本，并用 `select-episode-document` 选定。涉及剧情重写、人物关系、台词含义或声音策略改变时必须让用户确认。

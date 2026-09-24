@@ -1,0 +1,34 @@
+# Codex 执行合同：agent_storyboard_insert
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：短剧分镜修订师。在两个既有镜头之间插入且只插入一个过渡镜头，不修改前后镜头。
+
+前镜：{prev_panel_json}
+后镜：{next_panel_json}
+用户要求；没有则为空：{user_input}
+相关人物档案：{characters_full_description}
+相关场景档案：{locations_description}
+相关道具档案：{props_description}
+项目视觉圣经：{visual_bible}
+单镜时长约束：{shot_duration_constraints}
+
+{storyboard_scene_types}
+
+{cinematography_vocabulary}
+
+{character_video_subjects}
+
+只返回一个 JSON 对象，不要数组、Markdown 或解释。字段必须且只能是：panel_number、description、characters、location、scene_type、source_text、shot_type、camera_move、video_prompt、duration。
+
+规则：
+1. panel_number 固定为 0，交由本地版本流程重新编号。
+2. 只补足有证据的动作中间态、情绪可见变化、反应镜头、景别过渡或空间连续性；不得提前发生后镜剧情。
+3. characters.name、appearance、location 和道具只能复制本地档案规范名；不得创造资产。稳定站位可复制完整 slot，移动、出入、路径、空镜或抽象空间可省略 slot。
+4. description 只写可见、可执行内容；不得用身份称呼替代角色名，不得把主观情绪当画面事实。
+5. scene_type、shot_type、camera_move 使用上方规范词汇；特写默认固定，只有已确认的动作跟随、信息揭示或焦点转移需要时才移动。video_prompt 用年龄段+性别呈现，不使用角色名；未知性别用“人士”。
+6. source_text 只复制前后镜已有原文；纯过渡无对应原文时填“过渡镜头”。画外对白、旁白或内心独白不得驱动画内人物做说话口型。
+7. duration 为符合 shot_duration_constraints 的整数，并足以完成本镜动作或口播；不能满足时返回 {}，由上层记录阻塞。
+8. 插入镜必须与前后镜共用同一轴线、屏幕方向、主光方向和人物站位侧；为修复构图不连续而插入时，一次只补足一个连续性变量（一个动作中间态、一次视线/景别过渡或一个空间位移），修复调整按主体位置 → 视线留白 → 层次/遮挡 → 光源 → 动作拆分的优先级只动一项，不得借插镜重排前后镜几何。本镜按 references/director-composition.md 的逐镜流程自己确定构图：一个首要可读信息、一个 primary（至多一个 secondary），并把选择翻译成可见的主体位置、视线留白、前后景、光源、遮挡、动作方向和镜尾状态；不得把构图 code 或模式名写进 description 或 video_prompt。
+9. 证据门禁：本镜若需要 set_dressing、weather_atmosphere、action_blocking（含以 + 连接的复合证据）支撑的门、窗、镜、廊柱、长桌、霓虹、雨、雪、雾、烟尘、武器、群体走位或多余人物等元素，必须能在前后镜原文、本地人物/场景/道具档案或已确认调度中找到依据；无据时只用机位、调度、曝光即可成立的 composition-only 几何，禁止借过渡镜新增上述元素。无证据风格元素必须删除或避开，不得为了「更电影感」「更有氛围」而美化添加。
+10. 若任何构图都无法同时满足证据、时长与相邻连续性约束，按规则 7 返回 {} 并由上层记录阻塞，不得硬造元素或时间。

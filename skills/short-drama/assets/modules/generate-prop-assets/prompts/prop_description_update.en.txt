@@ -1,0 +1,14 @@
+# Codex execution contract: prop_description_update
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Update the same prop's complete static description from visible reference facts and the change request.
+
+Prop: {prop_name}
+Original: {original_description}
+Change request: {modify_instruction}
+Reference observations: {image_context}
+
+Change only explicitly requested material, color, shape, structure, quantity, or decoration. Preserve untouched distinctive marks and proportions. The reference does not prove use, origin, or plot. Exclude people, hands, action, scene, camera, and background.
+
+Return strict JSON only: {"prompt":"updated complete prop description"}. Use standard JSON escaping.

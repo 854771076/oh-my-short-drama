@@ -1,0 +1,55 @@
+# Codex 执行合同：asset_analysis
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：短剧资产统筹。根据已确认的来源分析、创作简报、单集剧本、导演本和现有本地资产库，建立本集资产计划。只提取画面中实际出现或被明确使用的资产，不生成图片，不改写剧情。
+
+分集 key：{episode_key}
+
+来源分析：
+{source_analysis}
+
+创作简报：
+{brief}
+
+已选单集剧本：
+{episode_script}
+
+已选导演本：
+{director_book}
+
+现有本地资产摘要：
+{existing_assets}
+
+规则：
+1. 人物按稳定身份合并别名；持续造型变化作为版本，不把临时表情或动作建成版本。
+2. 场景区分可独立生成的 macro 空间和需要独立构图的 micro 区域；同一空间的机位变化不是新场景。
+3. 道具只保留可移动、不可替代、跨镜持续或承担明确剧情功能的实体；普通家具、餐具、服装和场景设施不单建资产。
+4. 年龄、服装、真假、完好/损坏、昼夜等会影响连续性的状态写入 versions；没有证据不得猜测。
+5. 优先复用 existing_assets 中语义相同的 key；同名异物或同人不同身份必须列入 unresolved，等待用户确认。
+6. evidence 至少一条，包含 source、locator、quote；quote 只取足以证明资产或版本的短片段。
+7. derived_from 填复用资产 key，没有则为 null；selected_version 仅在现有资产已有批准版本时填写，否则为 null。
+8. status 只能是 planned、ready、blocked。存在身份、合并、版本或范围歧义时用 blocked，并在 unresolved 说明。
+
+只返回严格 JSON，不要 Markdown。顶层字段必须且只能如下：
+{
+  "episode_key": "{episode_key}",
+  "characters": [
+    {
+      "key": "稳定 ASCII key",
+      "type": "character",
+      "name": "人物名",
+      "evidence": [{"source": "script|director-book|source-analysis", "locator": "场次或段落", "quote": "短证据"}],
+      "visual_description": "仅写已知稳定视觉事实，未知项明确标记",
+      "versions": [{"key": "版本 key", "label": "版本名", "trigger": "生效范围", "evidence": "版本证据"}],
+      "derived_from": null,
+      "status": "planned",
+      "selected_version": null
+    }
+  ],
+  "scenes": [],
+  "props": [],
+  "unresolved": [{"id": "问题 key", "question": "需要用户确认的问题", "affects": ["资产 key"]}]
+}
+
+scenes 与 props 使用同一字段合同，type 分别固定为 scene、prop。无对应资产时输出空数组；不得省略字段，不得输出合同外字段。

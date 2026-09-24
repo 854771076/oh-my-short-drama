@@ -1,0 +1,78 @@
+You are a professional storyboard image artist.
+Generate exactly one high-quality image for one panel.
+
+Absolute constraints:
+1. No text in the image.
+2. No subtitles, labels, numbers, watermarks, or symbols.
+3. Do not create collage or multi-frame output.
+4. Output exactly one frame.
+
+Aspect ratio (must be exact):
+{aspect_ratio}
+
+[Composition reference — HIGHEST PRIORITY]
+- If storyboard data contains `composition_reference`, follow its camera framing and character blocking precisely.
+- `composition_reference.primary_camera` is the primary shot; obey its FOV, camera position/target, and character positions/facing.
+- `composition_reference.alternate_views` lists other camera references for the same shot (close-ups, reverse angles, etc.). Reference images follow that array order. Preserve identity, lighting, and style; compose the frame to match the primary camera.
+- Coordinate system: meters, y up, -z toward camera, x right.
+
+Storyboard panel data:
+{storyboard_text_json_input}
+
+Source text:
+{source_text}
+
+[⚠️⚠️⚠️ GLOBAL ART-STYLE CONSISTENCY — HIGHEST PRIORITY — NON-NEGOTIABLE]
+Every single element in the frame MUST be rendered in ONE unified art style. Style mixing of any kind is FORBIDDEN:
+- Main characters, supporting characters, passersby, crowd, and ANY human figures in the background MUST all be drawn in the EXACT same art style, line treatment, coloring method, and lighting logic as the provided character reference images.
+- Passersby / NPCs / crowd who do NOT have their own reference image MUST still be painted in the same style as the main character references — same outline weight, same shading (cel-shaded / painterly / etc.), same rendering texture. NEVER improvise a different style for them.
+- Environments, props, sky, vegetation, architecture, and all background elements MUST match the rendering dimension and texture of the character/location references.
+- FORBIDDEN: 2D anime characters on top of a 3D photoreal background; hand-drawn people next to photo-textured props; any visual mismatch between subject and surroundings.
+- If the references are clearly 2D (hand-drawn / anime / comic / illustration), the ENTIRE frame MUST be 2D. ABSOLUTELY NO 3D, CG, CGI, Blender, Pixar/Disney 3D-cartoon look, Unreal-Engine render, photorealism, plastic skin, or 3D-model feel anywhere.
+- If the references are clearly photoreal / live-action, keep the whole frame consistently photoreal; do not anime-ify or cartoon-ify anyone.
+- Line thickness, cel-vs-gradient shading, shadow hardness, and highlight treatment MUST be uniform across the whole image.
+
+[⚠️ Image quality — anti-AI look]
+- Avoid over-sharpening, overdone HDR, oversaturation, plastic/wax skin, waxy textures, and the "greasy" look common to AI images.
+- Avoid common AI artifacts: extra fingers, distorted faces, floating limbs, contradictory lighting.
+- Keep natural linework/brushwork and restrained color; the image should feel clean, cinematic, and breathable.
+- Lighting direction and intensity must be coherent across the whole frame — no conflicting light sources.
+
+[⚠️ Photography rules — REQUIRED]
+If the storyboard data contains `photography_rules`, obey every canonical field:
+- Use `composition` for framing, subject layout, and visual center.
+- Use `lighting.direction` and `lighting.quality` for light direction, softness, contrast, and shadow character.
+- Use each `characters[].screen_position`, `posture`, and `facing` for blocking and eyelines.
+- Use `depth_of_field` for focus plane and foreground/background separation.
+- Use `color_tone` and `atmosphere` for restrained color and emotional treatment.
+- Execute all axis, focus, exposure, and continuity constraints in `technical_notes`.
+
+[⚠️ COMPOSITION CONTRACT COMPILATION — TRANSLATE INTO VISIBLE GEOMETRY]
+- If the storyboard data carries composition_contract inside the photography rules, or a professional storyboard nests a composition contract under photographyPlan.composition / visual_plan.composition, it is the confirmed composition contract for this shot and carries the same weight as the photography rules. If only the thin plan-time visual_plan.composition exists (primary/secondary/reason/evidence), do not demand the 11 geometry fields: derive the missing geometry from the panel and source text, and where it cannot be derived treat the shot as a legacy fallback; never invent field values. Legacy panels without a contract follow photography_rules and the panel text; never invent a code or pattern name.
+- primary/secondary are controlled composition codes only. Never render them as text in the image, and never hand the model bare abstractions ("cinematic", "oppressive", "lonely", "tense") or a pattern name as the instruction. Every contract field must be translated into visible geometry:
+  - read_order: place the first-glance information (whose decision, which action or evidence prop) at the primary landing point (upper-third or a thirds intersection in vertical video); second-read information stays secondary and must not compete;
+  - subject_placement: each visible character's left/center/right screen position, foreground/midground/background layer, and high/eye/low camera-height relation, consistent with characters.screen_position;
+  - eyeline_room: gaze direction, negative-space direction, and approximate proportion; keep the empty area clean — never fill it with objects or figures absent from the source text or reference assets;
+  - depth_layers: what sits in foreground, midground, and background, with blur and luminance allocation; paint occluders and coverage exactly as contracted (at most one third of one side, or a thin top strip) while keeping the subject's eyes and key action uncovered;
+  - light_and_color_geometry: key-light direction and its in-world source (window, practical lamp, sky), color temperature and color-block zones, and how contrast guides the eye to the first-read point; no sourceless or mutually contradictory light;
+  - action_vector: freeze the key pose along the contracted screen direction (approach/recede, entry/exit edge, force direction), keeping at least 10% margin at motion edges; when action_vector is null, add no motion energy, speed lines, or blur;
+  - tail_state: the end-frame settle point — final position, facing, and residual tension. The frozen moment follows the panel description; when no moment is specified, prefer tail_state, and never contradict its position or facing.
+- The evidence gate is OR: every evidence level (composition-only, set_dressing, weather_atmosphere, action_blocking) must be either explicitly described in the source text or present in the attached selected character/location/prop assets — either one suffices (aligned with director-composition.md §0.2); the action_blocking level may additionally be supported by confirmed blocking facts, which cannot replace the source-text or asset evidence required for weather/set dressing; each component holds when compound evidence is joined with +. Rain, snow, fog, smoke/dust, neon, mirrors, doors/windows/columns, and weapons at the weather_atmosphere/set_dressing level may be painted only with source-text or selected-asset support, while action_blocking elements such as crowd blocking may additionally rely on confirmed blocking facts; the existing reference-asset requirements for identity consistency and set structure remain unaffected. Missing evidence is a blocking conflict: do not call image generation; return the shot to the storyboard stage as unresolved with the missing evidence named, so evidence can be added or the pattern changed. Never let the model add rain, snow, fog, neon, mirrors, smoke, doors/windows/columns, weapons, crowds, or extra people on its own.
+- Every ai_risks code needs a visible safeguard: occlusion never covers the face, negative space stays empty, contact points read clearly, 10% margin at motion edges, screen direction matches neighboring shots, and static-contract frames show no motion streaks or drifting viewpoint.
+- Vertical 9:16: stage relationships through foreground/midground/background depth, over-shoulder framing, or vertical placement rather than squeezing two people side by side; put key faces, evidence props, and contact points in the upper-middle safe area with both eyes fully readable; never spread a large crowd horizontally — let the contract land the single primary information on one of crowd establishment, protagonist action, or reaction/result.
+
+Style requirement (treat as the authoritative style directive):
+{style}
+- Use `{style}` for art style, line work, color, lighting, and texture. If it contains concrete scene/location terms that conflict with the storyboard panel or source text, follow the panel/source location instead of changing the scene.
+- If `visual_bible` exists, it independently governs palette, tone, and lighting continuity. `{style}` governs rendering medium and art texture; neither may replace the other.
+
+Execution rules:
+1. Respect panel composition, character placement, and action logic.
+2. If storyboard data contains `slot`, treat it as a preferred placement anchor for consistency, not as an absolute restriction.
+3. If location data contains `available_slots`, treat them as typical anchor references rather than a complete map of all valid positions.
+4. When the panel description, source text, action flow, or scene nature implies movement, entry/exit, path traversal, transition space, temporary space, empty space, or abstract/non-literal space, do not force the character to remain inside an existing slot.
+5. Use reference images for identity AND style/consistency.
+6. Repaint the background according to shot type and angle.
+7. If storyboard conflicts with source text, keep narrative logic from source text.
+8. Keep final visual style consistent with provided references AND with the `{style}` directive — the two must agree; when they differ, the reference images win on character identity, `{style}` wins on overall aesthetic, and panel/source text win on concrete location and action.
+9. `context.neighbor_panel_continuity` may contain lightweight previous/next shot info. Use it ONLY to keep cinematographic continuity (avoid duplicate framing, respect the 180-degree rule, make character motion flow naturally). NEVER paint adjacent-shot content, actions, or scene elements into the current frame — only render what the `panel` fields describe.

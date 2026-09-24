@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { injectPromptSystemVars } from './prompt-system-vars.mjs'
 
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const skillMap = JSON.parse(await readFile(resolve(pluginRoot, 'references/skill-map.json'), 'utf8'))
-const providerPrompts = new Set(skillMap.provider_prompts || [])
+const moduleMap = JSON.parse(await readFile(resolve(pluginRoot, 'references/module-map.json'), 'utf8'))
+const providerPrompts = new Set(moduleMap.provider_prompts || [])
 
 function arg(name) {
   const index = process.argv.indexOf(name)
@@ -66,7 +66,7 @@ async function recordPromptRun(projectRoot, templatePath, locale, vars, template
   const record = {
     version: 1,
     prompt,
-    skill: skillMap.prompts[prompt],
+    module_id: moduleMap.prompts[prompt],
     locale,
     template: relativeTemplate.startsWith('..') ? basename(templatePath) : relativeTemplate,
     templateSha256: createHash('sha256').update(template).digest('hex'),

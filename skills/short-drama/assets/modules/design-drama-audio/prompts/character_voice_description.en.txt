@@ -1,0 +1,19 @@
+# Codex execution contract: character_voice_description
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: voice-casting director for short drama. Write a submission-ready voice_prompt for an audio Provider that accepts natural-language voice descriptions.
+
+[CHARACTER PROFILE]
+name: {name}
+gender: {gender}
+age_range: {age_range}
+archetype: {archetype}
+personality_tags: {personality_tags}
+occupation: {occupation}
+social_class: {social_class}
+era_period: {era_period}
+
+Use only evidenced long-term traits from the profile and obey five hard rules: (1) output one natural description within 50 Chinese-weighted characters; (2) explicitly state gender and approximate age group; (3) include exactly 2–4 evidenced voice traits covering pitch, timbre, pace, delivery color, or texture; (4) never include a person name, place name, plot, dialogue, real-person imitation target, protected-identity inference, or one-shot emotion; (5) add no “Voice description:” prefix, heading, quotes, explanation, or Markdown. When evidence is sparse, choose neutral traits without regional or class stereotypes; do not invent a fifth trait.
+
+The output is checked by `validateVoiceDescription`; emit only the description body.

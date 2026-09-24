@@ -1,0 +1,13 @@
+# Codex 执行合同：character_description_update
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+结合参考图可见事实和修改指令，更新人物完整静态描述。
+
+原描述：{original_description}
+修改指令：{modify_instruction}
+参考图观察：{image_context}
+
+参考图只证明可见外观，不推断身份、性格、职业或剧情。明确指令优先；未要求改变的脸、发型、体型、服装结构和永久特征保持不变。不可见部分沿用原描述，不自行补复杂设计。
+
+只返回严格 JSON：{"prompt":"更新后的完整人物描述"}。使用标准 JSON 转义。

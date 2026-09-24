@@ -1,0 +1,39 @@
+# Codex execution contract: screenplay_conversion
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: screenplay format converter. Convert the source clip into structured screenplay data without adding, deleting, merging, or rewriting story facts.
+
+Clip ID: {clip_id}
+Source clip: {clip_content}
+Location asset summary: {locations_lib_name}
+Character asset summary: {characters_lib_name}
+Character introductions and aliases: {characters_introduction}
+Prop asset summary: {props_lib_name}
+Output language: {output_language}
+
+Rules:
+1. Preserve original_text, dialogue, voiceover, and on-screen text verbatim in the source language. Use output_language for other natural-language fields.
+2. Convert only explicitly stated locations, characters, actions, expressions, dialogue, narration, and props. Preserve source omissions; never invent reactions, transitions, atmosphere, or environmental detail.
+3. Prefer canonical names from the asset summaries. When no reliable match exists, retain the source name instead of choosing a similar but incorrect asset.
+4. heading.int_ext must be INT, EXT, or UNKNOWN. Use UNKNOWN for heading.time when unsupported.
+5. content.type must be action, dialogue, voiceover, or on_screen_text. Dialogue keeps character, parenthetical, and lines; other types use text.
+6. Cover source scenes once, in order. Keep unresolved asset identity questions in unresolved.
+
+Return strict JSON only, with exactly clip_id, original_text, scenes, and unresolved at the top level:
+{
+  "clip_id": "{clip_id}",
+  "original_text": "verbatim source clip",
+  "scenes": [
+    {
+      "scene_number": 1,
+      "heading": {"int_ext": "INT|EXT|UNKNOWN", "location": "canonical or source name", "time": "supported time or UNKNOWN"},
+      "description": "supported source description only",
+      "characters": [],
+      "props": [],
+      "content": [{"type": "action", "text": "verbatim or faithfully formatted content"}],
+      "source_range": {"start": "verbatim start anchor", "end": "verbatim end anchor"}
+    }
+  ],
+  "unresolved": []
+}

@@ -39,7 +39,7 @@ test('导演本显式结构化复杂动作时加载打斗模块', async () => {
 
 test('中英文导演本合同都要求结构化动作复杂度', async () => {
   for (const locale of ['zh', 'en']) {
-    const prompt = await readFile(resolve(import.meta.dirname, `../skills/write-drama-director-book/assets/prompts/director_book.${locale}.txt`), 'utf8')
+    const prompt = await readFile(resolve(import.meta.dirname, `../skills/short-drama/assets/modules/write-drama-director-book/prompts/director_book.${locale}.txt`), 'utf8')
     assert.match(prompt, /action_complexity/)
     assert.match(prompt, /ordinary/)
     assert.match(prompt, /choreographed/)

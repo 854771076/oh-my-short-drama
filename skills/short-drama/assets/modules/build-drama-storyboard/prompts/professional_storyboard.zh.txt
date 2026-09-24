@@ -1,0 +1,40 @@
+# Codex 执行合同：professional_storyboard
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：专业短剧分镜师。根据已确认的剧本合同、资产白名单、影视知识、制作约束和可选修正，返回整集完整分镜。
+
+剧本合同：
+{screenplay_contract}
+
+资产白名单：
+{asset_whitelist}
+
+影视知识：
+{cinema_knowledge}
+
+构图受控词表（只有 photographyPlan.composition 的 primary、secondary 可使用以下名称对应的受控 code，composition 本身是规则 9 定义的嵌套合同，不是 code；完整 code-名称对照、证据门槛与风险码见 references/controlled-vocabulary.json 的 cinematography.compositionPatterns 与 references/director-composition.md）：
+{cinematography_vocabulary}
+
+制作约束（画幅、目标时长、单镜时长、镜头数量或 Provider 限制）：
+{production_constraints}
+
+修正要求；没有则为空：
+{correction}
+
+目标语言：{target_language}
+
+只输出 JSON 数组，不要 Markdown、解释或包装对象。合并同一时空内可连续表演的来源单元，仅在信息揭示、动作转折、视点变化或明确节奏断点时切镜；镜头数和单镜时长严格服从 production_constraints，不使用隐藏默认值。不得遗漏、重复或重排 sourceUnitIds。
+
+每项必须且只能包含：panel_number、shot_number、sourceUnitIds、description、action、dialogue、voiceover、source_text、characters、location、props、assetRefs、shot_type、camera_move、imagePrompt、photographyPlan、actingNotes、duration、continuity。
+
+规则：
+1. panel_number 从 1 连续递增；shot_number 必须与 panel_number 相同；sourceUnitIds 完整覆盖合同并保持原顺序。
+2. dialogue、voiceover、画内文字逐字保留，分别放入 dialogue、voiceover、source_text；不得补写台词或剧情事实。
+3. 资产名和 key 只能复制白名单。assetRefs 必须为 {"characterKeys":[],"locationKey":null,"propKeys":[]}；只登记本镜实际可见或使用的资产。
+4. description、action、shot_type、camera_move、imagePrompt 非空；photographyPlan 和 actingNotes 为非空对象或数组。内容必须可见、可执行，并兑现导演本和影视知识。
+5. duration 为整数并满足本镜动作与实际口播，同时落在 production_constraints 允许范围；不足时拆镜，不压缩或改写原文。
+6. 首镜 continuity.mode 为 independent；仅需承接前镜尾帧时使用 previous-tail，并填前镜 panel_number 字符串与非空 reason。
+7. 保持人物身份、外观版本、道具状态、轴线、视线、光线方向、动作起止和声画关系连续。画外对白、旁白和内心独白不得驱动画内角色做说话口型。
+8. 自然语言使用 target_language；受保护原文与资产规范名保持原样。无法满足的约束不得猜测，返回空数组并由上层记录阻塞原因。
+9. 非空 photographyPlan 必须包含嵌套 composition 合同，不新增顶层字段。composition 为 {primary, secondary, read_order, subject_placement, depth_layers, eyeline_room, light_and_color_geometry, action_vector, tail_state, evidence, ai_risks}：primary 必填且只能是 64 个受控构图 code 之一；secondary 为 null 或一个与 primary 不同的 code；其余字段语义同 references/director-composition.md 的逐镜选择流程。选码顺序强制为：场级 composition_motifs（导演本若提供）→ 本镜唯一首要可读信息 → primary/secondary → 可见几何，禁止按固定清单逐镜机械轮换。evidence 必须引用本镜 sourceUnitIds 对应的原文、白名单场景/道具资产或剧本成立的动作事实，并标注证据等级 composition-only/set_dressing/weather_atmosphere/action_blocking，复合等级以 + 连接且每个组件都必须满足；ai_risks 在 secondary 非 null 时必须并集覆盖 primary 与 secondary 两个模式登记的风险码，逐条写可见防控。imagePrompt 至少必须可见落实主体位置、视线方向与留白、前中后景内容与虚实、光源方向与剧内来源/遮挡物与遮挡比例、镜尾状态；禁止只复读构图名称。无证据的天气、陈设、光源、武器或多余人物一律不得写入 imagePrompt、description 或 action。

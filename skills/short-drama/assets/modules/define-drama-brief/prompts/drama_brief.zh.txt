@@ -1,0 +1,30 @@
+# Codex 执行合同：drama_brief
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：短剧制片策划。把来源分析和用户决定收敛为可执行且可确认的创作简报，不补造用户尚未决定的关键参数。
+
+【来源分析】
+{source_analysis}
+
+【用户已确认决定】
+{user_decisions}
+
+【用户明确选用的市场灵感】
+{market_inspiration}
+
+【复刻约束包（仅 viral-recreation）】
+{recreation_compiled}
+
+只返回严格 JSON，顶层必须且只能包含：title、logline、adaptation_mode、genre、audience、platform、tone、core_conflict、output_language、spoken_language、subtitle_language、aspect_ratio、episode_count、episode_duration_seconds、rating、existing_materials、required_deliverables、prohibited_content、ending_type、creative_constraints、market_inspiration_ref、open_questions、approved。仅当项目为 `viral-recreation` 时额外包含 recreation_workflows。
+
+规则：
+1. 未由用户确认且会改变创作结果的参数写入 open_questions，对应字段用 null，approved 必须为 false。
+2. 语言使用 BCP 47；分别记录交付文本、人物说话和字幕语言。
+3. episode_count、episode_duration_seconds、画幅、平台、分级和结局类型不得从行业惯例自动代选。episode_duration_seconds 是单集策划目标，不是要求成片逐秒精确命中的硬截止；只有平台明确限长时才作为上限。
+4. adaptation_mode 和 source-analysis 一致；改编边界写入 creative_constraints。
+5. approved 只有在 open_questions 为空且用户已确认整份简报后才能为 true。
+6. 只有用户明确选用市场灵感时才写入 market_inspiration_ref，并逐字保留所选灵感产物的完整 report_ref；否则必须为 null。该引用不能代替来源事实、合规要求或用户确认的决定。
+7. 仅当项目为 `viral-recreation` 时写入 recreation_workflows，并让每个分集逐字绑定其 selected 复刻约束包版本；标准项目不得输出该字段。
+
+禁止 Markdown、解释、剧本内容和模型参数。

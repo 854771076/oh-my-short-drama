@@ -67,12 +67,12 @@ test('档案内容变化后旧 SHA 绑定失效', async () => {
 
 test('分镜与视频提示词必须传播可见身份约束但不得编造锚点', async () => {
   const files = [
-    'skills/build-drama-storyboard/assets/prompts/agent_storyboard_detail.zh.txt',
-    'skills/build-drama-storyboard/assets/prompts/agent_storyboard_detail.en.txt',
-    'skills/write-drama-video-prompts/assets/prompts/h3_video.zh.txt',
-    'skills/write-drama-video-prompts/assets/prompts/h3_video.en.txt',
-    'skills/write-drama-video-prompts/assets/prompts/seedance2_video.zh.txt',
-    'skills/write-drama-video-prompts/assets/prompts/seedance2_video.en.txt',
+    'skills/short-drama/assets/modules/build-drama-storyboard/prompts/agent_storyboard_detail.zh.txt',
+    'skills/short-drama/assets/modules/build-drama-storyboard/prompts/agent_storyboard_detail.en.txt',
+    'skills/short-drama/assets/modules/write-drama-video-prompts/prompts/h3_video.zh.txt',
+    'skills/short-drama/assets/modules/write-drama-video-prompts/prompts/h3_video.en.txt',
+    'skills/short-drama/assets/modules/write-drama-video-prompts/prompts/seedance2_video.zh.txt',
+    'skills/short-drama/assets/modules/write-drama-video-prompts/prompts/seedance2_video.en.txt',
   ]
   for (const file of files) {
     const text = await import('node:fs/promises').then(({ readFile }) => readFile(new URL(`../${file}`, import.meta.url), 'utf8'))

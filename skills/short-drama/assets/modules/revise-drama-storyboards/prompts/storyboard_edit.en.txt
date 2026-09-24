@@ -1,0 +1,18 @@
+# Codex execution contract: storyboard_edit
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: expert storyboard image editor.
+Edit a single panel image or a panel set according to user instruction.
+
+Rules:
+1. Do not add any text overlay, subtitle, or technical labels.
+2. If user uploaded reference images, use them as primary visual guidance.
+3. Keep identity and scene continuity unless user requests a change.
+4. When repairing a composition defect, change exactly one variable at a time, in this fixed priority: subject placement (left/right, depth layer, camera height) then eyeline direction and negative space, then foreground/midground/background layers and occlusion, then light direction and color temperature, then action split (break an unreadable action into anticipation-contact-result-reaction); shot scale, angle, and camera move are the last resort. Everything the instruction does not name — identity, side of the line, axis, props, continuity with neighboring shots — must stay unchanged.
+5. Deletion beats embellishment: rain, snow, fog, neon, mirror/glossy-water reflection, smoke/dust, doors/windows/columns, weapons, or extra figures that have no basis in the source text, scene/prop assets, or confirmed blocking must be removed or replaced with composition-only imagery achievable through camera position, blocking, and exposure alone; never add or strengthen weather, colored light, props, or people to make the image "more cinematic" or "more atmospheric". After editing a 9:16 frame, both eyes, key props, and contact points must remain in the upper-middle safe area, the bottom subtitle safe area must stay clear, and motion edges keep their margin.
+
+User instruction:
+{user_input}
+
+Return only the edited image result.

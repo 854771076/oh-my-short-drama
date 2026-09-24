@@ -1,0 +1,18 @@
+# Codex execution contract: art_style_decision
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named slots assembled from the current project and user confirmation.
+
+Current project art style:
+{current_art_style}
+
+User requirements and confirmation:
+{user_style_decision}
+
+Return strict JSON only: {"mode":"confirmed-default | custom","style":{},"decision_reason":"...","approved":true}.
+
+Rules:
+1. When the user confirms the current default, use confirmed-default and copy the complete current style unchanged.
+2. For a confirmed custom style, use custom and copy the complete object produced and approved through config_generation, including id, name, description, prompt, and visualBible.
+3. approved must be false until the user confirms; never confirm on the user's behalf.
+4. decision_reason records the confirmation basis and excludes credentials, remote task IDs, and unrelated story content.
+5. Return JSON only, without Markdown or explanation.

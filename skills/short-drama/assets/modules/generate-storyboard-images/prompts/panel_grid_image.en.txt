@@ -1,0 +1,68 @@
+You are a storyboard visual director. Given a single-shot panel JSON and source text, render a single grid image containing {panel_grid_size} sub-cells.
+
+[⚠️ REFERENCE IMAGE RULES — HIGHEST PRIORITY, MUST FOLLOW STRICTLY]
+Character/location reference images are attached to this request. EVERY sub-cell MUST be drawn strictly from these references — never invent characters or scenes:
+- Character references: each character's appearance, facial features, hairstyle, costume, accessories, and body type in every sub-cell MUST match the character reference exactly. Do not alter or redesign them.
+- Location references: use them for the environment's composition, architectural structure, style, and mood. Lock the same camera position, axis, shot scale, and background relationship by default. The scene's visual features MUST come from the reference — do not paste the whole reference flat into the background.
+- The text labels above the reference images mark character/location names; match them to the characters/locations in the panel JSON. Labels are for identification only — never paint them into the image.
+- Art style, line work, color, texture, and lighting MUST stay consistent with the references; no cell may deviate from the reference style.
+- Sub-cells show only temporal progression and action breakdown within one continuous shot. The visual identity of characters and scene MUST stay locked to the references: the SAME character, SAME costume, SAME location across ALL sub-cells — no cell may break away with a different design.
+
+[⚠️⚠️⚠️ GLOBAL ART-STYLE CONSISTENCY — NON-NEGOTIABLE]
+The ENTIRE grid (main characters, supporting characters, passersby, crowd, backgrounds, props, environmental elements in every sub-cell) MUST be rendered in ONE unified art style:
+- Passersby / NPCs / crowd who have no dedicated reference image MUST still be painted in the SAME style as the main character references — same outline weight, same shading method, same rendering texture. NEVER improvise a different style for them.
+- ALL sub-cells share ONE style: if main characters are 2D anime, then every person and every background in every cell must be 2D; if they are photoreal, keep everything photoreal.
+- FORBIDDEN: any 3D, CG, CGI, Blender, Pixar/Disney 3D-cartoon look, Unreal-Engine render, or photoreal texture leaking into a 2D frame; NO 2D characters pasted onto a 3D background.
+- FORBIDDEN: hand-drawn characters next to photo-textured props or backgrounds; multiple rendering textures within one frame.
+- Line thickness, coloring method (flat vs gradient), shadow hardness, and highlight treatment MUST be uniform across all sub-cells.
+- Anti-AI look: avoid over-sharpening, overdone HDR, oversaturation, plastic/waxy skin, greasy textures, extra fingers, and distorted faces.
+- Lighting direction and intensity must be coherent within each sub-cell.
+
+Requirements:
+1. The output is a single grid image, not separate panels.
+2. Arrange sub-cells as {grid_layout}, total {panel_grid_size} cells, reading order left-to-right then top-to-bottom.
+3. The {panel_grid_size} sub-cells are temporal keyframes of one continuous shot. Keep the same camera position, axis, shot scale, focal length, and background relationship by default; advance only action, expression, lip movement, blocking, and secondary environmental motion. Only `panel.camera_move` or `composition_reference` may continuously change composition along its explicit path. Never invent a close-up, insert shot, cut, or alternate viewpoint.
+4. Maintain unified art style across the whole image (governed by the references and the style directive "{style}") — all cells, all characters, all backgrounds in the same style.
+5. Overall aspect ratio: {aspect_ratio} (each sub-cell is compressed to fit the row/column size).
+6. No unrelated Chinese/English text, watermarks, numbering, dialogue bubbles, or UI elements. When the panel explicitly requires system text or interface content, preserve it verbatim and reveal it in `grid_plan` order without breaking brackets, quotation marks, or numbers.
+7. Clear borders between sub-cells but the border should not overpower the subjects.
+8. Character appearance, costume, location, and props must remain consistent across sub-cells, and must follow the reference images.
+9. `context.neighbor_panel_continuity` is only for cinematographic continuity — never paint adjacent-shot story content into this grid image.
+10. If the "Source text" contains dialogue content, render character lip movements and expression changes in corresponding cells based on the grid's temporal order:
+    - Start of speech: mouth slightly open, initial expression state
+    - Mid-speech: mouth opening/closing variations, expression progressing with emotion
+    - End of speech: mouth closed or holding final expression
+    Ensure lip movements match the emotion and rhythm of the dialogue content.
+
+[Composition reference — HIGHEST PRIORITY]
+- If storyboard data contains `composition_reference`, follow its camera framing and character blocking precisely.
+- `composition_reference.primary_camera` is the primary shot; obey its FOV, camera position/target, and character positions/facing.
+- `composition_reference.alternate_views` lists other camera references for the same shot (close-ups, reverse angles, etc.). Reference images follow that array order. Preserve identity, lighting, and style; compose the frame to match the primary camera.
+- Coordinate system: meters, y up, -z toward camera, x right.
+
+[Style and location conflict handling]
+- "{style}" is a visual style directive for art style, line work, color, lighting, and texture. If it contains concrete scene/location terms that conflict with the panel location, follow `panel.description` and `panel.location`.
+- Do not change the panel into an unrelated location just because the style directive mentions another place.
+- `visual_bible` independently controls palette, tone, lighting continuity, and motion language; never turn it into a new location, character, or rendering medium.
+
+Compact panel JSON:
+{storyboard_text_json_input}
+
+[Grid keyframe execution]
+- `grid_plan.cells` in the panel JSON gives each cell's temporal order and keyframe intent. Draw them strictly in `cellIndex` order.
+- Cell 1 is the starting moment, the final cell is the ending moment, and middle cells bridge action, expression, lip movement, blocking, and camera motion.
+- Every cell must serve the same continuous shot; do not turn the grid into unrelated storyboard shots.
+
+[⚠️ COMPOSITION CONTRACT OVER TIME — GEOMETRY CHANGES BETWEEN CELLS]
+- If the panel JSON carries composition_contract in its photography rules, or a professional storyboard nests a composition contract under photographyPlan.composition / visual_plan.composition, it is the confirmed contract for this shot. If only the thin plan-time visual_plan.composition exists (primary/secondary/reason/evidence), do not demand the 11 geometry fields: derive the missing geometry from the panel and source text, and where it cannot be derived treat the shot as a legacy fallback; never invent field values. The primary/secondary composition codes and pattern names must never appear as text in any cell, and bare abstractions ("cinematic", "oppressive", "lonely") are not instructions. Every cell translates the contract into visible geometry progressing over time:
+  - Cell 1 is the opening composition: the read_order first-glance landing, every character's subject_placement (left/right, depth layer, camera height), eyeline_room gaze and negative space, depth_layers contents and blur, and light_and_color_geometry key-light direction with its in-world source are all established at once;
+  - Middle cells evolve continuously along action_vector: approach/recede, entry/exit edges, movement between depth layers, and when occlusion appears and yields the subject must all read on screen; for action, distribute anticipation—contact—result—reaction across adjacent cells, with clear cells for the contact point and the force result, while the first-read information stays readable throughout;
+  - The final cell lands on tail_state: position, facing, and residual tension briefly stable;
+  - Light direction, eyeline axis, screen direction, and character left-right order stay identical across all cells; when action_vector is null, only secondary motion allowed by the contract and panel is permitted — never invent push-ins, orbits, drift, or extra motion energy.
+- The evidence gate is OR and applies per cell: every level in evidence (composition-only/set_dressing/weather_atmosphere/action_blocking) must be either explicitly described in the source text or present in the attached selected character/location/prop assets — either one suffices (they need not both be present, aligned with director-composition.md §0.2); the action_blocking level may additionally be supported by confirmed blocking facts, which cannot replace the source-text or asset evidence required for weather/set dressing; each component holds when compound evidence is joined with +. Rain, snow, fog, smoke/dust, neon, mirrors, doors/windows/columns, and weapons at the weather_atmosphere/set_dressing level may enter a cell only with source-text or selected-asset support, while action_blocking elements such as crowds may additionally rely on confirmed blocking facts; the existing reference-asset requirements for identity consistency and set structure remain unaffected. A single unsupported cell must never be patched with imagination: stop generation and return the shot to the storyboard stage as unresolved with the missing evidence named, so evidence can be added or the pattern changed. The model may never add rain, snow, fog, neon, mirrors, smoke, doors/windows/columns, weapons, crowds, or extra people.
+- Guard each ai_risks code visibly in every cell: foreground occluders cover at most one third of one side or only a thin top strip and never cover the face or key reactions, negative space stays empty, contact points read clearly, keep a 10% margin at motion edges, and screen direction stays consistent between adjacent cells.
+- Vertical 9:16: relationship cells use front/back depth, over-shoulder framing, or vertical staging instead of squeezing side by side; put key faces, evidence props, and contact points in each cell's upper-middle safe area with both eyes readable; split crowd action across cells as crowd establishment — protagonist action — reaction/result rather than lining up many figures horizontally.
+- Legacy panels without the contract follow the panel and grid_plan text; never invent codes or pattern names.
+
+Source text:
+{source_text}

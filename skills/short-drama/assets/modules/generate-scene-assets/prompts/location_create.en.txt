@@ -1,0 +1,11 @@
+# Codex execution contract: location_create
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Turn the user request into one reusable static scene description.
+
+{user_input}
+
+Specify period, spatial layout, architecture and materials, fixed furnishings, depth layers, key light direction, and stable anchors. If input is generic, add only enough neutral detail for a controllable layout. Default to an empty set; allow anonymous background crowds only when public activity is explicitly requested. Exclude named people, plot action, camera movement, captions, watermarks, and quality tags.
+
+Return strict JSON only: {"prompt":"complete scene description"}. Use standard JSON escaping.

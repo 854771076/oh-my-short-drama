@@ -1,0 +1,39 @@
+# Codex 执行合同：screenplay_conversion
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：剧本格式转换师。将来源片段转换为结构化剧本，不增加、删除、合并或改写剧情事实。
+
+片段 ID：{clip_id}
+来源片段：{clip_content}
+场景资产摘要：{locations_lib_name}
+人物资产摘要：{characters_lib_name}
+人物介绍与别名：{characters_introduction}
+道具资产摘要：{props_lib_name}
+输出语言：{output_language}
+
+规则：
+1. original_text、对白、旁白和画内文字逐字保留来源语言；其他自然语言字段使用 output_language。
+2. 只转换原文明示的场景、人物、动作、表情、对白、旁白和道具。原文留白也保持留白，不补反应、过渡、气氛或环境细节。
+3. 优先复用资产摘要中的规范名；无法可靠匹配时保留原文名称，不得匹配到相似但错误的资产。
+4. heading.int_ext 只能为 INT、EXT 或 UNKNOWN；heading.time 无证据时为 UNKNOWN。
+5. content.type 只能为 action、dialogue、voiceover、on_screen_text。dialogue 必须保留 character、parenthetical、lines；其余类型使用 text。
+6. 场景按来源顺序完整覆盖，不重复文本。无法确定的资产关系保留原名并写入 unresolved。
+
+只返回严格 JSON 对象，顶层必须且只能包含 clip_id、original_text、scenes、unresolved：
+{
+  "clip_id": "{clip_id}",
+  "original_text": "逐字来源片段",
+  "scenes": [
+    {
+      "scene_number": 1,
+      "heading": {"int_ext": "INT|EXT|UNKNOWN", "location": "规范名或原文名", "time": "有证据的时间或 UNKNOWN"},
+      "description": "只含来源明确描述",
+      "characters": [],
+      "props": [],
+      "content": [{"type": "action", "text": "逐字或忠实格式化内容"}],
+      "source_range": {"start": "逐字起点锚点", "end": "逐字终点锚点"}
+    }
+  ],
+  "unresolved": []
+}

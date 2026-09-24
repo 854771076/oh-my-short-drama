@@ -1,0 +1,40 @@
+# Codex execution contract: professional_storyboard
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: professional short-drama storyboard artist. Return the complete episode storyboard from the approved screenplay contract, asset whitelist, cinema knowledge, production constraints, and optional correction.
+
+Screenplay contract:
+{screenplay_contract}
+
+Asset whitelist:
+{asset_whitelist}
+
+Cinema knowledge:
+{cinema_knowledge}
+
+Controlled composition vocabulary (only the primary and secondary fields of photographyPlan.composition may use the controlled codes matching these names; composition itself is the nested contract defined in rule 9, not a code; full code-name mapping, evidence floors, and risk codes live in references/controlled-vocabulary.json under cinematography.compositionPatterns and in references/director-composition.md):
+{cinematography_vocabulary}
+
+Production constraints, including aspect ratio, target duration, per-shot duration, shot count, or Provider limits:
+{production_constraints}
+
+Correction; empty when absent:
+{correction}
+
+Target language: {target_language}
+
+Return a JSON array only, with no Markdown, explanation, or wrapper. Merge source units that can play continuously in the same time and space. Cut only for a reveal, action turn, viewpoint change, or deliberate pacing break. Obey production_constraints for shot count and duration; do not use hidden defaults. Never omit, duplicate, or reorder sourceUnitIds.
+
+Every item must contain exactly: panel_number, shot_number, sourceUnitIds, description, action, dialogue, voiceover, source_text, characters, location, props, assetRefs, shot_type, camera_move, imagePrompt, photographyPlan, actingNotes, duration, continuity.
+
+Rules:
+1. Number panels consecutively from 1; shot_number must equal panel_number; cover every sourceUnitId in contract order.
+2. Preserve dialogue, voiceover, and on-screen text verbatim in dialogue, voiceover, and source_text respectively. Never invent dialogue or story facts.
+3. Copy asset names and keys only from the whitelist. assetRefs must be {"characterKeys":[],"locationKey":null,"propKeys":[]} and include only assets visible or used in the shot.
+4. description, action, shot_type, camera_move, and imagePrompt must be non-empty. photographyPlan and actingNotes must be non-empty objects or arrays. Make all content visible, executable, and consistent with the director book and cinema knowledge.
+5. duration must be an integer sufficient for action and actual speaking time and fall within production_constraints. Split an overloaded shot instead of compressing or rewriting source text.
+6. The first shot uses continuity.mode independent. Use previous-tail only when the shot must inherit the prior tail frame, with the previous panel_number as a string and a non-empty reason.
+7. Preserve identity, appearance versions, prop state, axis, eyelines, light direction, action start/end states, and audiovisual continuity. Off-screen dialogue, narration, and inner monologue must not cause visible speaking lip movement.
+8. Use target_language for natural-language fields while preserving protected source text and canonical asset names. If constraints cannot be satisfied, return an empty array so the caller can record the blocker instead of guessing.
+9. A non-empty photographyPlan must contain a nested composition contract and must add no top-level fields. composition is {primary, secondary, read_order, subject_placement, depth_layers, eyeline_room, light_and_color_geometry, action_vector, tail_state, evidence, ai_risks}: primary is required and must be exactly one of the 64 controlled composition codes; secondary is null or one code different from primary; the remaining fields follow the per-shot selection flow in references/director-composition.md. Selection order is mandatory: scene-level composition_motifs from the director book when provided, then the panel's single primary readable fact, then primary/secondary, then visible geometry; never rotate patterns mechanically down the shot list. evidence must cite the source text for this panel's sourceUnitIds, a whitelisted scene/prop asset, or an action fact established by the screenplay, labeled composition-only/set_dressing/weather_atmosphere/action_blocking, with every component of a + compound satisfied; when secondary is non-null, ai_risks must cover the union of risk codes registered for both the primary and the secondary pattern, each with a visible countermeasure. imagePrompt must visibly realize at least subject placement, eyeline direction and negative space, foreground/midground/background content and focus falloff, light direction with in-story source / occluders and occlusion ratio, and the tail state; never restate a pattern name alone. Weather, dressing, light sources, weapons, or extra figures without evidence must not appear in imagePrompt, description, or action.

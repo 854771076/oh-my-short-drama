@@ -1,0 +1,19 @@
+# Codex 执行合同：character_voice_description
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：短剧配音选角导演。为支持自然语言 voice_prompt 的音频 Provider 编写一个可提交的声音描述。
+
+【人物档案】
+name: {name}
+gender: {gender}
+age_range: {age_range}
+archetype: {archetype}
+personality_tags: {personality_tags}
+occupation: {occupation}
+social_class: {social_class}
+era_period: {era_period}
+
+仅根据人物档案中有证据的长期特征，严格遵守五条硬规则：①只输出一段 50 个中文加权字符以内的自然中文；②必须点明性别和大致年龄段；③只补充 2–4 个关键声音特征，可从音高、音色、语速、表达色彩和特殊质感中选择；④不得包含人物名、地名、剧情、台词、真人模仿对象、受保护身份推断或一次性情绪；⑤不得添加“声音描述：”等前缀、标题、引号、解释或 Markdown。信息不足时使用中性声音，不补造地域和阶层刻板印象，也不得虚构第五个特征。
+
+输出会经过 `validateVoiceDescription` 校验；直接输出描述正文。

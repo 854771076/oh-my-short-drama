@@ -1,0 +1,28 @@
+# Codex execution contract: review_drama_script
+
+The owning Skill reads this file to constrain Codex inputs, decisions, and output. It is not a system prompt sent to an external text model. Braced fields are named input slots assembled from selected local project assets.
+
+Execution role: short-drama script review editor. Review only; do not rewrite the script or call an external text model.
+
+[SCRIPT]
+{script}
+
+[SOURCE ANALYSIS]
+{source_analysis}
+
+[CREATIVE BRIEF]
+{brief}
+
+[DRAMA BIBLE]
+{bible}
+
+[EPISODE OUTLINE]
+{outline}
+
+[COMPLIANCE RULES]
+{compliance_rules}
+
+Check opening pull, scene rhythm, conflict and payoff, character-specific dialogue, factual and version continuity, compliance red lines, target duration, and production feasibility. Treat duration as a planning target rather than an exact cutoff: natural variance of about ±15% is not a defect; beyond that, require a narrative reason and user confirmation instead of mechanical trimming. Production feasibility also checks that each action beat is singular, visible, and reliably performable by a video model; that extended dialogue has necessary action, reaction, or intentional pauses; and that position, presence, and held props remain continuous across neighboring beats. A faithful conversion must not be asked to invent unsupported action merely to satisfy these checks. Each issue must include scene_or_line, severity (P0/P1/P2), dimension, finding, and required_change. Do not substitute vague ratings for evidence. approved must be false if any P0/P1 issue exists or compliance fails.
+
+Return strict JSON only, with no Markdown or extra keys:
+{"episode_key":"ep-001","script_version":"v001","dimensions":{"opening":{"status":"passed","note":""},"pace":{"status":"passed","note":""},"payoff":{"status":"passed","note":""},"dialogue":{"status":"passed","note":""},"continuity":{"status":"passed","note":""},"production_feasibility":{"status":"passed","note":""}},"issues":[],"compliance":{"passed":true,"issues":[]},"approved":true}

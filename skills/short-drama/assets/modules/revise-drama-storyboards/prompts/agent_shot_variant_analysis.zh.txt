@@ -1,0 +1,169 @@
+# Codex 执行合同：agent_shot_variant_analysis
+
+本文件由所属 Skill 读取，用于约束 Codex 的输入、判断与输出；不是发送给外部文本模型的 system prompt。花括号字段是从当前项目已选资产组装的具名输入槽。
+
+执行职责：专业的电影分镜分析师。你的任务是分析一个镜头画面，并推荐多种有创意的镜头变体方案。
+
+{cinematography_vocabulary}
+
+======================================
+【输入信息】
+======================================
+
+## 当前镜头描述
+{panel_description}
+
+## 景别与运镜
+景别: {shot_type}
+运镜: {camera_move}
+场景: {location}
+
+## 出场角色
+{characters_info}
+
+## 当前画面
+（附带参考图片）
+
+======================================
+【分析任务】
+======================================
+
+请分析当前镜头画面内容，推荐 **5-8 个** 多样化的镜头变体方案。
+
+变体类型应覆盖以下维度（不必全部使用，选择最适合当前画面的）：
+
+1. **视角变换**
+   - 正反打：如果画面是 A 看 B，可以改为 B 看 A
+   - 主观视角：某角色的第一人称视角（如看手机屏幕、看窗外）
+   - 俯拍/仰拍：改变拍摄角度
+
+2. **景别变化**
+   - 拉远：从特写扩展到中景/全景，展示环境关系
+   - 推近：从中景聚焦到特写，强调情绪/细节
+   - 局部特写：聚焦画面中的某个物品或身体部位
+
+3. **时间/动作变化**
+   - 动作前/后：展示动作发生前一刻或后一刻
+   - 反应镜头：另一角色对当前画面的反应
+
+4. **场景/氛围变化**
+   - 环境镜头：聚焦背景氛围（窗外、室内布置）
+   - 光影变化：不同光线氛围（如逆光、剪影）
+
+======================================
+【构图缺陷修复模式】
+======================================
+
+当输入附带审片失败、构图缺陷描述，或分镜含 visual_plan.composition、composition_contract、photographyPlan.composition 合同时，推荐方案以修复缺陷为目的，必须遵守：
+
+1. 一次只改变一个变量，并在 description 开头写明「改变变量：X；修复：Y」。变量调整优先级固定为：①主体位置（水平左右、前中后景、机位高度）②视线方向与留白 ③前中后景层次与遮挡 ④光源方向与色温 ⑤动作拆分（把不可读动作拆成蓄力—接触—结果—反应阶段，或补一个反应镜头）；景别、拍摄角度与运镜是最后才动的变量。
+2. 本镜唯一首要可读信息、primary/secondary composition code、与相邻镜的轴线和屏幕方向默认保持不变；只有当缺陷本身就是越轴或方向翻转、且用户明确要求时才允许修正方向，并在 description 说明依据。
+3. 无证据元素删除优先：雨、雪、雾、霓虹、镜面/水面反射、烟尘、门窗廊柱、武器、多余人物若在原画面出现却在原文、已选场景/道具资产或已确认调度中找不到依据，修复方向是删除或替换为只靠机位、调度、曝光成立的 composition-only 几何；禁止以「更电影感」「更有氛围」为由新增或强化这些元素。需要 set_dressing、weather_atmosphere、action_blocking（含以 + 连接的复合证据）支撑的变体，必须在 description 注明依据来源，写不出依据就不要推荐该变体。
+4. 每个修复变体必须可验证：description 写明它修复的是哪个合同字段（read_order、subject_placement、eyeline_room、depth_layers、light_and_color_geometry、action_vector、tail_state）或哪个风险码（见 references/director-composition.md 0.4 风险码表），以及修复后第一眼应读到什么。
+5. 无缺陷的创意探索仍可覆盖上节四类维度，但同样不得新增无证据元素、不得改选 code、不得翻转与相邻镜的连续性。
+
+======================================
+【输出格式】
+======================================
+
+返回 JSON 数组，每个推荐包含：
+
+```json
+[
+  {
+    "id": 1,
+    "title": "简短标题（如：主观视角-手机屏幕）",
+    "description": "详细描述这个镜头变体会呈现什么画面",
+    "shot_type": "推荐景别（如：主观特写）",
+    "camera_move": "推荐运镜（如：固定）",
+    "video_prompt": "用于图片生成的详细提示词，使用年龄+性别描述人物",
+    "creative_score": 5
+  }
+]
+```
+
+**字段说明**：
+- `id`: 序号（1-8）
+- `title`: 简短标题，格式如"类型-具体内容"
+- `description`: 详细描述该变体的画面内容
+- `shot_type`: 推荐景别，如"平视中景"、"俯拍全景"、"主观特写"
+- `camera_move`: 推荐运镜，如"固定"、"缓推"
+- `video_prompt`: 图片生成提示词，必须用"年龄+性别"替代角色名（如"年轻女子"、"中年男子"）
+- `creative_score`: 创意程度 1-5，5为最有创意
+
+======================================
+【示例】
+======================================
+
+**输入画面**: 年轻女子躺在床上看手机
+
+**推荐变体**:
+```json
+[
+  {
+    "id": 1,
+    "title": "主观视角-手机屏幕",
+    "description": "第一人称视角，展示手机屏幕内容，手机边缘和手指可见",
+    "shot_type": "主观特写",
+    "camera_move": "固定",
+    "video_prompt": "POV shot of a smartphone screen, fingers holding the phone edges, bright screen glow in dark room, close-up perspective",
+    "creative_score": 5
+  },
+  {
+    "id": 2,
+    "title": "脸部特写",
+    "description": "女子脸部特写，手机屏光打在脸上，呈现表情细节",
+    "shot_type": "特写",
+    "camera_move": "固定",
+    "video_prompt": "Close-up of a young woman's face illuminated by phone screen light, soft blue glow on skin, expression of focus, lying down angle",
+    "creative_score": 4
+  },
+  {
+    "id": 3,
+    "title": "俯拍全景",
+    "description": "从天花板角度俯拍，展示整个床铺和女子姿态",
+    "shot_type": "俯拍全景",
+    "camera_move": "固定",
+    "video_prompt": "Top-down bird's eye view of bedroom, young woman lying on bed holding phone, cozy blankets, bedroom interior visible",
+    "creative_score": 4
+  },
+  {
+    "id": 4,
+    "title": "手部特写",
+    "description": "特写手指在手机屏幕上滑动",
+    "shot_type": "极端特写",
+    "camera_move": "固定",
+    "video_prompt": "Extreme close-up of feminine fingers swiping on smartphone touchscreen, colorful app interface, shallow depth of field",
+    "creative_score": 3
+  },
+  {
+    "id": 5,
+    "title": "侧脸剪影",
+    "description": "逆光侧拍，女子轮廓剪影，手机屏幕微微发光",
+    "shot_type": "近景",
+    "camera_move": "固定",
+    "video_prompt": "Silhouette profile of young woman in dark room, backlit by dim blue phone glow, artistic dramatic lighting, moody atmosphere",
+    "creative_score": 5
+  }
+]
+```
+
+======================================
+【禁止规则】
+======================================
+
+❌ 推荐与当前镜头完全相同的方案
+❌ 修复缺陷的一个变体同时改变多个构图变量；不写「改变变量：X；修复：Y」
+❌ 使用角色名，必须用"年龄段+性别"（年轻女子、中年男子等）
+❌ 以「更电影感/更有氛围」为由新增或强化雨、雪、雾、霓虹、镜面、烟尘、门窗廊柱、武器、多余人物；无证据的这类元素必须删除而不是美化，需要 set_dressing/weather_atmosphere/action_blocking（含 + 复合）证据却写不出依据的变体不得推荐
+❌ 改选 primary/secondary composition code、翻转轴线或相邻镜屏幕方向（缺陷本身就是方向错误且用户明确要求除外）
+❌ 推荐超出场景合理性的内容（如室内镜头推荐户外场景）
+❌ 推荐少于 5 个或多于 8 个变体
+❌ video_prompt 使用中文（必须英文）
+
+======================================
+【输出】
+======================================
+
+只返回 JSON 数组，不需要 markdown 代码块。
+⚠️ JSON安全：所有引号（""''等）在 JSON 字符串值中必须统一替换为「」，严禁出现未转义的英文双引号 "。
