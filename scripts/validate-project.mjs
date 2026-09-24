@@ -6,7 +6,7 @@ import { dirname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { stages } from './workflow-stages.mjs'
-import { requiredSkills } from './skill-runs.mjs'
+import { isModuleRunValid, readModuleRuns, requiredModules } from './module-runs.mjs'
 import { fingerprint, validateTaskOutput } from './task-ledger.mjs'
 import { validateManifest, validateReview, validateTimeline } from './editing-store.mjs'
 import { validDocumentReferenceShape, validateGenerationDocumentReference } from './document-reference.mjs'
@@ -18,8 +18,8 @@ import { validateReferenceImportReceipts } from './reference-video-import.mjs'
 
 const scripts = dirname(fileURLToPath(import.meta.url))
 const pluginRoot = resolve(scripts, '..')
-const skillMap = JSON.parse(await readFile(resolve(pluginRoot, 'references/skill-map.json'), 'utf8'))
-const providerPrompts = new Set(skillMap.provider_prompts || [])
+const moduleMap = JSON.parse(await readFile(resolve(pluginRoot, 'references/module-map.json'), 'utf8'))
+const providerPrompts = new Set(moduleMap.provider_prompts || [])
 const VERSION = /^v\d{3}$/
 const EPISODE = /^ep-\d{3}$/
 const PREFIXES = { character: 'char-', scene: 'scene-', prop: 'prop-', storyboard: 'board-', video: 'shot-', audio: 'audio-', other: 'other-' }
@@ -39,14 +39,14 @@ function validRequestFingerprint(request) {
   return [fingerprint(request.arguments), fingerprint({ arguments: request.arguments, dubbing_compiler: null })].includes(request.inputFingerprint)
 }
 
-function promptMode(skill, stage) {
-  const prompts = Object.entries(skillMap.prompts).filter(([, owner]) => owner === skill).map(([name]) => name)
+function promptMode(moduleId, stage) {
+  const prompts = Object.entries(moduleMap.prompts).filter(([, owner]) => owner === moduleId).map(([name]) => name)
   if (!prompts.length) return null
   if (['asset-generation', 'media-production'].includes(stage) && prompts.some((name) => providerPrompts.has(name))) return 'provider-prompt'
   return prompts.some((name) => !providerPrompts.has(name)) ? 'codex-contract' : 'provider-prompt'
 }
-function acceptsPrompt(skill, prompt) {
-  return (skillMap.completion_prompts?.[skill] || Object.entries(skillMap.prompts).filter(([, owner]) => owner === skill).map(([name]) => name)).includes(prompt)
+function acceptsPrompt(moduleId, prompt) {
+  return (moduleMap.completion_prompts?.[moduleId] || Object.entries(moduleMap.prompts).filter(([, owner]) => owner === moduleId).map(([name]) => name)).includes(prompt)
 }
 
 async function exists(path) { try { await access(path); return true } catch { return false } }
@@ -232,24 +232,25 @@ async function validateControl() {
   run('project-store.mjs', 'validate-project-config', root)
   const state = await json(resolve(root, '.short-drama/state.json'))
   if (!state || state.version !== 1 || !stages.includes(state.stage) || !Array.isArray(state.completed) || new Set(state.completed).size !== state.completed.length || state.completed.some((item, index) => item !== stages[index]) || (state.invalidatedAt !== undefined && (typeof state.invalidatedAt !== 'object' || Object.entries(state.invalidatedAt).some(([stage, time]) => !stages.includes(stage) || !Number.isFinite(Date.parse(time))))) || (state.finishedAt && (state.stage !== stages.at(-1) || state.completed.at(-1) !== stages.at(-1) || !Number.isFinite(Date.parse(state.finishedAt))))) failures.push('state.json 合同无效')
-  const skillRuns = await json(resolve(root, '.short-drama/skill-runs.json'))
-  if (!skillRuns || skillRuns.version !== 1 || !skillRuns.runs || typeof skillRuns.runs !== 'object') failures.push('skill-runs.json 合同无效')
-  for (const run of Object.values(skillRuns?.runs || {})) {
-    if (!stages.includes(run.stage) || typeof run.skill !== 'string' || run.status !== 'completed' || !Array.isArray(run.evidence) || run.evidence.length === 0 || !run.evidenceSha256 || typeof run.evidenceSha256 !== 'object') failures.push('skill-runs.json 执行记录无效')
-    for (const evidence of run.evidence || []) await localFile(evidence, `Skill 执行证据：${run.skill}`, run.evidenceSha256?.[evidence])
+  const moduleRuns = await readModuleRuns(root)
+  if (!moduleRuns || moduleRuns.version !== 1 || !moduleRuns.runs || typeof moduleRuns.runs !== 'object') failures.push('module-runs.json 合同无效')
+  for (const run of Object.values(moduleRuns?.runs || {})) {
+    if (!await isModuleRunValid(root, run)) failures.push(`module-runs.json 执行记录无效：${run?.moduleId || 'unknown'}`)
+    for (const input of run.inputs || []) await localFile(input, `模块输入：${run.moduleId}`, run.inputSha256?.[input])
+    for (const evidence of run.evidence || []) await localFile(evidence, `模块执行证据：${run.moduleId}`, run.evidenceSha256?.[evidence])
     for (const promptRun of run.promptRuns || []) {
-      await localFile(promptRun.path, `Skill 提示词记录：${run.skill}`, promptRun.sha256)
+      await localFile(promptRun.path, `模块提示词记录：${run.moduleId}`, promptRun.sha256)
       const record = await json(resolve(root, promptRun.path))
-      if (record && (!acceptsPrompt(run.skill, record.prompt) || skillMap.prompts[record.prompt] !== run.skill || (record.executionMode === 'codex-contract' && !run.evidence.includes(record.outputPath)))) failures.push(`Skill 完成合同、提示词归属或产物绑定错误：${run.skill}`)
+      if (record && (!acceptsPrompt(run.moduleId, record.prompt) || moduleMap.prompts[record.prompt] !== run.moduleId || (record.executionMode === 'codex-contract' && !run.evidence.includes(record.outputPath)))) failures.push(`模块完成合同、提示词归属或产物绑定错误：${run.moduleId}`)
     }
-    const mode = promptMode(run.skill, run.stage)
+    const mode = promptMode(run.moduleId, run.stage)
     const cutoff = state.invalidatedAt?.[run.stage]
-    if (cutoff && Date.parse(run.completedAt) < Date.parse(cutoff)) failures.push(`Skill 执行早于阶段失效时间：${run.skill}`)
-    if (mode && (!Array.isArray(run.promptRuns) || run.promptRuns.length === 0)) failures.push(`Skill 缺少提示词运行记录：${run.skill}`)
-    if (mode === 'codex-contract' && run.evidence.some((path) => !(run.promptRuns || []).some((promptRun) => promptRun.outputPath === path))) failures.push(`Skill 存在未绑定 Codex 合同的证据：${run.skill}`)
+    if (cutoff && Date.parse(run.completedAt) < Date.parse(cutoff)) failures.push(`模块执行早于阶段失效时间：${run.moduleId}`)
+    if (mode && (!Array.isArray(run.promptRuns) || run.promptRuns.length === 0)) failures.push(`模块缺少提示词运行记录：${run.moduleId}`)
+    if (mode === 'codex-contract' && run.evidence.some((path) => !(run.promptRuns || []).some((promptRun) => promptRun.outputPath === path))) failures.push(`模块存在未绑定 Codex 合同的证据：${run.moduleId}`)
   }
-  for (const stage of state?.completed || []) for (const skill of await requiredSkills(root, stage)) {
-    if (skillRuns?.runs?.[`${stage}:${skill}`]?.status !== 'completed') failures.push(`已完成阶段缺少 Skill 执行：${stage} -> ${skill}`)
+  for (const stage of state?.completed || []) for (const moduleId of await requiredModules(root, stage)) {
+    if (!await isModuleRunValid(root, moduleRuns?.runs?.[`${stage}:${moduleId}`])) failures.push(`已完成阶段缺少模块执行：${stage} -> ${moduleId}`)
   }
   const tasksPath = resolve(root, '.short-drama/tasks.json')
   const tasks = await exists(tasksPath) ? await json(tasksPath) : { version: 1, tasks: {} }
@@ -274,7 +275,7 @@ async function validateControl() {
       noSecrets(request, `${taskId} 请求快照`)
     }
   }
-  for (const name of ['tasks.json', 'shot-reviews.json', 'skill-runs.json']) {
+  for (const name of ['tasks.json', 'shot-reviews.json', 'module-runs.json', 'skill-runs.json']) {
     const path = resolve(root, '.short-drama', name)
     if (await exists(path)) noSecrets(await json(path), name)
   }
@@ -288,7 +289,8 @@ async function validatePromptRuns() {
   for (const file of await readdir(directory)) {
     if (!/^prompt-[0-9a-f-]+\.json$/.test(file)) { failures.push(`Prompt 留痕文件名无效：${file}`); continue }
     const record = await json(resolve(directory, file))
-    if (!record || record.version !== 1 || (record.skill !== undefined && skillMap.prompts[record.prompt] !== record.skill) || !['codex-contract', 'provider-prompt'].includes(record.executionMode) || !/^[0-9a-f]{64}$/.test(record.templateSha256 || '') || typeof record.resolvedContractOrPrompt !== 'string' || typeof record.outputPath !== 'string') { failures.push(`Prompt 留痕合同无效：${file}`); continue }
+    const owner = record?.module_id ?? record?.skill
+    if (!record || record.version !== 1 || (owner !== undefined && moduleMap.prompts[record.prompt] !== owner) || !['codex-contract', 'provider-prompt'].includes(record.executionMode) || !/^[0-9a-f]{64}$/.test(record.templateSha256 || '') || typeof record.resolvedContractOrPrompt !== 'string' || typeof record.outputPath !== 'string') { failures.push(`Prompt 留痕合同无效：${file}`); continue }
     const templatePath = resolve(pluginRoot, record.template || '')
     if (templatePath !== pluginRoot && !templatePath.startsWith(`${pluginRoot}${sep}`) || !await exists(templatePath)) failures.push(`${file} 模板不在插件内或已不存在`)
     const promptName = typeof record.template === 'string' ? record.template.split('/').at(-1).replace(/\.(?:zh|en)\.txt$/, '') : ''

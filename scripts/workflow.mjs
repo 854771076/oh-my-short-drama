@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 import { stages } from './workflow-stages.mjs'
 import { inspectStage } from './workflow-gates.mjs'
 import { withFileLock } from './file-lock.mjs'
-import { clearSkillRunsFrom } from './skill-runs.mjs'
+import { clearModuleRunsFrom } from './module-runs.mjs'
 
 const root = resolve(process.argv[3] || process.cwd())
 const statePath = resolve(root, '.short-drama/state.json')
@@ -81,7 +81,7 @@ async function main() {
     state.updatedAt = new Date().toISOString()
     state.invalidatedAt ||= {}
     for (const affected of stages.slice(targetIndex)) state.invalidatedAt[affected] = state.updatedAt
-    await clearSkillRunsFrom(root, target)
+    await clearModuleRunsFrom(root, target)
     await save(state)
     return console.log(JSON.stringify(state, null, 2))
     }

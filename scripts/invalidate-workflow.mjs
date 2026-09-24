@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { stages } from './workflow-stages.mjs'
-import { clearSkillRunsFrom } from './skill-runs.mjs'
+import { clearModuleRunsFrom } from './module-runs.mjs'
 import { withFileLock } from './file-lock.mjs'
 
 export async function invalidateFrom(rootArg, stage) {
@@ -13,7 +13,7 @@ export async function invalidateFrom(rootArg, stage) {
   return withFileLock(statePath, async () => {
     const state = JSON.parse(await readFile(statePath, 'utf8'))
     if (stages.indexOf(state.stage) < targetIndex && !state.finishedAt) return state
-    await clearSkillRunsFrom(root, stage)
+    await clearModuleRunsFrom(root, stage)
     const now = new Date().toISOString()
     state.stage = stage
     state.completed = (state.completed || []).filter((item) => stages.indexOf(item) < targetIndex)

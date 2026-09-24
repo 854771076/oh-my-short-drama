@@ -5,7 +5,7 @@ import { relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mediaPipelineStages, stages } from './workflow-stages.mjs'
 import { validateManifest, validateReview, validateTimeline } from './editing-store.mjs'
-import { readModuleRuns, requiredModules } from './module-runs.mjs'
+import { isModuleRunValid, readModuleRuns, requiredModules } from './module-runs.mjs'
 import { PREVIZ_REVIEW_CRITERIA, STORYBOARD_REVIEW_CRITERIA, validPrevizScore } from './review-ledger.mjs'
 import { isH3Model } from './generation/providers.mjs'
 import { sameShotVersion } from './shot-fingerprint.mjs'
@@ -183,7 +183,7 @@ export async function inspectStage(root, stage) {
   const cutoff = state.invalidatedAt?.[stage]
   for (const moduleId of await requiredModules(root, stage)) {
     const run = moduleRuns.runs?.[`${stage}:${moduleId}`]
-    if (run?.status !== 'completed' || !Array.isArray(run.evidence) || run.evidence.length === 0 || (cutoff && Date.parse(run.completedAt) < Date.parse(cutoff))) missing.push(`模块未在当前阶段修订后执行：${moduleId}`)
+    if (!await isModuleRunValid(root, run) || (cutoff && Date.parse(run.completedAt) < Date.parse(cutoff))) missing.push(`模块未在当前阶段修订后执行：${moduleId}`)
     else for (const path of run.evidence) {
       const local = relative(root, resolve(root, path))
       let actual

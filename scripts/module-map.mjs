@@ -42,6 +42,7 @@ export function validateModuleMap(map) {
   }
   for (const [legacy, id] of Object.entries(map.legacy_skill_map || {})) {
     if (!legacy || !ids.has(id)) throw new Error(`旧 Skill 映射无效：${legacy}`)
+    if (!/^[0-9a-f]{64}$/.test(map.legacy_skill_sha256?.[legacy] || '')) throw new Error(`旧 Skill 来源哈希无效：${legacy}`)
   }
 
   const visiting = new Set()
