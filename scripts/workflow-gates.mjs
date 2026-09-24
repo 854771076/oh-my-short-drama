@@ -5,7 +5,7 @@ import { relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mediaPipelineStages, stages } from './workflow-stages.mjs'
 import { validateManifest, validateReview, validateTimeline } from './editing-store.mjs'
-import { readSkillRuns, requiredSkills } from './skill-runs.mjs'
+import { readModuleRuns, requiredModules } from './module-runs.mjs'
 import { PREVIZ_REVIEW_CRITERIA, STORYBOARD_REVIEW_CRITERIA, validPrevizScore } from './review-ledger.mjs'
 import { isH3Model } from './generation/providers.mjs'
 import { sameShotVersion } from './shot-fingerprint.mjs'
@@ -13,8 +13,8 @@ import { PREVIZ_REQUIRED_HARD_GATES, fileSha256, probePrevizMedia, validatePrevi
 import { validateRecreationEvidence } from './recreation-workflow.mjs'
 
 const pluginRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
-const skillMap = JSON.parse(await readFile(resolve(pluginRoot, 'references/skill-map.json'), 'utf8'))
-const providerPrompts = new Set(skillMap.provider_prompts || [])
+const moduleMap = JSON.parse(await readFile(resolve(pluginRoot, 'references/module-map.json'), 'utf8'))
+const providerPrompts = new Set(moduleMap.provider_prompts || [])
 export const MEDIA_PIPELINE_GATE_ORDER = mediaPipelineStages()
 
 async function exists(path) { try { await access(path); return true } catch { return false } }
@@ -162,14 +162,14 @@ export function missingPrevizReviews(episode, shots, assets, reviews) {
   }
   return missing
 }
-function promptMode(skill, stage) {
-  const prompts = Object.entries(skillMap.prompts).filter(([, owner]) => owner === skill).map(([name]) => name)
+function promptMode(moduleId, stage) {
+  const prompts = Object.entries(moduleMap.prompts).filter(([, owner]) => owner === moduleId).map(([name]) => name)
   if (!prompts.length) return null
   if (['asset-generation', 'media-production'].includes(stage) && prompts.some((name) => providerPrompts.has(name))) return 'provider-prompt'
   return prompts.some((name) => !providerPrompts.has(name)) ? 'codex-contract' : 'provider-prompt'
 }
-function acceptsPrompt(skill, prompt) {
-  return (skillMap.completion_prompts?.[skill] || Object.entries(skillMap.prompts).filter(([, owner]) => owner === skill).map(([name]) => name)).includes(prompt)
+function acceptsPrompt(moduleId, prompt) {
+  return (moduleMap.completion_prompts?.[moduleId] || Object.entries(moduleMap.prompts).filter(([, owner]) => owner === moduleId).map(([name]) => name)).includes(prompt)
 }
 
 export async function inspectStage(root, stage) {
@@ -178,29 +178,29 @@ export async function inspectStage(root, stage) {
   const requireFile = async (path, label) => { if (!await exists(resolve(root, path))) missing.push(label) }
   const episodes = await selectedEpisodes(root)
   const rootReal = await realpath(root)
-  const skillRuns = await readSkillRuns(root)
+  const moduleRuns = await readModuleRuns(root)
   const state = await json(resolve(root, '.short-drama/state.json'))
   const cutoff = state.invalidatedAt?.[stage]
-  for (const skill of await requiredSkills(root, stage)) {
-    const run = skillRuns.runs?.[`${stage}:${skill}`]
-    if (run?.status !== 'completed' || !Array.isArray(run.evidence) || run.evidence.length === 0 || (cutoff && Date.parse(run.completedAt) < Date.parse(cutoff))) missing.push(`Skill 未在当前阶段修订后执行：${skill}`)
+  for (const moduleId of await requiredModules(root, stage)) {
+    const run = moduleRuns.runs?.[`${stage}:${moduleId}`]
+    if (run?.status !== 'completed' || !Array.isArray(run.evidence) || run.evidence.length === 0 || (cutoff && Date.parse(run.completedAt) < Date.parse(cutoff))) missing.push(`模块未在当前阶段修订后执行：${moduleId}`)
     else for (const path of run.evidence) {
       const local = relative(root, resolve(root, path))
       let actual
       try { actual = await realpath(resolve(root, path)) } catch {}
-      if (!local || local === '..' || local.startsWith(`..${sep}`) || !actual || (actual !== rootReal && !actual.startsWith(`${rootReal}${sep}`)) || run.evidenceSha256?.[path] !== await sha256(actual)) missing.push(`Skill 证据无效或已变化：${skill} -> ${path}`)
+      if (!local || local === '..' || local.startsWith(`..${sep}`) || !actual || (actual !== rootReal && !actual.startsWith(`${rootReal}${sep}`)) || run.evidenceSha256?.[path] !== await sha256(actual)) missing.push(`模块证据无效或已变化：${moduleId} -> ${path}`)
     }
-    const mode = promptMode(skill, stage)
+    const mode = promptMode(moduleId, stage)
     if (mode) {
-      if (!Array.isArray(run?.promptRuns) || run.promptRuns.length === 0) missing.push(`Skill 缺少提示词运行记录：${skill}`)
+      if (!Array.isArray(run?.promptRuns) || run.promptRuns.length === 0) missing.push(`模块缺少提示词运行记录：${moduleId}`)
       for (const promptRun of run?.promptRuns || []) {
         let actual
         try { actual = await realpath(resolve(root, promptRun.path)) } catch {}
-        if (!actual || (actual !== rootReal && !actual.startsWith(`${rootReal}${sep}`)) || promptRun.sha256 !== await sha256(actual)) { missing.push(`Skill 提示词记录无效或已变化：${skill}`); continue }
+        if (!actual || (actual !== rootReal && !actual.startsWith(`${rootReal}${sep}`)) || promptRun.sha256 !== await sha256(actual)) { missing.push(`模块提示词记录无效或已变化：${moduleId}`); continue }
         const record = await json(actual)
-        if (!acceptsPrompt(skill, record.prompt) || skillMap.prompts[record.prompt] !== skill || record.executionMode !== mode || (mode === 'codex-contract' && !run.evidence.includes(record.outputPath))) missing.push(`Skill 完成合同、提示词归属、执行模式或产物绑定错误：${skill}`)
+        if (!acceptsPrompt(moduleId, record.prompt) || moduleMap.prompts[record.prompt] !== moduleId || record.executionMode !== mode || (mode === 'codex-contract' && !run.evidence.includes(record.outputPath))) missing.push(`模块完成合同、提示词归属、执行模式或产物绑定错误：${moduleId}`)
       }
-      if (mode === 'codex-contract' && run?.evidence?.some((path) => !(run.promptRuns || []).some((promptRun) => promptRun.outputPath === path))) missing.push(`Skill 存在未绑定 Codex 合同的证据：${skill}`)
+      if (mode === 'codex-contract' && run?.evidence?.some((path) => !(run.promptRuns || []).some((promptRun) => promptRun.outputPath === path))) missing.push(`模块存在未绑定 Codex 合同的证据：${moduleId}`)
     }
   }
 

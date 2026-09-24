@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { validateProject } from './project-store.mjs'
 import { validateRecreationConsumerBinding, validateRecreationEvidence, validateRecreationWorkflow, validateReferenceVideoAnalysis } from './recreation-workflow.mjs'
-import { requiredSkills } from './skill-runs.mjs'
+import { requiredModules } from './module-runs.mjs'
 import { inspectStage } from './workflow-gates.mjs'
 
 const scripts = dirname(fileURLToPath(import.meta.url))
@@ -144,7 +144,7 @@ test('project-store 接受参考分析和版本化复刻工作流文档', async 
   await mkdir(resolve(root, '.short-drama'), { recursive: true })
   await mkdir(resolve(root, 'episodes/ep-001'), { recursive: true })
   await writeFile(resolve(root, '.short-drama/state.json'), '{"version":1,"stage":"analysis","completed":[],"invalidatedAt":{},"updatedAt":"2026-09-16T00:00:00.000Z"}\n')
-  await writeFile(resolve(root, '.short-drama/skill-runs.json'), '{"version":1,"runs":{}}\n')
+  await writeFile(resolve(root, '.short-drama/module-runs.json'), '{"version":1,"runs":{}}\n')
   await writeFile(resolve(root, 'episodes/ep-001/episode.json'), '{"key":"ep-001","order":1,"title":"测试","logline":null,"target_duration_seconds":null,"status":"draft","createdAt":"2026-09-16T00:00:00.000Z","updatedAt":"2026-09-16T00:00:00.000Z"}\n')
   const analysisPath = resolve(root, 'analysis.json')
   const workflowPath = resolve(root, 'workflow.json')
@@ -223,15 +223,15 @@ async function skillProjectFixture(type) {
   await mkdir(resolve(root, 'episodes'), { recursive: true })
   await writeFile(resolve(root, '.short-drama/project.json'), `${JSON.stringify({ workflow: { type, version: 1 } })}\n`)
   await writeFile(resolve(root, '.short-drama/state.json'), '{"version":1,"stage":"analysis","completed":[],"invalidatedAt":{},"updatedAt":"2026-09-16T00:00:00.000Z"}\n')
-  await writeFile(resolve(root, '.short-drama/skill-runs.json'), '{"version":1,"runs":{}}\n')
+  await writeFile(resolve(root, '.short-drama/module-runs.json'), '{"version":1,"runs":{}}\n')
   return root
 }
 
-test('viral-recreation 只在 analysis 动态增加 Hypit 复刻 Skill', async () => {
+test('viral-recreation 只在 analysis 动态增加 Hypit 复刻模块', async () => {
   const standard = await skillProjectFixture('standard')
   const viral = await skillProjectFixture('viral-recreation')
-  assert.equal((await requiredSkills(standard, 'analysis')).includes('analyze-reference-video'), false)
-  assert.deepEqual((await requiredSkills(viral, 'analysis')).filter((name) => ['use-short-drama-studio', 'configure-generation-providers', 'analyze-reference-video', 'use-hypit-video', 'design-video-recreation'].includes(name)), ['use-short-drama-studio', 'configure-generation-providers', 'analyze-reference-video', 'use-hypit-video', 'design-video-recreation'])
+  assert.equal((await requiredModules(standard, 'analysis')).includes('analyze-reference-video'), false)
+  assert.deepEqual((await requiredModules(viral, 'analysis')).filter((name) => ['use-short-drama-studio', 'configure-generation-providers', 'analyze-reference-video', 'use-hypit-video', 'design-video-recreation'].includes(name)), ['use-short-drama-studio', 'configure-generation-providers', 'analyze-reference-video', 'use-hypit-video', 'design-video-recreation'])
 })
 
 test('viral-recreation analysis 门禁报告准备清单、分析和工作流缺口', async () => {

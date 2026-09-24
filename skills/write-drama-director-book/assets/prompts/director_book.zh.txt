@@ -19,7 +19,7 @@
 
 只返回严格 JSON：{"episode_key":"...","source_script_version":"...","scenes":[...],"continuity_ledger":[],"open_questions":[]}。
 
-每个 scenes 项必须包含：scene_key、source_scene、dramatic_objective、beats、subtext、performance_direction、blocking、eyelines、axis_rule、camera_strategy（含 composition_motifs）、lighting_and_color、sound_plan、transition_in、transition_out、continuity_state、asset_requirements、prohibited_changes。
+每个 scenes 项必须包含：scene_key、source_scene、dramatic_objective、beats、subtext、performance_direction、blocking、eyelines、axis_rule、action_complexity、camera_strategy（含 composition_motifs）、lighting_and_color、sound_plan、transition_in、transition_out、continuity_state、asset_requirements、prohibited_changes。action_complexity 只能是 ordinary 或 choreographed。
 
 规则：
 1. 每个场次逐一对应剧本场景并完整覆盖；不得新增剧情事实或改写逐字台词。
@@ -30,5 +30,6 @@
 6. sound_plan 区分对白、旁白、环境声、动作声和 BGM 意图，但不伪造最终音频参数。
 7. continuity_ledger 记录跨场持续的人物造型、道具状态、空间方向、时间和光线。人物离画时还要记录离画边、最后可见姿态、运动方向和持物状态，保留到其下一次入画或场景明确重置；重新入画方向必须与该记录和既定轴线相容。
 8. 涉及剧情含义、人物关系或声音策略的新决定写入 open_questions。
+9. 只有场次需要跨镜动作连续性、接触与受力结果、兵器、追逐、擒抱、跌倒、多人攻防或能力战设计时，action_complexity 才写 choreographed；普通争吵、静态对峙、走路、握手、推门和简单拿放道具写 ordinary。扇耳光、推搡和短暂拉扯只有需要专业动作编排时才写 choreographed，不得为触发模块夸大复杂度。
 
 禁止最终镜号、生成模型、费用、图片提示词、Markdown 和解释。
