@@ -1,3 +1,0 @@
-interface:
-  display_name: "临时发布短剧参考图"
-  short_description: "把本地选版图片临时发布为 Provider 可读取的 HTTPS URL。"

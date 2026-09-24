@@ -1,4 +1,0 @@
-interface:
-  display_name: "使用 Hypit 完整视频工作流"
-  short_description: "首次使用按需安装官方 Hypit 并执行完整视频编排。"
-  default_prompt: "使用 $use-hypit-video 检查并按需安装 Hypit，完成复刻中间分析并登记 handoff，然后交回本地视频链路。"

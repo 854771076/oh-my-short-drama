@@ -1,3 +1,0 @@
-interface:
-  display_name: "转换短剧媒体"
-  short_description: "执行图片编辑、二维转真人、宫格合成拆分裁剪和视频帧提取。"

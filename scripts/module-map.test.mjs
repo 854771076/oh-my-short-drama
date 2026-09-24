@@ -14,10 +14,11 @@ test('模块注册表覆盖全部旧 Skill，且目标路径唯一', async () =>
     .sort()
   const legacyIds = Object.keys(map.legacy_skill_map).sort()
 
-  assert.deepEqual(legacyIds, skillDirectories)
-  assert.deepEqual(Object.keys(map.legacy_skill_sha256).sort(), skillDirectories)
-  assert.equal(Object.keys(map.modules).length, skillDirectories.length)
-  assert.equal(new Set(Object.values(map.modules).map((item) => item.path)).size, skillDirectories.length)
+  assert.deepEqual(legacyIds, Object.keys(map.modules).sort())
+  assert.deepEqual(Object.keys(map.legacy_skill_sha256).sort(), legacyIds)
+  assert.deepEqual(skillDirectories, ['short-drama'])
+  assert.equal(Object.keys(map.modules).length, 47)
+  assert.equal(new Set(Object.values(map.modules).map((item) => item.path)).size, 47)
   for (const [id, module] of Object.entries(map.modules)) {
     assert.match(module.path, /^skills\/short-drama\/references\/(?:workflow|creation|assets|storyboard|generation|review|editing|recreation|market|operations)\/[a-z0-9-]+\.md$/)
     assert.equal(map.legacy_skill_map[id], id)

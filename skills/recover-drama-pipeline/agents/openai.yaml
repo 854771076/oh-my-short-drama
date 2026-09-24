@@ -1,3 +1,0 @@
-interface:
-  display_name: "恢复短剧流水线"
-  short_description: "核对任务、输入指纹、本地文件和选版，恢复中断或失败镜头。"

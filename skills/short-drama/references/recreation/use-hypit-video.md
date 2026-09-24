@@ -27,7 +27,7 @@ node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/ensure-hypit.mjs" e
 node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/record-hypit-handoff.mjs" --project-root <项目目录> --hypit-root <Hypit 项目目录> --source-key <src-reference-video> --source-version <v001> --files Analysis.json Timeline.json Treatment.md
 ```
 
-该命令会把指定中间文件复制到当前项目 `.short-drama/hypit/inputs/` 并登记哈希；后续 `skill-runs.mjs record` 会重新校验文件未被替换。
+该命令会把指定中间文件复制到当前项目 `.short-drama/hypit/inputs/` 并登记哈希；后续 `module-runs.mjs record` 会重新校验文件未被替换。
 
 然后读取已安装的官方 `hypit` Skill。复刻模式只把用户项目边界和参考视频交给 Hypit 做中间分析；普通 Hypit 模式才把 Brief、变体目标、费用/凭据选择交给 Hypit 做完整视频编排、组件、运行时和 Studio。两边共享文件时只通过明确的导入/导出路径和版本记录，不直接修改对方的项目内部状态。
 

@@ -7,8 +7,8 @@ import { injectPromptSystemVars, systemVariableNames } from './prompt-system-var
 import { validateModuleMap } from './module-map.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const map = JSON.parse(await readFile(resolve(root, 'references/skill-map.json'), 'utf8'))
 const moduleMap = validateModuleMap(JSON.parse(await readFile(resolve(root, 'references/module-map.json'), 'utf8')))
+const map = moduleMap
 const failures = []
 
 for (const path of ['.DS_Store', '.playwright-mcp']) {
@@ -19,11 +19,11 @@ for (const path of ['.DS_Store', '.playwright-mcp']) {
   } catch {}
 }
 
-for (const path of ['README.md', 'LICENSE', '.codex-plugin/plugin.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.claude-plugin/mcp.json', '.github/workflows/ci.yml', '.github/workflows/release.yml', '.github/workflows/upstream-sync.yml', 'references/project-spec-v1.md', 'references/codex-contracts.md', 'references/module-map.json', 'scripts/check-update.mjs', 'scripts/validate-project.mjs', 'scripts/skill-runs.mjs', 'scripts/module-map.mjs', 'scripts/preflight.mjs', 'scripts/provider-setup.mjs', 'scripts/blender-previz.py', 'scripts/previz-contract.mjs', 'scripts/previz-self-check.mjs', 'scripts/reference-video-import.mjs', 'scripts/generation/live-smoke-test.mjs', 'scripts/document-reference.mjs', 'scripts/reference-bindings.mjs', 'scripts/media-hosting/litterbox.mjs', 'scripts/media-hosting/publish.mjs']) {
+for (const path of ['README.md', 'LICENSE', '.codex-plugin/plugin.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.claude-plugin/mcp.json', '.github/workflows/ci.yml', '.github/workflows/release.yml', '.github/workflows/upstream-sync.yml', 'references/project-spec-v1.md', 'references/codex-contracts.md', 'references/module-map.json', 'scripts/check-update.mjs', 'scripts/validate-project.mjs', 'scripts/module-runs.mjs', 'scripts/module-map.mjs', 'scripts/preflight.mjs', 'scripts/provider-setup.mjs', 'scripts/blender-previz.py', 'scripts/previz-contract.mjs', 'scripts/previz-self-check.mjs', 'scripts/reference-video-import.mjs', 'scripts/generation/live-smoke-test.mjs', 'scripts/document-reference.mjs', 'scripts/reference-bindings.mjs', 'scripts/media-hosting/litterbox.mjs', 'scripts/media-hosting/publish.mjs']) {
   try { await access(resolve(root, path)) } catch { failures.push(`缺少项目规范组件：${path}`) }
 }
 
-for (const path of ['skills/plan-shot-continuity/SKILL.md', 'skills/plan-shot-continuity/agents/openai.yaml', 'skills/plan-shot-continuity/assets/prompts/continuity_plan.zh.txt', 'skills/plan-shot-continuity/assets/prompts/continuity_plan.en.txt']) {
+for (const path of ['skills/short-drama/references/storyboard/plan-shot-continuity.md', 'skills/short-drama/assets/modules/plan-shot-continuity/prompts/continuity_plan.zh.txt', 'skills/short-drama/assets/modules/plan-shot-continuity/prompts/continuity_plan.en.txt']) {
   try { await access(resolve(root, path)) } catch { failures.push(`跨镜连续性能力缺少：${path}`) }
 }
 
@@ -49,16 +49,18 @@ async function files(directory) {
   return output
 }
 
+const moduleReference = (id) => resolve(root, moduleMap.modules[id].path)
+const modulePrompt = (id, prompt, locale) => resolve(root, 'skills/short-drama/assets/modules', id, 'prompts', `${prompt}.${locale}.txt`)
+
 const skillNames = (await readdir(resolve(root, 'skills'), { withFileTypes: true }))
   .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort()
-const declaredSkills = [...map.workflow, ...map.support].sort()
-if (Object.keys(moduleMap.modules).length !== skillNames.length) failures.push('模块注册表未覆盖全部现有 Skill')
-if (new Set(declaredSkills).size !== declaredSkills.length) failures.push('workflow/support 存在重复 Skill')
-for (const name of skillNames.filter((name) => !declaredSkills.includes(name))) failures.push(`未声明 Skill：${name}`)
-for (const name of declaredSkills.filter((name) => !skillNames.includes(name))) failures.push(`缺少 Skill：${name}`)
+const declaredModules = [...map.workflow, ...map.support].sort()
+if (JSON.stringify(skillNames) !== JSON.stringify(['short-drama'])) failures.push('插件只能暴露 short-drama 一个 Skill')
+if (Object.keys(moduleMap.modules).length !== 47) failures.push('模块注册表必须覆盖 47 个原能力')
+if (new Set(declaredModules).size !== declaredModules.length) failures.push('workflow/support 存在重复模块')
 for (const [stage, names] of Object.entries(map.stages || {})) {
-  if (!Array.isArray(names) || names.length === 0) failures.push(`阶段缺少 Skill：${stage}`)
-  for (const name of names || []) if (!skillNames.includes(name)) failures.push(`阶段映射到不存在的 Skill：${stage} -> ${name}`)
+  if (!Array.isArray(names) || names.length === 0) failures.push(`阶段缺少模块：${stage}`)
+  for (const name of names || []) if (!moduleMap.modules[name]) failures.push(`阶段映射到不存在的模块：${stage} -> ${name}`)
 }
 for (const name of skillNames) {
   try { await access(resolve(root, 'skills', name, 'SKILL.md')) } catch { failures.push(`缺少 SKILL.md：${name}`) }
@@ -74,22 +76,21 @@ for (const name of skillNames) {
   } catch {}
 }
 
-const expectedPrompts = Object.entries(map.prompts).flatMap(([name, skill]) => ['zh', 'en'].map((locale) => `${skill}/assets/prompts/${name}.${locale}.txt`)).sort()
-const actualPrompts = (await files(resolve(root, 'skills')))
-  .filter((path) => path.includes(`${resolve(root, 'skills')}/`) && path.includes('/assets/prompts/'))
-  .map((path) => relative(resolve(root, 'skills'), path)).sort()
+const expectedPrompts = Object.entries(map.prompts).flatMap(([name, moduleId]) => ['zh', 'en'].map((locale) => `${moduleId}/prompts/${name}.${locale}.txt`)).sort()
+const promptRoot = resolve(root, 'skills/short-drama/assets/modules')
+const actualPrompts = (await files(promptRoot)).filter((path) => path.includes('/prompts/')).map((path) => relative(promptRoot, path)).sort()
 for (const path of actualPrompts.filter((path) => !expectedPrompts.includes(path))) failures.push(`未映射提示词：${path}`)
 for (const path of expectedPrompts.filter((path) => !actualPrompts.includes(path))) failures.push(`缺少提示词：${path}`)
 const promptVariables = (content) => [...new Set([...content.matchAll(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g)].map((match) => match[1]))].sort()
 const unsupportedProfessionalRule = /(?:特写镜头必须使用固定镜头|特写镜头中使用任何镜头运动|对话镜头必须使用浅景深|极浅景深，背景完全虚化|1[–-]2\s*帧短促微震|至少\s*80%\s*镜头|约\s*70%\s*镜头|close-ups use a static camera|dialogue shots? must use (?:a )?shallow depth of field|background completely (?:blurred|separated)|brief\s+1[–-]2 frame micro-shake|at least\s*80%\s*of shots|roughly\s*70%\s*(?:of )?shots)/i
 if (!unsupportedProfessionalRule.test('特写镜头必须使用固定镜头') || !unsupportedProfessionalRule.test('brief 1–2 frame micro-shake') || unsupportedProfessionalRule.test('特写默认固定，但可为动作跟随而移动')) failures.push('摄影硬规则审计器自检失败')
 for (const [prompt, skill] of Object.entries(map.prompts)) {
-  if (!skillNames.includes(skill)) failures.push(`提示词映射到不存在的 Skill：${prompt} -> ${skill}`)
+  if (!moduleMap.modules[skill]) failures.push(`提示词映射到不存在的模块：${prompt} -> ${skill}`)
   else {
-    const entrypoint = await readFile(resolve(root, 'skills', skill, 'SKILL.md'), 'utf8')
-    if (!entrypoint.includes(prompt)) failures.push(`Skill 未引用自己的提示词：${skill} -> ${prompt}`)
-    const zh = await readFile(resolve(root, 'skills', skill, 'assets/prompts', `${prompt}.zh.txt`), 'utf8')
-    const en = await readFile(resolve(root, 'skills', skill, 'assets/prompts', `${prompt}.en.txt`), 'utf8')
+    const entrypoint = await readFile(moduleReference(skill), 'utf8')
+    if (!entrypoint.includes(prompt)) failures.push(`模块未引用自己的提示词：${skill} -> ${prompt}`)
+    const zh = await readFile(modulePrompt(skill, prompt, 'zh'), 'utf8')
+    const en = await readFile(modulePrompt(skill, prompt, 'en'), 'utf8')
     if (JSON.stringify(promptVariables(zh)) !== JSON.stringify(promptVariables(en))) failures.push(`中英文提示词变量不一致：${prompt}`)
     for (const [locale, content] of [['zh', zh], ['en', en]]) {
       const injected = injectPromptSystemVars(content, locale)
@@ -109,12 +110,12 @@ for (const [prompt, skill] of Object.entries(map.prompts)) {
 }
 
 for (const locale of ['zh', 'en']) {
-  const bible = await readFile(resolve(root, `skills/design-drama-bible/assets/prompts/ai_story_expand.${locale}.txt`), 'utf8')
+  const bible = await readFile(modulePrompt('design-drama-bible', 'ai_story_expand', locale), 'utf8')
   if (!bible.includes('hidden_fact') || /\bfear,\s*secret,\s*arc_start\b/.test(bible)) failures.push(`故事圣经人物合同与密钥校验冲突：${locale}`)
 }
 
-const videoPromptRoot = resolve(root, 'skills/write-drama-video-prompts/assets/prompts')
-const videoPromptSkill = await readFile(resolve(root, 'skills/write-drama-video-prompts/SKILL.md'), 'utf8')
+const videoPromptRoot = resolve(root, 'skills/short-drama/assets/modules/write-drama-video-prompts/prompts')
+const videoPromptSkill = await readFile(moduleReference('write-drama-video-prompts'), 'utf8')
 for (const token of ['errors', 'episode_key,source_versions,shots,unresolved,approved', 'production_plan_version', 'storyboard_version', '禁止省略']) if (!videoPromptSkill.replace(/[`{}\s]/g, '').includes(token.replace(/[`{}\s]/g, ''))) failures.push(`视频提示词 Skill 缺少落盘合同：${token}`)
 for (const locale of ['zh', 'en']) {
   const seedance = await readFile(resolve(videoPromptRoot, `seedance2_video.${locale}.txt`), 'utf8')
@@ -129,7 +130,7 @@ for (const locale of ['zh', 'en']) {
 }
 
 for (const locale of ['zh', 'en']) {
-  const board = await readFile(resolve(root, `skills/generate-storyboard-images/assets/prompts/panel_storyboard_image.${locale}.txt`), 'utf8')
+  const board = await readFile(modulePrompt('generate-storyboard-images', 'panel_storyboard_image', locale), 'utf8')
   const token = locale === 'zh' ? '成片目标媒介' : 'target delivery medium'
   if (!board.includes(token)) failures.push(`分镜板主画面未绑定项目成片媒介：${locale}`)
 }
@@ -187,7 +188,7 @@ for (const [skill, prompts] of Object.entries(map.completion_prompts || {})) {
 for (const [prompt, skill] of Object.entries(map.prompts)) {
   if (providerPrompts.has(prompt)) continue
   for (const locale of ['zh', 'en']) {
-    const content = await readFile(resolve(root, 'skills', skill, 'assets/prompts', `${prompt}.${locale}.txt`), 'utf8')
+    const content = await readFile(modulePrompt(skill, prompt, locale), 'utf8')
     if (!content.startsWith('# Codex ')) failures.push(`文本合同未固化为 Codex 形式：${prompt}.${locale}`)
   }
 }
@@ -198,22 +199,22 @@ for (const token of ['validateCharacterAppealReview', 'age_classification', 'ide
 for (const token of ['identity_binding', 'profile_sha256', 'appearance_id', 'identity_constraints']) if (!referenceBindings.includes(token)) failures.push(`人物跨镜引用绑定缺少：${token}`)
 const taskLedger = await readFile(resolve(root, 'scripts/task-ledger.mjs'), 'utf8')
 for (const token of ['createRequestSnapshot', 'reserveTask', 'settleReservedTask', 'submitting', 'requestSha256', 'inputFingerprint', '.short-drama']) if (!taskLedger.includes(token)) failures.push(`生成请求留档缺少：${token}`)
-const skillRuns = await readFile(resolve(root, 'scripts/skill-runs.mjs'), 'utf8')
-if (!skillRuns.includes("version.provenance?.created_by !== 'provider'")) failures.push('Provider 变换资产可能绕过生成 Skill')
-for (const token of ['direct-blender-previz', 'episodes\\/ep-', 'generate-blender-previz']) if (!skillRuns.includes(token)) failures.push(`白模编导 Skill 门禁缺少：${token}`)
+const moduleRuns = await readFile(resolve(root, 'scripts/module-runs.mjs'), 'utf8')
+if (!moduleRuns.includes("version.provenance?.created_by !== 'provider'")) failures.push('Provider 变换资产可能绕过生成模块')
+for (const token of ['direct-blender-previz', 'episodes\\/ep-', 'generate-blender-previz']) if (!moduleRuns.includes(token)) failures.push(`白模编导模块门禁缺少：${token}`)
 const blenderPreviz = await readFile(resolve(root, 'scripts/blender-previz.py'), 'utf8')
 for (const token of ['animate_walk', 'arm_keyframes', 'head_keyframes', 'bone_keyframes', 'hand_pose_keyframes', 'contact_checks', 'plant_checks', 'validate_action_physics', 'RIG_BASE_ROTATIONS', 'FINGER_BASE_ROTATIONS', 'WEAPON_TYPES', 'EFFECT_TYPES', 'attach_weapon', 'evaluated_endpoint', 'FOG_GLOW', 'color 必须是三个 0–1 数字', 'camera_cuts 必须按帧号严格递增', 'marker.camera = cameras', 'keyframe.get("target", target)', 'ue-mannequin-retopology.glb']) if (!blenderPreviz.includes(token)) failures.push(`专业白模生成能力缺少：${token}`)
 const previzContract = await readFile(resolve(root, 'scripts/previz-contract.mjs'), 'utf8')
 const previzIntegrityImplementation = `${previzContract}\n${assetLedger}\n${workflowGates}`
 for (const token of ['validatePrevizContract', 'probePrevizMedia', 'validatePrevizMedia', 'direction_contract_sha256', '不得在接触帧', 'supportsPrevizMotionReference', 'validateMotionReferenceBinding', 'PREVIZ_REQUIRED_HARD_GATES', '倒序或过度重叠']) if (!previzIntegrityImplementation.includes(token)) failures.push(`白模完整性门禁缺少：${token}`)
 try { await access(resolve(root, 'public/models/ue-mannequin-retopology.glb')) } catch { failures.push('默认 UE Mannequin 模型缺失') }
-const previzDirector = await readFile(resolve(root, 'skills/direct-blender-previz/SKILL.md'), 'utf8')
+const previzDirector = await readFile(moduleReference('direct-blender-previz'), 'utf8')
 for (const token of ['剧情因果', '相机动机', '正打', '反打', 'camera_cuts', '85/100', 'direction-contract.md', 'action-previz.md', 'test_only']) if (!previzDirector.includes(token)) failures.push(`白模编导合同缺少：${token}`)
-const previzGenerator = await readFile(resolve(root, 'skills/generate-blender-previz/SKILL.md'), 'utf8')
+const previzGenerator = await readFile(moduleReference('generate-blender-previz'), 'utf8')
 for (const token of ['MP4 生成成功不等于白模完成', '七项', 'P0/P1/P2', 'test_only', '不得判断“符合剧情”', '不得以“完成”“可用”或“已通过”交付']) if (!previzGenerator.includes(token)) failures.push(`白模生成后审计缺少：${token}`)
-const actionPreviz = await readFile(resolve(root, 'skills/direct-blender-previz/references/action-previz.md'), 'utf8')
+const actionPreviz = await readFile(resolve(root, 'skills/short-drama/references/storyboard/direct-blender-previz/action-previz.md'), 'utf8')
 for (const token of ['预备—发力—接触—受力—回收', '肩—肘—腕', '髋—膝—踝', '支撑脚', '重心路径', '错开关键帧', '接触前加速', '相机运动必须早于接触点停稳', '建立空间—跟随启动—接触锁机—结果释放', '不得始终瞄准双人中点', '动作重定向', 'bone_keyframes', 'contact_checks', 'plant_checks', '兵器必须绑定持握手骨', '术法必须具有']) if (!actionPreviz.includes(token)) failures.push(`动作白模门禁缺少：${token}`)
-const weaponsVfx = await readFile(resolve(root, 'skills/direct-blender-previz/references/weapons-vfx.md'), 'utf8')
+const weaponsVfx = await readFile(resolve(root, 'skills/short-drama/references/storyboard/direct-blender-previz/weapons-vfx.md'), 'utf8')
 for (const token of ['sword', 'dao', 'spear', 'staff', 'shield', 'orb', 'beam', 'ring', 'burst', 'attach_to', '双手 IK', '完整渲染和审计耗时']) if (!weaponsVfx.includes(token)) failures.push(`武器或术法白模门禁缺少：${token}`)
 for (const token of ['STARROUTER_AUDIO_MODELS', 'STARROUTER_ASR_MODELS', '/v1/audio/speech', '/v1/audio/transcriptions', '/v1/audio/translations', 'speech-2.8-hd', 'qwen3-asr-flash', 'audioPayload', 'audioResult', 'MiniMax-H3', 'MiniMax-H3-Max', '/v1/videos', 'h3Payload']) if (!starrouter.includes(token)) failures.push(`StarRouter 实现缺少：${token}`)
 for (const token of ['最多两张', '图片 9、视频 3、音频 3 或总数 12']) if (!starrouter.includes(token)) failures.push(`StarRouter 素材上限校验缺少：${token}`)
@@ -223,7 +224,7 @@ for (const token of ['prepare_previous_tail', 'preparePreviousTail', 'validatePr
 const continuityPlanScript = await readFile(resolve(root, 'scripts/continuity-plan.mjs'), 'utf8')
 for (const token of ['camera_setup_id', 'start_state', 'end_state', 'previous-tail', 'recommendTailLink']) if (!continuityPlanScript.includes(token)) failures.push(`连续性计划实现缺少：${token}`)
 try {
-  const continuitySkill = await readFile(resolve(root, 'skills/plan-shot-continuity/SKILL.md'), 'utf8')
+  const continuitySkill = await readFile(moduleReference('plan-shot-continuity'), 'utf8')
   for (const token of ['recommendTailLink', 'unresolved', 'project-store.mjs', 'select-episode-document', '语义位置', 'Blender', '不得推断']) if (!continuitySkill.includes(token)) failures.push(`跨镜连续性 Skill 缺少：${token}`)
 } catch {}
 const continuityIndex = map.workflow.indexOf('plan-shot-continuity')
@@ -231,7 +232,7 @@ if (continuityIndex <= map.workflow.indexOf('plan-drama-production') || continui
 const pipelineGuide = await readFile(resolve(root, 'references/pipeline.md'), 'utf8')
 if (pipelineGuide.indexOf('plan-shot-continuity') < pipelineGuide.indexOf('production-plan') || pipelineGuide.indexOf('plan-shot-continuity') > pipelineGuide.indexOf('video prompts')) failures.push('流水线文档必须把 plan-shot-continuity 放在制作计划与视频提示词之间')
 const referenceImport = await readFile(resolve(root, 'scripts/reference-video-import.mjs'), 'utf8')
-const referenceAnalysisSkill = await readFile(resolve(root, 'skills/analyze-reference-video/SKILL.md'), 'utf8')
+const referenceAnalysisSkill = await readFile(moduleReference('analyze-reference-video'), 'utf8')
 for (const token of ['YTDLP_HTTP_403_BROWSER_SESSION_REQUIRED', 'exitCode = 42', 'existing-user-chrome', 'browser-session', 'import-browser-file', 'probeReferenceVideo', 'fileSha256']) if (!referenceImport.includes(token)) failures.push(`参考视频浏览器兜底实现缺少：${token}`)
 for (const token of ['用户自己已经打开的 Chrome', '禁止调用创建标签页', '禁止打开 Codex 临时浏览器', 'HTTP 403', 'import-browser-file', 'Cookie', 'SHA-256']) if (!referenceAnalysisSkill.includes(token)) failures.push(`参考视频浏览器兜底 Skill 缺少：${token}`)
 const nativeAudioAudit = await readFile(resolve(root, 'scripts/native-audio-audit.mjs'), 'utf8')
@@ -243,7 +244,7 @@ const museTalk = await readFile(resolve(root, 'scripts/generation/musetalk.mjs')
 const mcpConfig = await readFile(resolve(root, '.mcp.json'), 'utf8')
 for (const token of ['MUSETALK_ROOT', 'MUSETALK_PYTHON', 'MUSETALK_ENTRYPOINT', 'transform.lip-sync', 'single-visible-face', '不会自动下载']) if (!`${museTalk}\n${mcpConfig}`.includes(token)) failures.push(`MuseTalk 可选连接器合同缺少：${token}`)
 if (!mcpConfig.includes('STARROUTER_MUSIC_MODELS')) failures.push('Codex MCP 未透传 StarRouter 可选音乐模型目录')
-const audioFlowDocs = await Promise.all(['skills/design-drama-audio/SKILL.md', 'skills/edit-drama-timeline/SKILL.md', 'skills/drama-generation-service/SKILL.md', 'skills/write-drama-video-prompts/SKILL.md', 'references/feature-completeness.md', 'references/pipeline.md', 'references/usage-guide.md'].map((path) => readFile(resolve(root, path), 'utf8')))
+const audioFlowDocs = await Promise.all([moduleReference('design-drama-audio'), moduleReference('edit-drama-timeline'), moduleReference('drama-generation-service'), moduleReference('write-drama-video-prompts'), resolve(root, 'references/feature-completeness.md'), resolve(root, 'references/pipeline.md'), resolve(root, 'references/usage-guide.md')].map((path) => readFile(path, 'utf8')))
 const audioFlowGuide = audioFlowDocs.join('\n')
 for (const token of ['native-first', 'video.native-audio', 'cinematic-tts', 'native_audio_exception', 'MUSETALK_ROOT', 'transform.lip-sync', 'BGM 始终走独立', 'speech_intelligibility', 'speaker_identity', 'narration_performance', 'ambience_action_sync', 'lip_sync', 'technical_audio', 'undeclared_music']) if (!audioFlowGuide.includes(token)) failures.push(`声音流程文档缺少：${token}`)
 for (const token of ['analyze_speech_timing', 'review_speech_timing', 'compile_dubbing_request', 'review_dubbing_performance', 'build_subtitles_from_audio', 'generate_audio', 'generate_audio_fallback', 'dubbing_attempt', 'speech_timing_version', 'dubbing_contract_version']) if (!generationMcp.includes(token)) failures.push(`源时间线配音 MCP 缺少：${token}`)
@@ -268,7 +269,7 @@ const h3Workflow = await readFile(resolve(root, 'scripts/generation/minimax-h3-w
 if (!h3Workflow.includes('MiniMaxH3ReferenceToVideo')) failures.push('RunningHub H3 内置 workflow 无效')
 for (const token of ['COMFLY_TOKEN', 'minimax-h3', '1518', '1521', '1542', '/internal/comfly/tasks', 'input_mode=Ref2VA', 'reference_manifest 与实际素材数量不一致']) if (!comfly.includes(token)) failures.push(`Comfly 实现缺少：${token}`)
 for (const skill of ['use-short-drama-studio', 'orchestrate-short-drama', 'drama-generation-service']) {
-  const content = await readFile(resolve(root, 'skills', skill, 'SKILL.md'), 'utf8')
+  const content = await readFile(moduleReference(skill), 'utf8')
   if (!/占位|placeholder/i.test(content) || !/MCP|工具列表|工具/.test(content)) failures.push(`媒体工具缺失门禁未写入：${skill}`)
 }
 
@@ -284,9 +285,9 @@ for (const file of ['package.json', 'tsconfig.json', 'remotion.config.ts', '.git
 }
 const dramaTimeline = await readFile(resolve(root, 'assets/remotion-template/src/DramaTimeline.tsx'), 'utf8')
 for (const token of ['tailOffsetFrames', 'segmentRate', 'audio_tracks', 'subtitles', 'labels', 'graphics']) if (!dramaTimeline.includes(token)) failures.push(`Remotion 主合成实现缺少：${token}`)
-const reviewSkill = await readFile(resolve(root, 'skills/review-drama-script/SKILL.md'), 'utf8')
+const reviewSkill = await readFile(moduleReference('review-drama-script'), 'utf8')
 if (!reviewSkill.includes('../../references/writing/compliance-checklist.md')) failures.push('合规清单未接入剧本复核')
-const voiceDescriptionPrompt = await readFile(resolve(root, 'skills/design-drama-audio/assets/prompts/character_voice_description.zh.txt'), 'utf8')
+const voiceDescriptionPrompt = await readFile(modulePrompt('design-drama-audio', 'character_voice_description', 'zh'), 'utf8')
 for (const token of ['50', '性别', '年龄段', '2–4', '人物名', '地名', '剧情', '台词', '声音描述：']) if (!voiceDescriptionPrompt.includes(token)) failures.push(`CosyVoice 声音描述合同缺少：${token}`)
 const voiceDescriptionContract = await readFile(resolve(root, 'scripts/generation/voice-description.mjs'), 'utf8')
 for (const token of ['weightedLength', '性别和年龄段', '2–4', '人物名', '剧情', '台词', 'voice_traits']) if (!voiceDescriptionContract.includes(token)) failures.push(`CosyVoice 声音描述校验缺少：${token}`)
@@ -297,12 +298,12 @@ for (const [prompt, tokens] of Object.entries({
   prop_generate: ['主视图特写', '严格侧面', '结构', '纯白背景'],
 })) {
   const skill = map.prompts[prompt]
-  const content = await readFile(resolve(root, 'skills', skill, 'assets/prompts', `${prompt}.zh.txt`), 'utf8')
+  const content = await readFile(modulePrompt(skill, prompt, 'zh'), 'utf8')
   for (const token of tokens) if (!content.includes(token)) failures.push(`${prompt} 未吸收完整设定板规则：${token}`)
 }
 for (const skill of ['generate-character-images', 'generate-scene-assets', 'generate-prop-assets']) {
   for (const path of actualPrompts.filter((item) => item.startsWith(`${skill}/`))) {
-    const content = await readFile(resolve(root, 'skills', path), 'utf8')
+    const content = await readFile(resolve(promptRoot, path), 'utf8')
     if (/引号.*替换为「|quotation marks.*corner brackets/i.test(content)) failures.push(`资产提示词残留伪 JSON 引号规则：${path}`)
   }
 }
@@ -313,7 +314,7 @@ const parameterSkills = {
   'design-drama-audio': ['happy,sad,angry', '8000,16000,22050,24000,32000,44100', 'Chinese,Yue'],
 }
 for (const [skill, tokens] of Object.entries(parameterSkills)) {
-  const content = (await readFile(resolve(root, 'skills', skill, 'SKILL.md'), 'utf8')).replace(/[`{}\s]/g, '')
+  const content = (await readFile(moduleReference(skill), 'utf8')).replace(/[`{}\s]/g, '')
   for (const token of tokens) if (!content.includes(token)) failures.push(`${skill} 缺少模型参数枚举：${token}`)
 }
 

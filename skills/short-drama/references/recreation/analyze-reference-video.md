@@ -41,4 +41,4 @@ Hypit 的中间理解只是辅助证据，不是项目事实来源：逐项回�
 node "${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-.}}/scripts/recreation-workflow.mjs" validate-analysis <分析文件>
 ```
 
-再用 `project-store.mjs put-document <项目> reference-video-analysis <分析文件>` 落盘，并用 `render-prompt.mjs --codex-output` 保存合同运行记录。准备清单、当前 selected 来源绑定的 `.short-drama/hypit/handoff.json`、分析文件和合同记录缺一不可；`skill-runs.mjs record` 会拒绝缺少或过期的 handoff。
+再用 `project-store.mjs put-document <项目> reference-video-analysis <分析文件>` 落盘，并用 `render-prompt.mjs --codex-output` 保存合同运行记录。准备清单、当前 selected 来源绑定的 `.short-drama/hypit/handoff.json`、分析文件和合同记录缺一不可；`module-runs.mjs record` 会拒绝缺少或过期的 handoff。

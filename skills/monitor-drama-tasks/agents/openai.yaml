@@ -1,3 +1,0 @@
-interface:
-  display_name: "监控短剧任务"
-  short_description: "查询、等待、取消、恢复和核对异步生成任务及输入指纹。"

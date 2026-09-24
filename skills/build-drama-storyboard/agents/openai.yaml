@@ -1,3 +1,0 @@
-interface:
-  display_name: "构建短剧分镜"
-  short_description: "将已选剧本、导演本和资产转换为连续可执行的结构化镜头。"

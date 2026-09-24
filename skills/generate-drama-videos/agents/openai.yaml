@@ -1,3 +1,0 @@
-interface:
-  display_name: "生成短剧视频"
-  short_description: "通过已选 Provider 生成逐镜视频并完成任务、本地文件和选版对账。"

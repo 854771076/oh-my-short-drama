@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { verifyProjectProviders } from './provider-setup.mjs'
-import { validateProviderSetup } from './skill-runs.mjs'
+import { validateProviderSetup } from './module-runs.mjs'
 
 function catalog() {
   return [

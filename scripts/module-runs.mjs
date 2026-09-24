@@ -1,14 +1,57 @@
 #!/usr/bin/env node
-import { access, mkdir, readdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
+import { access, lstat, mkdir, readdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { dirname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { stages } from './workflow-stages.mjs'
-import { isH3Model } from './generation/providers.mjs'
+import { isH3Model, providerSetupCatalog } from './generation/providers.mjs'
 import { readModuleMap } from './module-map.mjs'
 import { withFileLock } from './file-lock.mjs'
 
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const evidencePatterns = {
+  'use-short-drama-studio': /^\.short-drama\/dashboard\.json$/,
+  'configure-generation-providers': /^\.short-drama\/provider-setup\.json$/,
+  'use-hypit-video': /^\.short-drama\/hypit\/handoff\.json$/,
+  'analyze-reference-video': /^\.short-drama\/reference-video-analysis\.json$/,
+  'design-video-recreation': /episodes\/ep-\d{3}\/recreation-workflow\/v\d{3}\.json$/,
+  'short-drama': /episodes\/ep-\d{3}\/scripts\/v\d{3}\.(?:json|md|txt)$/,
+  'generate-character-profiles': /^assets\/characters\/profiles\.json$/,
+  'generate-drama-art-style': /^\.short-drama\/art-style\.json$/,
+  'write-drama-episode': /episodes\/ep-\d{3}\/scripts\/v\d{3}\.(?:json|md|txt)$/,
+  humanizer: /episodes\/ep-\d{3}\/scripts\/v\d{3}\.(?:json|md|txt)$/,
+  'review-drama-script': /episodes\/ep-\d{3}\/script-review\/v\d{3}\.json$/,
+  'write-drama-director-book': /episodes\/ep-\d{3}\/director-book\/v\d{3}\.json$/,
+  'plan-drama-assets': /episodes\/ep-\d{3}\/asset-plan\/v\d{3}\.json$/,
+  'build-drama-storyboard': /episodes\/ep-\d{3}\/storyboard\/v\d{3}\.json$/,
+  'revise-drama-storyboards': /episodes\/ep-\d{3}\/storyboard\/v\d{3}\.json$/,
+  'plan-drama-production': /episodes\/ep-\d{3}\/production-plan\/v\d{3}\.json$/,
+  'write-drama-video-prompts': /episodes\/ep-\d{3}\/video-prompts\/v\d{3}\.json$/,
+  'remotion-best-practices': /editing\/ep-\d{3}\/timeline\.json$/,
+  'edit-drama-timeline': /editing\/ep-\d{3}\/(?:timeline|review)\.json$/,
+  'edit-deliver-drama': /delivery\/ep-\d{3}\/manifest\.json$/,
+  'design-drama-audio': /episodes\/ep-\d{3}\/audio-plan\/v\d{3}\.json$/,
+  'direct-blender-previz': /episodes\/ep-\d{3}\/previz\/shot-\d{3}-v\d{3}\.json$/,
+  'generate-blender-previz': /assets\/other\/other-previz-ep\d{3}-\d{3}\/v\d{3}\.mp4$/,
+}
+const episodeEvidence = {
+  'design-video-recreation': (episode) => new RegExp(`^episodes/${episode}/recreation-workflow/v\\d{3}\\.json$`),
+  'short-drama': (episode) => new RegExp(`^episodes/${episode}/scripts/v\\d{3}\\.(?:json|md|txt)$`),
+  'write-drama-episode': (episode) => new RegExp(`^episodes/${episode}/scripts/v\\d{3}\\.(?:json|md|txt)$`),
+  humanizer: (episode) => new RegExp(`^episodes/${episode}/scripts/v\\d{3}\\.(?:json|md|txt)$`),
+  'review-drama-script': (episode) => new RegExp(`^episodes/${episode}/script-review/v\\d{3}\\.json$`),
+  'write-drama-director-book': (episode) => new RegExp(`^episodes/${episode}/director-book/v\\d{3}\\.json$`),
+  'plan-drama-assets': (episode) => new RegExp(`^episodes/${episode}/asset-plan/v\\d{3}\\.json$`),
+  'build-drama-storyboard': (episode) => new RegExp(`^episodes/${episode}/storyboard/v\\d{3}\\.json$`),
+  'revise-drama-storyboards': (episode) => new RegExp(`^episodes/${episode}/storyboard/v\\d{3}\\.json$`),
+  'plan-drama-production': (episode) => new RegExp(`^episodes/${episode}/production-plan/v\\d{3}\\.json$`),
+  'write-drama-video-prompts': (episode) => new RegExp(`^episodes/${episode}/video-prompts/v\\d{3}\\.json$`),
+  'remotion-best-practices': (episode) => new RegExp(`^editing/${episode}/timeline\\.json$`),
+  'edit-drama-timeline': (episode) => new RegExp(`^editing/${episode}/(?:timeline|review)\\.json$`),
+  'edit-deliver-drama': (episode) => new RegExp(`^delivery/${episode}/manifest\\.json$`),
+  'design-drama-audio': (episode) => new RegExp(`^episodes/${episode}/audio-plan/v\\d{3}\\.json$`),
+}
+const snapshotEvidenceModules = new Set(['manage-drama-assets', 'drama-generation-service', 'generate-character-images', 'generate-scene-assets', 'generate-prop-assets', 'generate-storyboard-images', 'generate-drama-videos', 'review-drama-shots', 'monitor-drama-tasks'])
 
 async function exists(path) {
   try { await access(path); return true } catch { return false }
@@ -38,6 +81,73 @@ async function confinedPaths(root, values, label) {
     output.push(local)
   }
   return output
+}
+
+async function validateHypitHandoff(root, evidence) {
+  const handoff = evidence.find((path) => path === '.short-drama/hypit/handoff.json')
+  if (!handoff) return
+  const value = JSON.parse(await readFile(resolve(root, handoff), 'utf8'))
+  if (value.schema_version !== 1 || value.mode !== 'intermediate-only' || typeof value.project_key !== 'string' || !value.source_ref || !Array.isArray(value.files) || !value.files.length) throw new Error('Hypit handoff 必须包含项目和 reference-video 绑定')
+  const project = JSON.parse(await readFile(resolve(root, '.short-drama/project.json'), 'utf8'))
+  const manifest = JSON.parse(await readFile(resolve(root, 'source/manifest.json'), 'utf8'))
+  const source = manifest.sources?.[value.source_ref.key]
+  const version = source?.versions?.find((item) => item.id === value.source_ref.version_id)
+  if (value.project_key !== project.key || source?.kind !== 'reference-video' || source.selectedVersionId !== value.source_ref.version_id || version?.sha256 !== value.source_ref.sha256) throw new Error('Hypit handoff 未绑定当前项目的 selected reference-video')
+  const projectRoot = await realpath(root)
+  const paths = new Set()
+  for (const [index, item] of value.files.entries()) {
+    if (!item || typeof item.path !== 'string' || !/^\.short-drama\/hypit\/inputs\/(?!\.)(?:[^/]+\/)*[^/]+$/.test(item.path) || paths.has(item.path) || !/^[0-9a-f]{64}$/.test(item.sha256 || '')) throw new Error(`Hypit handoff files[${index}] 无效或重复`)
+    paths.add(item.path)
+    const path = resolve(root, item.path)
+    if (!await exists(path) || (await lstat(path)).isSymbolicLink() || !await realpath(path).then((actual) => actual !== projectRoot && actual.startsWith(`${projectRoot}${sep}`)) || await sha256(path) !== item.sha256) throw new Error(`Hypit handoff 文件缺失、越界或哈希不一致：${item.path}`)
+  }
+}
+
+async function validateDashboardReceipt(root, evidence) {
+  const path = evidence.find((item) => item === '.short-drama/dashboard.json')
+  if (!path) throw new Error('use-short-drama-studio 必须由 studio.mjs open-project 生成 Dashboard 启动凭证')
+  const [receipt, project] = await Promise.all([
+    readFile(resolve(root, path), 'utf8').then(JSON.parse),
+    readFile(resolve(root, '.short-drama/project.json'), 'utf8').then(JSON.parse),
+  ])
+  if (receipt.version !== 1 || !Number.isFinite(Date.parse(receipt.opened_at)) || receipt.project_key !== project.key || receipt.workflow_type !== project.workflow?.type || receipt.route !== `#/projects/${encodeURIComponent(project.key)}/overview`) throw new Error('Dashboard 启动凭证未绑定当前项目或工作流')
+}
+
+export async function validateProviderSetup(root, evidence, catalogItems = providerSetupCatalog()) {
+  const path = evidence.find((item) => item === '.short-drama/provider-setup.json')
+  if (!path) throw new Error('configure-generation-providers 必须由 provider-setup.mjs 生成连接探测凭证')
+  const [project, receipt] = await Promise.all([
+    readFile(resolve(root, '.short-drama/project.json'), 'utf8').then(JSON.parse),
+    readFile(resolve(root, path), 'utf8').then(JSON.parse),
+  ])
+  const catalog = new Map(catalogItems.map((item) => [item.key, item]))
+  if (receipt.version !== 1 || !Number.isFinite(Date.parse(receipt.checked_at)) || receipt.project_key !== project.key || receipt.workflow_type !== project.workflow?.type) throw new Error('Provider 探测凭证未绑定当前项目或工作流')
+  for (const modality of ['image', 'video', 'audio']) {
+    const selected = project.providers?.[modality]
+    if (!selected?.provider || !selected?.model_or_workflow) throw new Error(`复刻启动前必须在 Dashboard 选择并保存 ${modality} Provider 与模型`)
+    const provider = catalog.get(selected.provider)
+    if (!provider?.configured) throw new Error(`${selected.provider} 尚未配置本机凭据或连接信息`)
+    if (!provider.models?.[modality]?.some((model) => model.id === selected.model_or_workflow)) throw new Error(`${modality} Provider 模型不在当前可用目录`)
+    if (receipt.selections?.[modality]?.provider !== selected.provider || receipt.selections?.[modality]?.model_or_workflow !== selected.model_or_workflow) throw new Error(`Provider 探测凭证中的 ${modality} 配置已过期`)
+  }
+  const expectedProviders = new Set(['image', 'video', 'audio'].map((modality) => project.providers[modality].provider))
+  const successfulProviders = new Set((receipt.providers || []).filter((item) => item?.ok === true).map((item) => item.provider))
+  for (const provider of expectedProviders) if (!successfulProviders.has(provider)) throw new Error(`${provider} 缺少成功的连接探测结果`)
+}
+
+async function validateViralAnalysisEvidence(root, moduleId, evidence) {
+  const project = JSON.parse(await readFile(resolve(root, '.short-drama/project.json'), 'utf8'))
+  if (project.workflow?.type !== 'viral-recreation') return
+  if (moduleId === 'use-short-drama-studio') await validateDashboardReceipt(root, evidence)
+  if (moduleId === 'configure-generation-providers') await validateProviderSetup(root, evidence)
+  if (moduleId === 'analyze-reference-video') {
+    if (!await exists(resolve(root, '.short-drama/hypit/handoff.json'))) throw new Error('正式参考视频分析前必须完成 Hypit 中间分析与 handoff')
+    await validateHypitHandoff(root, ['.short-drama/hypit/handoff.json'])
+  }
+  if (moduleId === 'design-video-recreation') {
+    const ledger = await readModuleRuns(root)
+    for (const required of ['use-hypit-video', 'analyze-reference-video']) if (ledger.runs?.[`analysis:${required}`]?.status !== 'completed') throw new Error(`design-video-recreation 前必须完成并记录 ${required}`)
+  }
 }
 
 async function moduleReference(moduleMap, moduleId) {
@@ -220,6 +330,13 @@ export async function recordModuleRun(root, stage, moduleId, evidenceValues, opt
     confinedPaths(root, options.inputs || [], '输入'),
     moduleReference(moduleMap, moduleId),
   ])
+  const expected = evidencePatterns[moduleId]
+  if (expected && !evidence.some((path) => expected.test(path))) throw new Error(`${moduleId} 的证据类型无效`)
+  if (moduleId === 'use-hypit-video') await validateHypitHandoff(root, evidence)
+  await validateViralAnalysisEvidence(root, moduleId, evidence)
+  if (snapshotEvidenceModules.has(moduleId) && !evidence.some((path) => new RegExp(`^\\.short-drama/evidence/${stage}-[0-9a-f-]+\\.json$`).test(path))) throw new Error(`${moduleId} 必须使用不可变阶段资产快照作为证据`)
+  const episodePattern = episodeEvidence[moduleId]
+  if (episodePattern) for (const episode of await selectedEpisodes(root)) if (!evidence.some((path) => episodePattern(episode).test(path))) throw new Error(`${moduleId} 缺少 ${episode} 的执行证据`)
   const promptRuns = await linkedPromptRuns(root, moduleMap, moduleId, stage, evidence)
   const run = {
     stage,
