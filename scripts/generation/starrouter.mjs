@@ -396,8 +396,9 @@ function musicPayload(input) {
   if (input.lyrics !== undefined && typeof input.lyrics !== 'string') throw new Error('音乐 lyrics 必须是字符串')
   const instrumental = input.make_instrumental === true
   if (instrumental && input.lyrics?.trim()) throw new Error('纯音乐不能同时提供 lyrics')
+  const lyrics = input.lyrics?.trim()
   return Object.fromEntries(Object.entries({
-    prompt: input.lyrics?.trim() || input.prompt.trim(),
+    ...(lyrics ? { prompt: lyrics } : { gpt_description_prompt: input.prompt.trim() }),
     title: input.title?.trim(),
     tags: input.tags?.trim(),
     make_instrumental: instrumental,

@@ -931,6 +931,7 @@ function validateFallbackBinding(presentation, binding, line) {
     if (binding.character_key && !line?.narrator_is_character) throw new Error('剧本未声明角色兼任叙述者，不得复用角色音色')
     if (line?.performance && JSON.stringify(profile) !== JSON.stringify(line.performance)) throw new Error('旁白 cinematic_profile 必须与 audio-plan 表演合同一致')
   } else if (binding?.voice_role !== 'character') throw new Error('角色对白兜底必须绑定 character 音色')
+  if (binding?.provider !== 'bailian' || binding?.model !== 'cosyvoice-v3.5-plus') throw new Error('原生音频失败区间必须使用 CosyVoice v3.5 Plus 设计或克隆音色')
 }
 
 export async function persistDerivedFallbackContract(rootArg, record) {

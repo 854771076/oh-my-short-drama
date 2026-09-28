@@ -242,7 +242,7 @@ project/
 - `review_media_operation`
 - `design_voice` / `clone_voice` / `list_voices` / `delete_voice`
 
-口型同步也可使用用户自行安装的 MuseTalk 1.5：设置 `MUSETALK_ROOT`，并按需设置 `MUSETALK_PYTHON`、`MUSETALK_ENTRYPOINT`。插件不会自动安装、下载模型或修改 MuseTalk 目录。StarRouter 音乐目录可用 `STARROUTER_MUSIC_MODELS` 扩展；外部音乐必须先登记许可证与允许用途。
+口型同步也可使用用户自行安装的 MuseTalk 1.5：设置 `MUSETALK_ROOT`，并按需设置 `MUSETALK_PYTHON`、`MUSETALK_ENTRYPOINT`。插件不会自动安装、下载模型或修改 MuseTalk 目录。用户明确需要 BGM、OP 或 ED 时，插件会先按剧情、人物、情绪弧和剪辑节奏生成音乐创作简报，再通过 StarRouter `suno_music` 生成；音乐目录可用 `STARROUTER_MUSIC_MODELS` 扩展，外部音乐必须先登记许可证与允许用途。
 
 如果当前任务看不到这些工具，应使用 `⌘Q` 完全退出 Codex，再重新打开并新建任务；不得降级为占位媒体。
 

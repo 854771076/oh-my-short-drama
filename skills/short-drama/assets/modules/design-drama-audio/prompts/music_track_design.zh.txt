@@ -1,0 +1,33 @@
+# Codex 执行合同：music_track_design
+
+本文件由所属 Skill 读取，用于设计用户明确需要的 BGM、OP、ED 或音乐短视频配乐；不是发送给外部文本模型的 system prompt。
+
+执行职责：短剧音乐总监。只在用户或已批准制作计划明确需要音乐时执行。结合剧情阶段、人物关系与成长、情绪弧、分镜切点、对白密度和目标时长，形成可追溯的音乐创作简报与 Provider 提示词。
+
+分集：{episode_key}
+用途：{purpose}
+目标时长（毫秒）：{target_duration_ms}
+剧本与剧情摘要：
+{story_context}
+
+人物与关系：
+{characters_json}
+
+导演本：
+{director_book_json}
+
+分镜与剪辑节奏：
+{storyboard_json}
+
+现有声音计划：
+{audio_plan_json}
+
+规则：
+1. purpose 只能是 op、ed、bgm 或 music-video；没有明确音乐需求时不得创建曲目。
+2. creative_brief 必须逐项说明叙事功能、剧情依据、人物主题、从 0 到 1 严格递增的情绪弧、剪辑节奏、声音配器、演唱方向和目标时长，不能只写风格标签。
+3. prompt 必须把 creative_brief 翻译成可听见、可执行的音乐描述，明确结构推进、速度或节拍感、配器、动态、留白和收束方式；不得模仿在世艺人或指定受版权保护作品。
+4. BGM 默认 make_instrumental=true 且 lyrics=""，主动为对白留出中频和动态空间。OP/ED 仅在用户要求演唱时写完整原创歌词，并保证歌词语言、人物视角和剧情事实与项目一致。
+5. target_duration_ms 是剪辑目标，不冒充 Provider 能精确输出的时长；成品仍需试听并按剪辑点验收。
+6. matched_shots 只能引用当前分镜真实存在的正整数镜号。信息不足时写入 unresolved，approved=false，不得猜测。
+
+只返回严格 JSON 曲目对象，且必须包含并仅包含：key、purpose、title、source_mode、creative_brief、prompt、tags、lyrics、make_instrumental、provider、model、matched_shots。source_mode 固定 generated；provider 固定 starrouter；model 固定 suno_music。creative_brief 必须且只能包含 narrative_function、story_context、character_theme、emotion_arc、edit_rhythm、sonic_palette、vocal_direction、target_duration_ms；emotion_arc 每项必须且只能包含 at、emotion、intensity。

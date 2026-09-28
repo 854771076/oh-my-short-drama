@@ -37,6 +37,18 @@ function validateEmotionArc(value, label) {
   return value
 }
 
+function validateMusicCreativeBrief(value, label) {
+  exactKeys(value, ['narrative_function', 'story_context', 'character_theme', 'emotion_arc', 'edit_rhythm', 'sonic_palette', 'vocal_direction', 'target_duration_ms'], label)
+  for (const field of ['narrative_function', 'story_context', 'character_theme', 'edit_rhythm', 'sonic_palette', 'vocal_direction']) {
+    if (!nonEmptyString(value[field])) throw new Error(`${label}.${field} 必填`)
+  }
+  if (!Array.isArray(value.emotion_arc) || value.emotion_arc.length < 2) throw new Error(`${label}.emotion_arc 至少需要起止两个情绪节点`)
+  validateEmotionArc(value.emotion_arc, `${label}.emotion_arc`)
+  if (value.emotion_arc[0].at !== 0 || value.emotion_arc.at(-1).at !== 1 || value.emotion_arc.some((beat, index) => index > 0 && beat.at <= value.emotion_arc[index - 1].at)) throw new Error(`${label}.emotion_arc 必须从 0 到 1 严格递增`)
+  if (!Number.isInteger(value.target_duration_ms) || value.target_duration_ms <= 0) throw new Error(`${label}.target_duration_ms 无效`)
+  return value
+}
+
 function validatePausePlan(value, label) {
   if (!Array.isArray(value) || value.length === 0) throw new Error(`${label} 必填`)
   value.forEach((pause, index) => {
@@ -107,9 +119,10 @@ export function validateMusicTrack(track, index = 0) {
   const label = `audio-plan music_tracks[${index}]`
   if (!/^(?:op|ed|bgm|music-video)(?:-[a-z0-9]+)*$/.test(track?.key || '') || !MUSIC_PURPOSES.has(track.purpose) || !Array.isArray(track.matched_shots) || track.matched_shots.some((shot) => !Number.isInteger(shot) || shot <= 0)) throw new Error(`${label} key/purpose/matched_shots 无效`)
   if (track.source_mode === 'generated') {
-    exactKeys(track, ['key', 'purpose', 'title', 'source_mode', 'prompt', 'tags', 'lyrics', 'make_instrumental', 'provider', 'model', 'matched_shots'], label)
+    exactKeys(track, ['key', 'purpose', 'title', 'source_mode', 'creative_brief', 'prompt', 'tags', 'lyrics', 'make_instrumental', 'provider', 'model', 'matched_shots'], label)
     for (const field of ['title', 'prompt', 'tags', 'provider', 'model']) if (typeof track[field] !== 'string' || !track[field].trim()) throw new Error(`${label}.${field} 必填`)
     if (typeof track.lyrics !== 'string' || typeof track.make_instrumental !== 'boolean' || track.make_instrumental && track.lyrics.trim()) throw new Error(`${label} 生成曲目内容无效`)
+    validateMusicCreativeBrief(track.creative_brief, `${label}.creative_brief`)
     return track
   }
   if (track.source_mode === 'catalog') {
@@ -136,6 +149,18 @@ function validatePerformance(performance) {
     : typeof performance[field] === 'string' && performance[field].trim())
 }
 
+function validatePlannedVoiceRoute(line, index, authorizedVoiceBindings) {
+  if (line.delivery_mode !== 'post_dub' || line.presentation === 'visible-dialogue') return
+  const binding = authorizedVoiceBindings?.find((item) => item?.voice_id === line.voice_binding?.voice_id && item?.speaker === line.speaker)
+  if (!binding) throw new Error(`audio-plan lines[${index}] 缺失场外音或旁白必须绑定已登记音色`)
+  if (binding.provider !== 'bailian' || binding.model !== 'cosyvoice-v3.5-plus' || binding.target_model !== 'cosyvoice-v3.5-plus') throw new Error(`audio-plan lines[${index}] 缺失场外音或旁白必须使用 CosyVoice v3.5 Plus`)
+  if (line.presentation === 'offscreen-dialogue') {
+    if (binding.voice_role !== 'character' || binding.source !== 'clone' || !nonEmptyString(binding.upload_receipt_id)) throw new Error(`audio-plan lines[${index}] 未生成的场外音必须克隆原声角色音色并绑定上传收据`)
+    return
+  }
+  if (binding.voice_role !== 'narrator' || binding.source !== 'design' || binding.professional_narration !== true || !nonEmptyString(binding.request_id) || JSON.stringify(binding.cinematic_profile) !== JSON.stringify(line.performance)) throw new Error(`audio-plan lines[${index}] 旁白必须使用独立专业旁白设计音色并绑定电影感表演合同`)
+}
+
 export function validateAudioLine(line, index = 0, context = {}) {
   if (!DELIVERY.has(line?.delivery_mode)) throw new Error(`audio-plan lines[${index}].delivery_mode 无效`)
   if (!PRESENTATION.has(line.presentation)) throw new Error(`audio-plan lines[${index}].presentation 无效`)
@@ -149,6 +174,7 @@ export function validateAudioLine(line, index = 0, context = {}) {
     const exception = line.native_audio_exception
     if (!FAILURE_REASONS.has(exception?.reason) || !exception.evidence || !Number.isInteger(exception.range?.start_ms) || !Number.isInteger(exception.range?.end_ms) || exception.range.start_ms < 0 || exception.range.end_ms <= exception.range.start_ms || !Array.isArray(exception.mix_sources) || exception.mix_sources.length === 0) throw new Error(`audio-plan lines[${index}] 原生音频兜底证据无效`)
   }
+  validatePlannedVoiceRoute(line, index, context.authorizedVoiceBindings)
   validateDubbingContract(line.dubbing_contract, { deliveryMode: line.delivery_mode, presentation: line.presentation, voiceBinding: line.voice_binding, authorizedVoiceBindings: context.authorizedVoiceBindings })
   if (line.dubbing_contract.timing_source.line_index !== line.line_index) throw new Error(`audio-plan lines[${index}] dubbing_contract 必须引用同一行 speech-timing`)
   return line
@@ -209,7 +235,8 @@ export function migrateLegacyAudioPlan(input) {
   const migratedTracks = document.music_tracks?.map((track) => track.source_mode ? track : { ...track, source_mode: 'generated' })
   const authorizedVoiceBindings = Array.isArray(document.voice_bindings) ? document.voice_bindings : []
   const migrated = (document.lines || []).map((line) => migrateLegacyAudioLine(line, { authorizedVoiceBindings }))
-  const unresolved = [...(document.unresolved || []), ...migrated.flatMap((item) => item.unresolved)]
+  const musicUnresolved = (migratedTracks || []).filter((track) => track.source_mode === 'generated' && !track.creative_brief).map((track) => `生成曲目 ${track.key || 'unknown'} 缺少结合剧情、人物、情绪与剪辑节奏的创作简报`)
+  const unresolved = [...(document.unresolved || []), ...migrated.flatMap((item) => item.unresolved), ...musicUnresolved]
   const requiresLineMigration = migrated.some((item) => item.unresolved.length)
   return {
     document: {
@@ -218,7 +245,7 @@ export function migrateLegacyAudioPlan(input) {
       lines: migrated.map((item) => item.line),
       ...(migratedTracks ? { music_tracks: migratedTracks } : {}),
       unresolved,
-      approved: requiresLineMigration || !document.audio_strategy ? false : document.approved,
+      approved: requiresLineMigration || musicUnresolved.length || !document.audio_strategy ? false : document.approved,
     },
     unresolved,
   }

@@ -1,0 +1,33 @@
+# Codex execution contract: music_track_design
+
+This file is read by the owning Skill to design BGM, OP, ED, or music-video tracks explicitly requested by the user or an approved production plan. It is not a system prompt for an external text model.
+
+Role: short-drama music director. Ground the track in plot phase, character relationships and arc, emotional progression, shot cuts, dialogue density, and target duration.
+
+Episode: {episode_key}
+Purpose: {purpose}
+Target duration in milliseconds: {target_duration_ms}
+Story context:
+{story_context}
+
+Characters and relationships:
+{characters_json}
+
+Director book:
+{director_book_json}
+
+Storyboard and edit rhythm:
+{storyboard_json}
+
+Current audio plan:
+{audio_plan_json}
+
+Rules:
+1. purpose must be op, ed, bgm, or music-video. Do not create a track without an explicit music requirement.
+2. creative_brief must state narrative function, story evidence, character theme, an emotion arc strictly increasing from 0 to 1, edit rhythm, sonic palette, vocal direction, and target duration. Style labels alone are insufficient.
+3. prompt must turn the brief into audible direction: structure, tempo or pulse, instrumentation, dynamics, dialogue space, and ending. Do not imitate living artists or named copyrighted works.
+4. BGM defaults to make_instrumental=true and empty lyrics, leaving midrange and dynamic room for dialogue. Write fully original OP/ED lyrics only when vocals are requested, using the approved language, point of view, and story facts.
+5. target_duration_ms is an edit target, not a claim that the provider returns sample-accurate duration. Review the result against edit points.
+6. matched_shots may contain only existing positive storyboard shot numbers. Put missing evidence in unresolved and keep the plan unapproved instead of guessing.
+
+Return only a strict JSON track object with exactly: key, purpose, title, source_mode, creative_brief, prompt, tags, lyrics, make_instrumental, provider, model, matched_shots. source_mode is generated, provider is starrouter, and model is suno_music. creative_brief contains exactly narrative_function, story_context, character_theme, emotion_arc, edit_rhythm, sonic_palette, vocal_direction, target_duration_ms; every emotion_arc item contains exactly at, emotion, intensity.

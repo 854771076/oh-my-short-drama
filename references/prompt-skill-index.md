@@ -58,6 +58,7 @@
 | Seedance 2.0 视频提示词 | `write-drama-video-prompts` | `seedance2_video` |
 | MiniMax H3 视频提示词 | `write-drama-video-prompts` | `h3_video` |
 | 声音分析 | `design-drama-audio` | `voice_analysis` |
+| BGM、OP、ED 音乐创作简报 | `design-drama-audio` | `music_track_design` |
 | 通用音色推荐 | `design-drama-audio` | `character_voice_recommend` |
 | 自然语言音色描述 | `design-drama-audio` | `character_voice_description` |
 

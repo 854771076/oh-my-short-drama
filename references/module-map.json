@@ -456,7 +456,8 @@
       "professional_storyboard"
     ],
     "design-drama-audio": [
-      "voice_analysis"
+      "voice_analysis",
+      "music_track_design"
     ]
   },
   "quality_gates": {
@@ -516,6 +517,7 @@
     "character_regenerate": "generate-character-images",
     "character_voice_recommend": "design-drama-audio",
     "character_voice_description": "design-drama-audio",
+    "music_track_design": "design-drama-audio",
     "episode_split": "outline-drama-series",
     "image_prompt_modify": "transform-drama-media",
     "location_create": "generate-scene-assets",

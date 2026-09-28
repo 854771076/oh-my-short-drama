@@ -12,7 +12,7 @@
 
 ## Suno 音乐合同
 
-`generate_music` 使用项目路由模型 `suno_music` 和非空 `prompt`，可选 `title`、`tags`、`lyrics` 与 `make_instrumental`。StarRouter 当前不读取请求体的 `model`，由 `/MUSIC` 路径映射计费模型；有自定义歌词时把歌词作为上游 `prompt`，音乐方向保存在本地合同且以 `tags` 传给上游。纯音乐不能同时提供歌词。远端 task id 在本地加 `music:` 路由前缀，查询时移除前缀；只提取音乐响应中的音频 URL，避免把封面或 MV 视频误登记为音频。
+`generate_music` 使用项目路由模型 `suno_music` 和非空 `prompt`，可选 `title`、`tags`、`lyrics` 与 `make_instrumental`。StarRouter 当前不读取请求体的 `model`，由 `/MUSIC` 路径映射计费模型；无歌词时把音乐方向提交为上游 `gpt_description_prompt`，有自定义歌词时只把批准歌词提交为上游 `prompt`，音乐方向仍保存在本地创作合同并以 `tags` 辅助上游。纯音乐不能同时提供歌词。远端 task id 在本地加 `music:` 路由前缀，查询时移除前缀；只提取音乐响应中的音频 URL，避免把封面或 MV 视频误登记为音频。
 
 ## MiniMax H3/H3-Max 视频合同
 

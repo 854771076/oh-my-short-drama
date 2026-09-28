@@ -4,6 +4,8 @@
 
 新声音计划默认 `audio_strategy.mode=native-first`：先选择同时满足画面资产约束与原生音频能力的视频 Provider，一次生成对白、电影感旁白、环境声和动作声；背景音在这里仅指环境声与动作声，BGM 始终走独立配乐与许可证流程。只有 Provider 不支持原生音频，或原生结果出现受控失败证据时才安排局部兜底，本 Skill 不对合格原声重复执行 TTS。
 
+执行顺序不可调换：`原生声音优先 → 七维识别真实失败区间 → 原生失败区间局部补配 / 未生成场外音克隆角色原声音色 / 旁白设计独立专业音色 → CosyVoice v3.5 Plus → 原声 speech-timing 驱动情感配音 → 八维复听 → 必要时局部口型 → 最终 selected 音轨生成字幕`。三条生成分支不得混淆：原生失败必须有审核证据与精确区间；原本未生成的场外音不是“原生失败”，直接使用 `delivery_mode=post_dub`、`presentation=offscreen-dialogue`，并绑定 `source=clone`、`voice_role=character`、真实 `upload_receipt_id`；旁白使用 `delivery_mode=post_dub`、`presentation=narration`，并绑定 `source=design`、`voice_role=narrator`、`professional_narration=true`、真实 `request_id` 和逐字段匹配的 `cinematic_profile`。后两类均锁定 `provider=bailian`、`model=target_model=cosyvoice-v3.5-plus`。
+
 每条声音把三类语义分开保存：`delivery_mode ∈ native|post_dub|external_audio` 表示来源，`presentation ∈ visible-dialogue|offscreen-dialogue|narration` 表示画面关系，`fallback_mode ∈ none|post-dub|cinematic-tts|sound-design` 表示失败预案。兜底 reason 只能是 `provider-no-native-audio`、`voice-identity-drift`、`speech-intelligibility-failed`、`narration-performance-failed`、`audio-sync-failed`、`native-ambience-failed`，并记录证据、精确替换区间与最终混音来源。旧 `narration/offscreen` 只迁移 presentation，来源进入 unresolved，不能冒充已经完成配音。
 
 所有对白与旁白都必须先从当前 selected 原声资产建立不可变 `speech-timing`，ASR 行级置信度至少 `0.90`、词级至少 `0.80`，低于阈值必须留下人工校正证据；禁止根据文字或文件名补造词级时间。StarRouter 需要词级时间时使用 `response_format=verbose_json` 与 `timestamp_granularities=["word"]`，其他格式不得伪装成词级输出。随后才写 `dubbing_contract`，普通对白同样必须明确意图、潜台词、情绪弧、强弱、重音、停连和呼吸，不能只给“紧张”“自然”等单标签。生成最多三轮：原文、参数重生、经批准的等义适配；第二轮按实测发声时长计算语速后必须钳制在合同的 `0.85–1.15` 自然范围，超出边界也要实际生成边界值，不能在尚未耗尽三轮前误报无法适配；第四次付费动作必须阻断。最终只允许不超过 `±3%` 的确定性 tempo 修正和合同声明停顿，并用最终词级 alignment 重新验收。可见对白的硬门禁比较首词起点与末词终点相对目标区间的误差，均不得超过一帧；中间逐词边界完整记录供节奏审核，但自然停连造成的内部重分配不单独判失败。
@@ -12,7 +14,7 @@
 
 旁白不论原生还是兜底都必须有电影感表演合同：逐项写 `tone_arc`、`emotion_beats[]`、`pace`、`breath_and_pause`、`distance_and_space`。旁白兜底使用独立 narrator 音色；除非剧本明确角色兼任叙述者，不得复用角色 voice_id。
 
-原生七维审核失败后先调用 `generate_audio_fallback` 且以 `confirmed=false` 预检，只允许审核报告实际失败的 reason 与毫秒区间。角色对白绑定 `voice_role:character`；旁白绑定 `voice_role:narrator`，其 `cinematic_profile` 必须逐字段等于 audio-plan 的表演合同。用户确认费用后才以 `confirmed=true` 生成；输出 provenance 必须保存 `native_audio_exception`、来源视频版本、`replaced_ranges` 和 `mix_sources`。只替换失败区间，合格的原生环境声和动作声继续保留，不得整轨覆盖。
+原生七维审核失败后先调用 `generate_audio_fallback` 且以 `confirmed=false` 预检，只允许审核报告实际失败的 reason 与毫秒区间。此分支固定使用百炼 `cosyvoice-v3.5-plus`：角色对白绑定克隆或设计后的 `voice_role:character`；旁白绑定 `voice_role:narrator`，其 `cinematic_profile` 必须逐字段等于 audio-plan 的表演合同。用户确认费用后才以 `confirmed=true` 生成；输出 provenance 必须保存 `native_audio_exception`、来源视频版本、`replaced_ranges` 和 `mix_sources`。只替换失败区间，合格的原生环境声和动作声继续保留，不得整轨覆盖。
 
 每个原生声视频必须先由 ASR 辅助、再由人工完整观看和复听，逐项填写七维报告：`speech_intelligibility`（台词可懂度）、`speaker_identity`（声纹身份）、`narration_performance`（旁白电影感表演）、`ambience_action_sync`（环境/动作同步）、`lip_sync`（可见对白口型）、`technical_audio`（底噪、爆音、声道与响度）和 `undeclared_music`（未声明或重复音乐）。七项全部通过才能保留原声；文件存在、波形正常或 ASR 文本大致正确都不能替代其余人工维度。
 
@@ -22,7 +24,7 @@
 
 音频通过 `drama-generation-service` 交给用户确认的 Provider。百炼路径使用 `generate_audio`（provider=bailian，model 与 audio-plan 绑定一致），推荐 `cosyvoice-v3.5-plus`；voice 必须传 `design_voice`/`clone_voice` 返回的自定义音色 ID，v3.5-plus/flash 拒绝预置音色；instruction 仅 v3.5-plus/flash 与 v3-flash 接受（加权长度 ≤100），语言 hint 必须在目标模型矩阵内；长文本自动按标点分段并合并为 wav（选 mp3/pcm/opus 时按帧流拼接），逐句结果仍登记到 `assets/audio/`。逐句调用传 `{kind:"audio-plan",episode_key,version_id,line_index}`；入口会核对当前选版、批准状态、逐字台词以及角色—Provider—模型—voice 绑定。StarRouter 的 `speech-2.8-*`、Qwen3 TTS、PawSense 与 `tts-1` 仍可承担既有普通语音，但当前已验证能力不能满足本期完整逐句表演合同：MiniMax 不能用单一情绪枚举替代完整导演指令，`tts-1` 不支持 `instructions`，二者必须在配音编译预检失败关闭。完整合同当前只走支持指令的 CosyVoice，或明确映射并验证 `text/speed/instruction` 的 RunningHub 用户工作流。每条结果必须解码、复制或下载到本地 `assets/audio/` 后登记选版并保存同一行引用和输入指纹，失败只重做受影响语句。
 
-OP、ED、BGM 或音乐短视频配乐写入可选 `music_tracks`。生成配乐设 `source_mode=generated`，保留 `prompt`、`tags`、`lyrics`、`make_instrumental`、`provider`、`model` 与 `matched_shots`；StarRouter `suno_music` 走 `music.generate` 能力并调用 `generate_music`。曲库配乐设 `source_mode=catalog`，只保存 `source_asset`、`license_receipt`、`intended_use` 和 `matched_shots`，不得再调用生成接口。按剧情功能、节奏、对白密度和时长调用 `search_music_catalog`，用户在官方页面试听、下载并核对当次许可证后，才用 `register_licensed_music` 登记真实音频与不可变收据。详细站点边界见 [授权音乐目录](../../../../references/music-catalog-providers.md)。
+仅当用户或已批准制作计划明确需要 OP、ED、BGM 或音乐短视频配乐时，才写入可选 `music_tracks`；不得给没有音乐需求的项目自动加曲。生成前使用 `../../assets/modules/design-drama-audio/prompts/music_track_design.{zh,en}.txt`，把剧本主题、剧情阶段、人物关系与成长、情绪弧、分镜切点、对白密度和目标时长编译为 `creative_brief`。生成配乐设 `source_mode=generated`，保留创作简报、`prompt`、`tags`、`lyrics`、`make_instrumental`、`provider`、`model` 与 `matched_shots`；缺少简报的旧计划进入 unresolved，不能批准或付费生成。BGM 默认纯音乐并为对白留出空间；OP/ED 只有用户要求演唱时才写与对白语言、人物视角和剧情事实一致的原创歌词。StarRouter `suno_music` 走 `music.generate` 能力并调用 `generate_music`：无歌词时用 Suno 普通描述字段，有歌词时只把批准歌词作为自定义歌词提交。曲库配乐设 `source_mode=catalog`，只保存 `source_asset`、`license_receipt`、`intended_use` 和 `matched_shots`，不得再调用生成接口。按剧情功能、节奏、对白密度和时长调用 `search_music_catalog`，用户在官方页面试听、下载并核对当次许可证后，才用 `register_licensed_music` 登记真实音频与不可变收据。详细站点边界见 [授权音乐目录](../../../../references/music-catalog-providers.md)。
 
 所有已批准且互不依赖的语音行与音乐轨必须全量提交 `generate_audio`、`generate_music`；RunningHub 同一 API Key 最多 2 路并发，其余请求由适配器排队，其他 Provider 由上游网关排队；每项继续使用独立目标、请求快照和任务记录，单项失败不取消同批其他音频。
 
