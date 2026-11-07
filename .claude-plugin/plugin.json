@@ -11,7 +11,12 @@
   "homepage": "https://github.com/854771076/oh-my-short-drama#readme",
   "repository": "https://github.com/854771076/oh-my-short-drama",
   "license": "MIT",
-  "keywords": ["short-drama", "video", "workflow", "mcp"],
+  "keywords": [
+    "short-drama",
+    "video",
+    "workflow",
+    "mcp"
+  ],
   "skills": "./skills/",
   "mcpServers": "./.claude-plugin/mcp.json"
 }
